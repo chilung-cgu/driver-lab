@@ -38,9 +38,10 @@
 - `01-debugfs-logging`：完整 debugfs + dynamic debug 入門
 - `02-char-device`：完整簡單 char device
 - `03-ioctl-poll-mmap`：已實作 `ioctl + poll + mmap + runtime + smoke test`
+- `04-locking-and-races`：已實作 race 重現、safe-mode 對照、CLI 與 smoke test
 - `08-runtime-library`：已跟著 `03` 補到第一版可用狀態
 - `09-stress-and-fault-injection`：已補第一批 `03` 專用 stress 腳本
-- `04-07`：目前仍以 scaffold 為主，但已補先備條件與更清楚的 bring-up 路徑
+- `05-07`：目前仍以 scaffold 為主，但已補先備條件、第一次驗收重點與更清楚的 bring-up 路徑
 - `runtime/`：user-space runtime 起始骨架
 - `docs/`：環境、路線圖、程式閱讀、debug playbook、AI 加速卡對映文件
 
@@ -50,8 +51,9 @@
 
 - `00-02`：可以直接拿去 Linux host 練習
 - `03`：可直接拿去 Linux host 練習
+- `04`：可直接拿去 Linux host 練習
 - `08-09`：已有第一版可執行內容
-- `04-07`：有 README、測試模板、品質模板與學習目標，但還不是完整實作
+- `05-07`：有 README、測試模板、品質模板與學習目標，但還不是完整實作
 - `runtime/`：目前已覆蓋 `02-char-device` 與 `03-ioctl-poll-mmap`
 
 ## 建議的第一天流程
@@ -95,8 +97,11 @@ driver-lab/
 - [Linux Host 建置與風險檢查](docs/linux-host-setup.md)
 - [第一次環境檢查輸出怎麼看](docs/check-kernel-env-explained.md)
 - [新手術語表](docs/beginner-glossary.md)
+- [常見失敗圖鑑](docs/common-failures.md)
 - [併發與同步白話前導](docs/concurrency-primer.md)
+- [04 Locking and Races 導讀](docs/lab-04-walkthrough.md)
 - [PCIe / MMIO / IRQ / DMA 白話前導](docs/pcie-primer.md)
+- [QEMU EDU 新手起手式](docs/qemu-edu-first-pass.md)
 - [官方來源索引](docs/source-index.md)
 - [程式閱讀指南](docs/code-reading-guide.md)
 - [Debug / 測試 Playbook](docs/debugging-playbook.md)

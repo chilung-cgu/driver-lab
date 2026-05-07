@@ -11,6 +11,7 @@
 ## 開始前先看
 
 - [`../../docs/pcie-primer.md`](../../docs/pcie-primer.md)
+- [`../../docs/qemu-edu-first-pass.md`](../../docs/qemu-edu-first-pass.md)
 - [`../../qemu/edu-bringup-checklist.md`](../../qemu/edu-bringup-checklist.md)
 
 ## 先備條件
@@ -58,6 +59,24 @@ flowchart LR
 4. 再做 BAR map
 5. 最後才做 liveness register read
 
+## 第一次理想上要看到的輸出
+
+```text
+$ lspci -nn | grep 1234:11e8
+00:04.0 Class 00ff: 1234:11e8
+```
+
+`dmesg` 裡第一版通常至少要看到：
+
+```text
+driver_lab_edu: probe start
+driver_lab_edu: BAR0 mapped
+driver_lab_edu: ident=0x....
+driver_lab_edu: liveness check passed
+```
+
+上面是教學示意，不是要求逐字完全相同。
+
 ## 先不要急著碰的東西
 
 - MSI-X
@@ -74,3 +93,12 @@ flowchart LR
 
 - 前面你都在練「沒有真硬體時的共通 driver 技能」
 - 這一關開始，你才第一次真的碰到 PCI device discovery 與 MMIO register access
+
+## 第一次卡住先看哪裡
+
+- guest 裡看不到 `1234:11e8`
+  - 先看 [`../../docs/common-failures.md`](../../docs/common-failures.md)
+- `probe()` 沒進來
+  - 先檢查 PCI ID table
+- BAR map 失敗
+  - 先檢查 `pci_enable_device()` 與 BAR index

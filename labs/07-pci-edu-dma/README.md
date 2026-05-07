@@ -7,6 +7,7 @@
 ## 開始前先看
 
 - [`../../docs/pcie-primer.md`](../../docs/pcie-primer.md)
+- [`../../docs/qemu-edu-first-pass.md`](../../docs/qemu-edu-first-pass.md)
 
 ## 先備條件
 
@@ -50,7 +51,35 @@
 - DMA 完成後資料一致
 - timeout / error path 能清乾淨
 
+## 第一次理想上要看到的輸出
+
+`dmesg` 裡第一版通常至少要看到：
+
+```text
+driver_lab_edu: dma mask configured
+driver_lab_edu: coherent buffer allocated
+driver_lab_edu: dma transfer finished
+driver_lab_edu: round-trip compare passed
+```
+
+如果第一次做不到這麼完整，也沒關係。
+
+你可以先把驗收拆成：
+
+1. DMA mask 先成功
+2. buffer 先配置成功
+3. 再追 round-trip
+
 ## 新手先記住這一關在補什麼
 
 - 這一關不只是「搬資料」
 - 你在學的是：哪些記憶體可以安全地讓裝置看到，以及失敗時怎麼收乾淨
+
+## 第一次卡住先看哪裡
+
+- DMA mask 設不過
+  - 先回去看 QEMU EDU 預設 `dma_mask` 限制
+- 資料方向不對
+  - 先重新核對 source / destination register
+- round-trip 結果不對
+  - 先把傳輸長度壓小，再逐步確認每一步

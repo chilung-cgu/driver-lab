@@ -59,3 +59,22 @@
 - driver 定義 ABI
 - runtime 把 ABI 包成比較好用的函式
 - CLI / app 不用每次自己處理原始 syscall 細節
+
+## 第一次理想上要看到的成果
+
+第一次不需要寫出很大的 library。
+
+只要做到下面三件事就夠了：
+
+1. 有一份清楚的 public header
+2. 有一份把 syscall 包起來的 `.c`
+3. 測試程式可以透過 runtime 呼叫 driver，而不是自己直接散寫 `ioctl`
+
+## 第一次卡住先看哪裡
+
+- 不知道 runtime 該包哪些 API
+  - 先只包現在 lab 真正有用到的介面
+- 不知道 error handling 該做到多細
+  - 第一版先回傳 `-errno` 或明確錯誤碼即可
+- 覺得 CLI 直接 call syscall 比較快
+  - 那是短期快，長期會讓 ABI 使用點四散難維護

@@ -57,6 +57,7 @@
 
 - Lab: [`../labs/04-locking-and-races`](../labs/04-locking-and-races)
 - 前導：[`concurrency-primer.md`](concurrency-primer.md)
+- 導讀：[`lab-04-walkthrough.md`](lab-04-walkthrough.md)
 - 主題：
   - mutex
   - spinlock
@@ -91,6 +92,7 @@
 - Lab: [`../labs/06-pci-edu-irq`](../labs/06-pci-edu-irq)
 - Lab: [`../labs/07-pci-edu-dma`](../labs/07-pci-edu-dma)
 - QEMU 參考：[`../qemu/README.md`](../qemu/README.md)
+- 新手導讀：[`qemu-edu-first-pass.md`](qemu-edu-first-pass.md)
 
 > [!NOTE]
 > 這三關目前仍未完成 code 實作，但 `qemu/` 已經補上最小啟動腳本與 bring-up checklist。

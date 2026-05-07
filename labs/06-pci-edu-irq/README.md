@@ -7,6 +7,7 @@
 ## 開始前先看
 
 - [`../../docs/pcie-primer.md`](../../docs/pcie-primer.md)
+- [`../../docs/qemu-edu-first-pass.md`](../../docs/qemu-edu-first-pass.md)
 
 ## 先備條件
 
@@ -47,7 +48,31 @@
 - handler 有 log
 - 同一個中斷不會無限重進
 
+## 第一次理想上要看到的輸出
+
+`dmesg` 裡第一版通常至少要看到：
+
+```text
+driver_lab_edu: request_irq ok
+driver_lab_edu: irq status=0x1
+driver_lab_edu: irq acknowledged
+```
+
+這裡最重要的不是 log 漂不漂亮，而是：
+
+- handler 真的進來
+- acknowledge 真的做了
+
 ## 新手先記住這一關在補什麼
 
 - 前一關是「我能碰到 device」
 - 這一關是「device 主動通知我事件時，我能接住並清掉它」
+
+## 第一次卡住先看哪裡
+
+- handler 沒進來
+  - 先確認你真的有觸發 interrupt raise register
+- handler 一直重進
+  - 優先懷疑 acknowledge 沒清乾淨
+- 只想用 MSI，不想理 INTx
+  - 先不要跳步；先把「handler 能正常清中斷」做對

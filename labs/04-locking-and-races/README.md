@@ -10,6 +10,7 @@
 ## 開始前先看
 
 - [`../../docs/concurrency-primer.md`](../../docs/concurrency-primer.md)
+- [`../../docs/lab-04-walkthrough.md`](../../docs/lab-04-walkthrough.md)
 
 ## 先備條件
 
@@ -56,6 +57,26 @@
 3. 再用 `mutex` 修到穩
 4. 最後才加更進階的 waitqueue / completion / worker
 
+## 這一關現在已實作的介面
+
+module 載入後會建立：
+
+```text
+/dev/driver_lab_race0
+```
+
+搭配的 userspace 工具：
+
+- [`../../tests/driver_lab_race_cli.c`](../../tests/driver_lab_race_cli.c)
+
+這支工具目前能做：
+
+- `status`
+- `reset`
+- `safe-mode 0|1`
+- `inc <count>`
+- `race <threads> <loops>`
+
 ## 第一版先只要求你做到
 
 - 你能重現 race
@@ -67,6 +88,70 @@
 - KCSAN / lockdep 實戰
 - 更進階的 lifetime 問題
 - 與 IRQ path 混合的同步問題
+
+## 這一關的教學設計
+
+這個 lab 刻意提供兩種模式：
+
+1. `safe_mode = 0`
+   - 故意不用 lock 保護 increment
+   - 比較容易踩出 lost update
+2. `safe_mode = 1`
+   - 用 `mutex` 保護 increment
+   - 用來對照 race 被修掉後的結果
+
+## 使用方式
+
+```sh
+make
+cc -Wall -Wextra -Werror -pthread -o ../../tests/driver_lab_race_cli ../../tests/driver_lab_race_cli.c
+sudo insmod ./driver_lab_race.ko
+../../tests/driver_lab_race_cli /dev/driver_lab_race0 status
+../../tests/driver_lab_race_cli /dev/driver_lab_race0 safe-mode 0
+../../tests/driver_lab_race_cli /dev/driver_lab_race0 reset
+../../tests/driver_lab_race_cli /dev/driver_lab_race0 race 8 50
+../../tests/driver_lab_race_cli /dev/driver_lab_race0 safe-mode 1
+../../tests/driver_lab_race_cli /dev/driver_lab_race0 reset
+../../tests/driver_lab_race_cli /dev/driver_lab_race0 race 8 50
+sudo rmmod driver_lab_race
+```
+
+## 你應該觀察到什麼
+
+- 在 `safe_mode = 0` 時：
+  - `observed` 常常小於 `expected_at_least`
+- 在 `safe_mode = 1` 時：
+  - `observed` 會更接近預期值
+
+這就是最基本的 race 對照實驗。
+
+## 一次合理的示範輸出
+
+下面只是示意，不是唯一正確數字：
+
+```text
+$ ../../tests/driver_lab_race_cli /dev/driver_lab_race0 race 8 50
+expected_at_least=400 observed=237 safe_mode=0
+
+$ ../../tests/driver_lab_race_cli /dev/driver_lab_race0 race 8 50
+expected_at_least=400 observed=412 safe_mode=1
+```
+
+你第一次不用追求每次都一模一樣。
+
+這一關重點是：
+
+- unsafe 結果通常偏差更大
+- safe 結果通常更合理
+
+## 第一次卡住先看哪裡
+
+- 如果 `insmod` 失敗：
+  - 先看 [`../../docs/common-failures.md`](../../docs/common-failures.md)
+- 如果 `/dev/driver_lab_race0` 沒出現：
+  - 先看 `dmesg`
+- 如果 `race` 指令跑完數字很奇怪：
+  - 先回去看 [`../../docs/lab-04-walkthrough.md`](../../docs/lab-04-walkthrough.md) 裡對 `expected_at_least` 的解釋
 
 ## 新手先記住這一關在補什麼
 

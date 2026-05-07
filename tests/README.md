@@ -5,6 +5,7 @@
 ## 目前內容
 
 - `driver_lab_char_cli.c`：配合 `runtime/`、`02-char-device`、`03-ioctl-poll-mmap` 的最小 CLI
+- `driver_lab_race_cli.c`：配合 `04-locking-and-races` 的 race 重現與 safe-mode 驗證工具
 
 如果你現在還看不懂這個 CLI，沒有關係。
 
@@ -15,5 +16,6 @@
 ## 預期演進
 
 - `03` 已補 `ioctl` / `poll` / `mmap` 基本互動
+- `04` 已補 race 重現與 safe-mode 對照工具
 - `05-07` 之後補 PCIe/QEMU EDU smoke tests
 - `09` 補 stress / repeated load-unload / error-path 測試

@@ -50,3 +50,21 @@
 - 一開始不要追非常長時間的 soak test
 - 先把「可以穩定重複 20 次」做好
 - 先把 repeated load/unload 與 parallel access 練熟
+
+## 第一次理想上要做到的最小版本
+
+第一次只要求你做到：
+
+1. repeated load/unload 可以連跑 20 次
+2. parallel access 可以穩定重現與觀察結果
+3. 每次失敗時知道要回頭看哪一份 log
+
+## 第一次卡住先看哪裡
+
+- repeated load/unload 偶發失敗
+  - 優先懷疑 cleanup path 不對稱
+- parallel 測試結果不穩
+  - 先分清楚這是教學上刻意示範 race，還是 module 本身壞掉
+- 不知道 stress 跟 regression 差在哪
+  - stress 是「重複施壓」
+  - regression 是「每次修改後都應該固定重跑的檢查」
