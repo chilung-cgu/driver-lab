@@ -1,0 +1,15 @@
+#!/bin/sh
+set -eu
+
+MSG_FILE=$1
+FIRST_LINE=$(sed -n '1p' "$MSG_FILE")
+
+PATTERN='^(feat|fix|docs|refactor|test|chore|build|ci|perf|style)(\([[:alnum:]_.-]+\))?!?: .+'
+
+if ! printf '%s\n' "$FIRST_LINE" | grep -Eq "$PATTERN"; then
+    printf 'ERROR: commit message must follow Conventional Commits.\n' >&2
+    printf 'Example: feat(labs): add char-device smoke test\n' >&2
+    exit 1
+fi
+
+exit 0

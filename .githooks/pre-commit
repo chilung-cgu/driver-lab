@@ -1,0 +1,15 @@
+#!/bin/sh
+set -eu
+
+REPO_ROOT=$(git rev-parse --show-toplevel)
+
+if git diff --cached --name-only --diff-filter=ACMR | grep -Eq '(^|/)\.DS_Store$'; then
+    printf 'ERROR: staged changes contain .DS_Store; remove it before commit.\n' >&2
+    exit 1
+fi
+
+if [ -x "$REPO_ROOT/scripts/quality.sh" ]; then
+    "$REPO_ROOT/scripts/quality.sh" "$REPO_ROOT"
+fi
+
+exit 0
