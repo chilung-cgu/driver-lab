@@ -49,3 +49,13 @@
 - 更完整的 timeout / retry policy
 - 更細的 error mapping
 - 針對 PCIe/QEMU EDU driver 的專用 helper
+
+## 新手現在最該理解的點
+
+先不要把 runtime 想成「多餘的一層」。
+
+你可以先把它想成：
+
+- driver 定義 ABI
+- runtime 把 ABI 包成比較好用的函式
+- CLI / app 不用每次自己處理原始 syscall 細節

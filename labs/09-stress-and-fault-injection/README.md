@@ -44,3 +44,9 @@
 - `failslab` / `fail_page_alloc` / `fail_usercopy` 的自動化腳本
 - 更長時間的 regression matrix
 - 針對 QEMU EDU labs 的專用 stress 套件
+
+## 新手第一次不要追的東西
+
+- 一開始不要追非常長時間的 soak test
+- 先把「可以穩定重複 20 次」做好
+- 先把 repeated load/unload 與 parallel access 練熟

@@ -56,6 +56,7 @@
 目標：把 race、locking、等待機制練熟。
 
 - Lab: [`../labs/04-locking-and-races`](../labs/04-locking-and-races)
+- 前導：[`concurrency-primer.md`](concurrency-primer.md)
 - 主題：
   - mutex
   - spinlock
@@ -72,6 +73,7 @@
 
 - 重點文檔：[`source-index.md`](source-index.md)
 - 重點閱讀：[`code-reading-guide.md`](code-reading-guide.md)
+- 前導：[`pcie-primer.md`](pcie-primer.md)
 - 主題：
   - `pci_register_driver()`
   - `probe/remove`

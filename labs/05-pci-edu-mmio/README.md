@@ -8,6 +8,11 @@
 > 如果你現在還不熟 kernel module、debugfs、char device，先不要跳這一關。
 > 這一關是前面基礎都站穩後，才開始接近 PCIe host driver 的起點。
 
+## 開始前先看
+
+- [`../../docs/pcie-primer.md`](../../docs/pcie-primer.md)
+- [`../../qemu/edu-bringup-checklist.md`](../../qemu/edu-bringup-checklist.md)
+
 ## 先備條件
 
 - 你已完成 `00-04` 至少前半
@@ -29,6 +34,36 @@
 - probe 成功
 - BAR0 可存取
 - 可做基本 liveness check
+
+## 第一次只要先懂這張圖
+
+```mermaid
+flowchart LR
+    P["kernel PCI scan"] --> Q["driver probe()"]
+    Q --> B["BAR0 map"]
+    B --> M["read one register"]
+```
+
+這一關的最小目標不是寫完整卡 driver，而只是：
+
+- 裝置有沒有被你接手
+- BAR 有沒有 map 成功
+- 你能不能讀到第一個 register
+
+## 第一次實作順序
+
+1. 先在 guest 內確認 `lspci -nn | grep 1234:11e8`
+2. 再讓 driver bind 到 `1234:11e8`
+3. 再做 `probe()` log
+4. 再做 BAR map
+5. 最後才做 liveness register read
+
+## 先不要急著碰的東西
+
+- MSI-X
+- DMA
+- reset / AER
+- 效能
 
 ## 參考
 

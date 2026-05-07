@@ -95,6 +95,8 @@ driver-lab/
 - [Linux Host 建置與風險檢查](docs/linux-host-setup.md)
 - [第一次環境檢查輸出怎麼看](docs/check-kernel-env-explained.md)
 - [新手術語表](docs/beginner-glossary.md)
+- [併發與同步白話前導](docs/concurrency-primer.md)
+- [PCIe / MMIO / IRQ / DMA 白話前導](docs/pcie-primer.md)
 - [官方來源索引](docs/source-index.md)
 - [程式閱讀指南](docs/code-reading-guide.md)
 - [Debug / 測試 Playbook](docs/debugging-playbook.md)
