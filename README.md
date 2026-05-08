@@ -104,6 +104,8 @@ driver-lab/
 - [04 Locking and Races 導讀](docs/lab-04-walkthrough.md)
 - [PCIe / MMIO / IRQ / DMA 白話前導](docs/pcie-primer.md)
 - [QEMU EDU 新手起手式](docs/qemu-edu-first-pass.md)
+- [Linux Guest 操作手冊：05 到 07](docs/linux-guest-05-to-07-walkthrough.md)
+- [Linux Guest 快速檢查表：05 到 07](docs/linux-guest-05-to-07-checklist.md)
 - [官方來源索引](docs/source-index.md)
 - [程式閱讀指南](docs/code-reading-guide.md)
 - [Debug / 測試 Playbook](docs/debugging-playbook.md)
