@@ -39,9 +39,11 @@
 - `02-char-device`：完整簡單 char device
 - `03-ioctl-poll-mmap`：已實作 `ioctl + poll + mmap + runtime + smoke test`
 - `04-locking-and-races`：已實作 race 重現、safe-mode 對照、CLI 與 smoke test
+- `05-pci-edu-mmio`：已實作 PCI probe + BAR map + ident/liveness self-test
+- `06-pci-edu-irq`：已實作 IRQ request + raise + acknowledge self-test
+- `07-pci-edu-dma`：已實作 coherent DMA + IRQ completion + round-trip compare
 - `08-runtime-library`：已跟著 `03` 補到第一版可用狀態
 - `09-stress-and-fault-injection`：已補第一批 `03` 專用 stress 腳本
-- `05-07`：目前仍以 scaffold 為主，但已補先備條件、第一次驗收重點與更清楚的 bring-up 路徑
 - `runtime/`：user-space runtime 起始骨架
 - `docs/`：環境、路線圖、程式閱讀、debug playbook、AI 加速卡對映文件
 
@@ -52,8 +54,8 @@
 - `00-02`：可以直接拿去 Linux host 練習
 - `03`：可直接拿去 Linux host 練習
 - `04`：可直接拿去 Linux host 練習
+- `05-07`：已有第一版 driver code 與 Linux guest smoke test，但尚未在這台 macOS 主機上實機驗證
 - `08-09`：已有第一版可執行內容
-- `05-07`：有 README、測試模板、品質模板與學習目標，但還不是完整實作
 - `runtime/`：目前已覆蓋 `02-char-device` 與 `03-ioctl-poll-mmap`
 
 ## 建議的第一天流程

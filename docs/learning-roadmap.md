@@ -95,7 +95,8 @@
 - 新手導讀：[`qemu-edu-first-pass.md`](qemu-edu-first-pass.md)
 
 > [!NOTE]
-> 這三關目前仍未完成 code 實作，但 `qemu/` 已經補上最小啟動腳本與 bring-up checklist。
+> 這三關現在都已有第一版 driver code 與 smoke test。
+> 但真正的 build / load / 驗證，仍然必須在 Linux guest 內完成。
 
 ## 第 6 階段，第 13-14 週
 

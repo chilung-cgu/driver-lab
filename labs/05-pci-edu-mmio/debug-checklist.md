@@ -7,3 +7,4 @@
 - BAR size / type 是否如預期？
 - `pci_iomap()` 回傳值是否有效？
 - read identification / liveness path 是否可觀測？
+- `dmesg` 裡是否真的看到 `liveness check passed`？

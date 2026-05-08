@@ -38,6 +38,7 @@ QEMU 官方把 `edu` 定位成：
 - [`launch-edu-vm.sh`](launch-edu-vm.sh)：最小可用的 QEMU 啟動腳本
 - [`edu-bringup-checklist.md`](edu-bringup-checklist.md)：guest 內 bring-up 清單
 - [`../docs/qemu-edu-first-pass.md`](../docs/qemu-edu-first-pass.md)：第一次做 `05-07` 的白話導讀
+- `05-07` 各 lab 內的第一版 driver code 與 smoke test
 
 ## 目前不先做的事
 

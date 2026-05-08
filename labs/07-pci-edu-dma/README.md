@@ -4,6 +4,10 @@
 
 在 `edu` 裝置上補上 DMA buffer 與 round-trip 驗證。
 
+> [!NOTE]
+> 這一關現在已經有第一版可 build 的 driver code 與 smoke test。
+> 真正的載入與驗證仍必須在 Linux guest 內完成。
+
 ## 開始前先看
 
 - [`../../docs/pcie-primer.md`](../../docs/pcie-primer.md)
@@ -45,6 +49,20 @@
 4. 再寫 DMA register
 5. 最後驗 round-trip 結果
 
+## 目前已實作的內容
+
+- `dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(28))`
+- `dma_alloc_coherent()`
+- RAM -> EDU 的 DMA
+- EDU -> RAM 的 DMA
+- interrupt completion path
+- 最後用 `memcmp()` 驗 round-trip 結果
+
+主要檔案：
+
+- [`driver_lab_edu_dma.c`](driver_lab_edu_dma.c)
+- [`test.sh`](test.sh)
+
 ## 第一次驗收時你要看到什麼
 
 - buffer 配置成功
@@ -69,6 +87,19 @@ driver_lab_edu: round-trip compare passed
 1. DMA mask 先成功
 2. buffer 先配置成功
 3. 再追 round-trip
+
+## 現在怎麼跑
+
+```sh
+cd labs/07-pci-edu-dma
+./test.sh
+```
+
+這支腳本會 build module，載入後檢查：
+
+- `dma mask configured`
+- `coherent buffer allocated`
+- `round-trip compare passed`
 
 ## 新手先記住這一關在補什麼
 

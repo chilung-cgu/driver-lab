@@ -6,3 +6,4 @@
 - source / destination / count register 是否正確？
 - timeout 時是否能安全回收？
 - 中斷完成與 polling 完成兩條 path 是否一致？
+- `dmesg` 裡是否真的看到 `round-trip compare passed`？

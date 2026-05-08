@@ -45,5 +45,4 @@
 
 可以這樣講：
 
-> 我還沒有 vendor 真卡 bring-up 經驗，但我已經把 Linux host driver 的共通骨架拆成可反覆驗證的 labs，包含 module lifecycle、user-kernel API、debugfs/dynamic debug、char device、以及後續會用 QEMU EDU 練 PCI/MMIO/IRQ/DMA。這讓我在拿到實體硬體與資料手冊後，不會從 0 開始學 Linux driver 本身，而是只需要補 vendor-specific 部分。
-
+> 我還沒有 vendor 真卡 bring-up 經驗，但我已經把 Linux host driver 的共通骨架拆成可反覆驗證的 labs，包含 module lifecycle、user-kernel API、debugfs/dynamic debug、char device，以及以 QEMU EDU 練 PCI/MMIO/IRQ/DMA。這讓我在拿到實體硬體與資料手冊後，不會從 0 開始學 Linux driver 本身，而是只需要補 vendor-specific 部分。

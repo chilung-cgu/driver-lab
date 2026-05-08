@@ -5,6 +5,10 @@
 使用 QEMU `edu` 裝置完成第一個真正的 PCI driver 起手式。
 
 > [!NOTE]
+> 這一關現在已經有第一版可 build 的 driver code 與 smoke test。
+> 真正的載入與驗證仍必須在 Linux guest 內完成。
+
+> [!NOTE]
 > 如果你現在還不熟 kernel module、debugfs、char device，先不要跳這一關。
 > 這一關是前面基礎都站穩後，才開始接近 PCIe host driver 的起點。
 
@@ -59,6 +63,20 @@ flowchart LR
 4. 再做 BAR map
 5. 最後才做 liveness register read
 
+## 目前已實作的內容
+
+- `pci_enable_device()`
+- `pci_request_region()` / `pci_release_region()`
+- `pci_iomap()` / `pci_iounmap()`
+- identification register 讀取
+- liveness register 的最小自我測試
+- Linux guest 用的 smoke test
+
+主要檔案：
+
+- [`driver_lab_edu_mmio.c`](driver_lab_edu_mmio.c)
+- [`test.sh`](test.sh)
+
 ## 第一次理想上要看到的輸出
 
 ```text
@@ -76,6 +94,22 @@ driver_lab_edu: liveness check passed
 ```
 
 上面是教學示意，不是要求逐字完全相同。
+
+## 現在怎麼跑
+
+```sh
+cd labs/05-pci-edu-mmio
+./test.sh
+```
+
+這支腳本會做：
+
+1. 確認目前是在 Linux
+2. 確認 guest 內真的看得到 `1234:11e8`
+3. build module
+4. `insmod`
+5. 從 `dmesg` 檢查 `probe` / BAR map / liveness log
+6. `rmmod`
 
 ## 先不要急著碰的東西
 

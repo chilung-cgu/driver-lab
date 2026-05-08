@@ -17,5 +17,5 @@
 
 - `03` 已補 `ioctl` / `poll` / `mmap` 基本互動
 - `04` 已補 race 重現與 safe-mode 對照工具
-- `05-07` 之後補 PCIe/QEMU EDU smoke tests
+- `05-07` 已補 lab 內部的 Linux guest smoke tests
 - `09` 補 stress / repeated load-unload / error-path 測試

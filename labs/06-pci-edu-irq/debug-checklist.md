@@ -6,3 +6,4 @@
 - acknowledge register 是否有清乾淨？
 - 如果改成 MSI，teardown path 是否仍正確？
 - IRQ path 是否避免睡眠與不必要工作？
+- `dmesg` 裡是否真的看到 `irq self-test passed`？

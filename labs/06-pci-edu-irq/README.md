@@ -4,6 +4,10 @@
 
 在 `edu` 裝置上補上 interrupt path。
 
+> [!NOTE]
+> 這一關現在已經有第一版可 build 的 driver code 與 smoke test。
+> 真正的載入與驗證仍必須在 Linux guest 內完成。
+
 ## 開始前先看
 
 - [`../../docs/pcie-primer.md`](../../docs/pcie-primer.md)
@@ -42,6 +46,20 @@
 3. 再找方法觸發中斷
 4. 最後確認 handler 真的清掉 acknowledge register
 
+## 目前已實作的內容
+
+- `pci_alloc_irq_vectors()`
+- `request_irq()` / `free_irq()`
+- 用 `0x60` interrupt raise register 觸發中斷
+- handler 讀 `0x24` interrupt status
+- handler 寫 `0x64` acknowledge register
+- completion-based 的最小自我測試
+
+主要檔案：
+
+- [`driver_lab_edu_irq.c`](driver_lab_edu_irq.c)
+- [`test.sh`](test.sh)
+
 ## 第一次驗收時你要看到什麼
 
 - `request_irq()` 成功
@@ -62,6 +80,19 @@ driver_lab_edu: irq acknowledged
 
 - handler 真的進來
 - acknowledge 真的做了
+
+## 現在怎麼跑
+
+```sh
+cd labs/06-pci-edu-irq
+./test.sh
+```
+
+這支腳本會 build module，載入後檢查：
+
+- `request_irq ok`
+- `irq status=...`
+- `irq self-test passed`
 
 ## 新手先記住這一關在補什麼
 
