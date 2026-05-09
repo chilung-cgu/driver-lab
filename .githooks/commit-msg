@@ -3,12 +3,19 @@ set -eu
 
 MSG_FILE=$1
 FIRST_LINE=$(sed -n '1p' "$MSG_FILE")
+SUBJECT=$(printf '%s\n' "$FIRST_LINE" | sed -E 's/^(feat|fix|docs|refactor|test|chore|build|ci|perf|style)(\([[:alnum:]_.-]+\))?!?: //')
 
 PATTERN='^(feat|fix|docs|refactor|test|chore|build|ci|perf|style)(\([[:alnum:]_.-]+\))?!?: .+'
 
 if ! printf '%s\n' "$FIRST_LINE" | grep -Eq "$PATTERN"; then
     printf 'ERROR: commit message must follow Conventional Commits.\n' >&2
-    printf 'Example: feat(labs): add char-device smoke test\n' >&2
+    printf 'Example: docs(qemu): 補充 macOS host 與 Linux guest 邊界說明\n' >&2
+    exit 1
+fi
+
+if ! printf '%s\n' "$SUBJECT" | grep -Eq '[一-鿿㐀-䶿豈-﫿]'; then
+    printf 'ERROR: commit subject after \"type(scope):\" must contain zh-TW text.\n' >&2
+    printf 'Example: docs(qemu): 補充 macOS host 與 Linux guest 邊界說明\n' >&2
     exit 1
 fi
 

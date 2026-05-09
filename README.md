@@ -142,7 +142,7 @@ cd labs/00-hello-module
 啟用後會：
 
 - 用 `pre-commit` 擋 `.DS_Store` 並執行 `scripts/quality.sh`
-- 用 `commit-msg` 要求 Conventional Commits
+- 用 `commit-msg` 要求 Conventional Commits，且主旨預設使用繁體中文
 
 ## 使用原則
 

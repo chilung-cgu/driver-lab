@@ -41,7 +41,7 @@
   1. 檢查 `git status --short`
   2. 執行本專案要求的最小測試或品質檢查
   3. 自行 review diff，確認沒有把暫存 debug 垃圾一起提交
-- Commit message 使用 Conventional Commits。
+- Commit message 使用 Conventional Commits，且 `type(scope):` 後面的主旨預設使用繁體中文（台灣用語）。
 ```
 
 ## 為什麼還要搭配 Codex hooks
@@ -108,6 +108,7 @@ Git 官方文件支援把 hook 放在 `$GIT_DIR/hooks`，也支援用 `core.hook
 用途：
 
 - 強制 commit message 符合 Conventional Commits
+- 強制主旨包含繁體中文內容
 - 避免出現 `update`、`fix stuff` 這種沒資訊量的訊息
 
 ## 這個 repo 已附的最小範本
@@ -127,7 +128,7 @@ Git 官方文件支援把 hook 放在 `$GIT_DIR/hooks`，也支援用 `core.hook
 這組範本目前做的事很保守：
 
 - `pre-commit`：擋 `.DS_Store`，並執行 `scripts/quality.sh`
-- `commit-msg`：要求 Conventional Commits
+- `commit-msg`：要求 Conventional Commits，且主旨預設使用繁體中文
 
 它的目的不是「全面自動化」，而是把最容易忘記的基本紀律先釘住。
 
