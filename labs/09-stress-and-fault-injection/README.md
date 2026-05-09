@@ -5,8 +5,8 @@
 把前面做出的 driver 從「能跑」提升到「能驗證」。
 
 > [!NOTE]
-> 這一關目前已有第一批可直接執行的 stress 腳本，
-> 但故障注入仍需要在真正的 Linux host 上依 kernel 能力逐步補齊。
+> 這一關目前 repo 已有的是 `03-ioctl-poll-mmap` 專用 stress 腳本。
+> `KUnit`、`kselftest`、`failslab`、`fail_page_alloc`、`fail_usercopy` 仍屬後續擴充題。
 
 ## 先備條件
 
@@ -29,6 +29,22 @@
 - 有故障注入腳本
 - 有 cleanup path 驗證
 
+## 現在 repo 已有的東西
+
+- `stress-03-reload.sh`
+  - 針對 `03` 做 repeated load / unload
+- `stress-03-parallel.sh`
+  - 針對 `03` 做 parallel access
+- `test.sh`
+  - 先把上述兩支腳本串成最小 stress 套件
+
+## 現在 repo 還沒有的東西
+
+- `KUnit` 測試
+- `kselftest` 整合
+- `failslab` / `fail_page_alloc` / `fail_usercopy` 自動化
+- `05-07` 專用 stress / regression matrix
+
 ## 新手先記住這一關在補什麼
 
 - 「能跑一次」不等於「driver 寫對了」
@@ -44,6 +60,16 @@
 - `failslab` / `fail_page_alloc` / `fail_usercopy` 的自動化腳本
 - 更長時間的 regression matrix
 - 針對 QEMU EDU labs 的專用 stress 套件
+
+## 這一關現在怎麼看待
+
+這一關現在比較像：
+
+- 已經有第一批可執行的驗證習慣
+- 但還沒有進到完整 fault injection 與 regression framework
+
+如果你目前是新手，這樣的成熟度是合理的。
+重點不是假裝全部都完成，而是清楚知道「已經有什麼」、「下一步還缺什麼」。
 
 ## 新手第一次不要追的東西
 

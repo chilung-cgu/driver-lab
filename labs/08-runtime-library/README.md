@@ -5,8 +5,8 @@
 把 driver 的 userspace 使用方式包裝成比較像真實產品的 runtime。
 
 > [!NOTE]
-> 這一關已經有第一版落地，不再只是純 scaffold。
-> 目前 runtime 已能覆蓋 `02` 與 `03` 的基本互動，但還不是產品級 runtime。
+> 這一關目前已驗證的是 `build`，以及對 `02/03` 的基本封裝能力。
+> 它不是產品級 runtime，也還沒有把 timeout / retry / error policy 做到完整。
 
 ## 先備條件
 
@@ -30,6 +30,18 @@
 - 有一份清楚的 runtime API header
 - README 能說明 control path 與 data path
 
+## 目前已驗證到哪裡
+
+- `make -C runtime clean all` 可建出 runtime 與 CLI
+- `tests/driver_lab_char_cli.c` 可連同 runtime 一起編譯
+- runtime 目前已封裝 `02` 與 `03` 真正有用到的介面
+
+## 目前還沒驗證到哪裡
+
+- 還沒證明它已具備產品級 timeout / retry policy
+- 還沒證明它適合直接延伸到 `05-07`
+- 真正的行為驗證仍依附 `02-char-device` 與 `03-ioctl-poll-mmap`
+
 ## 新手先記住這一關在補什麼
 
 - 真實產品不會讓每個 app 都自己亂 call syscall
@@ -49,6 +61,18 @@
 - 更完整的 timeout / retry policy
 - 更細的 error mapping
 - 針對 PCIe/QEMU EDU driver 的專用 helper
+
+## 這一關現在怎麼驗
+
+這一關目前的驗證分兩層：
+
+1. `runtime/` 自己能不能穩定 build
+2. `02/03` 的 userspace CLI 能不能透過這層 runtime 被建出來
+
+如果你要驗「這個 runtime 呼叫實際 driver 真的正確」，還是要回到：
+
+- [`../02-char-device/README.md`](../02-char-device/README.md)
+- [`../03-ioctl-poll-mmap/README.md`](../03-ioctl-poll-mmap/README.md)
 
 ## 新手現在最該理解的點
 

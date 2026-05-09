@@ -106,12 +106,13 @@
 - Lab: [`../labs/09-stress-and-fault-injection`](../labs/09-stress-and-fault-injection)
 - 主題：
   - runtime library 補齊與測試
-  - KUnit
-  - kselftest
-  - `failslab`
-  - `fail_page_alloc`
-  - `fail_usercopy`
-  - stress / regression / repeated load-unload
+  - 目前 repo 已有：`03` 專用 repeated load-unload / parallel stress
+  - 下一步擴充題：`KUnit`
+  - 下一步擴充題：`kselftest`
+  - 下一步擴充題：`failslab`
+  - 下一步擴充題：`fail_page_alloc`
+  - 下一步擴充題：`fail_usercopy`
+  - stress / regression 紀律
 
 ## 第 7 階段，第 15-16 週
 
