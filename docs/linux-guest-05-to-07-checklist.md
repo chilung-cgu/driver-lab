@@ -1,8 +1,8 @@
 # Linux Guest 快速檢查表：05 到 07
 
-這份是超短版。
+這份是給「已經照 walkthrough 跑過一次」的人用的速查單。
 
-如果你只想知道「現在該跑什麼」，先看這張。
+如果你還沒第一次進 guest，先看 [`linux-guest-05-to-07-walkthrough.md`](linux-guest-05-to-07-walkthrough.md)。
 
 ## 0. guest 環境
 
@@ -11,6 +11,11 @@ uname -a
 lspci -nn | grep 1234:11e8
 ls -ld /lib/modules/$(uname -r)/build
 ```
+
+提醒：
+
+- host 可以是 `Linux` 或 `macOS`
+- 實際執行這張 checklist 的位置，一定是 `Linux guest`
 
 ## 1. repo 基本檢查
 

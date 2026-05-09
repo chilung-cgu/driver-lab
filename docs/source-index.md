@@ -21,6 +21,8 @@
 |---|---|---|
 | PCI endpoint test host driver | [pci-endpoint-test](https://docs.kernel.org/misc-devices/pci-endpoint-test.html) | BAR / IRQ / read / write / copy 驗證思路 |
 | QEMU EDU device | [EDU device](https://www.qemu.org/docs/master/specs/edu.html) | 教學用 PCI 裝置，支援 MMIO / IRQ / DMA |
+| QEMU host support | [About QEMU](https://www.qemu.org/docs/master/about/index.html) | 支援哪些 host OS，以及 QEMU 在 host/guest 各自扮演什麼角色 |
+| QEMU accelerators | [System Emulation Introduction](https://www.qemu.org/docs/master/system/introduction.html) | `kvm`、`hvf`、`tcg` 的基本定位與可用平台 |
 | QEMU PCI test device | [pci-testdev](https://www.qemu.org/docs/master/specs/pci-testdev.html) | 低階 IO 測試裝置 |
 | Linux accel subsystem | [Compute Accelerators Introduction](https://docs.kernel.org/accel/introduction.html) | 現代 Linux AI/compute accelerator 驅動在 kernel 中的定位 |
 

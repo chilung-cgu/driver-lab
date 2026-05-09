@@ -14,6 +14,42 @@
 > 這三關一定要在 `Linux guest` 或可控制的 `Linux 主機` 上做。
 > 不能在 `macOS` 直接 build/load Linux kernel module。
 
+## 這份手冊負責什麼
+
+- 告訴你第一次在 guest 內應該照什麼順序做
+- 幫你把 host / guest 邊界分清楚
+- 提供每一關最小成功訊號與第一層切問題方法
+
+## 這份手冊不負責什麼
+
+- 不重新解釋所有 PCIe / DMA 理論
+- 不取代各 lab 自己的 README
+- 不保證你的 distro、套件源或 guest image 和文件完全相同
+
+## 先讀哪些前置文件
+
+先至少看過下面這三份，再回來跑這份手冊：
+
+1. [`qemu-edu-first-pass.md`](qemu-edu-first-pass.md)
+2. [`../qemu/README.md`](../qemu/README.md)
+3. [`../qemu/edu-bringup-checklist.md`](../qemu/edu-bringup-checklist.md)
+
+## Host 和 Guest 的邊界先分清楚
+
+- `host` 在做的事：
+  - 啟動 QEMU
+  - 準備 guest image
+  - 把 repo 帶進 guest
+- `guest` 在做的事：
+  - 安裝 build 工具與 kernel headers
+  - 執行 `make`、`insmod`、`rmmod`
+  - 跑 `05-07` 的 smoke test
+
+如果你現在用的是 `macOS`，這代表：
+
+- 你可以在 `macOS` 上跑 QEMU
+- 但實際的 Linux driver build / load / test 仍然要進 guest 內做
+
 ## 這份手冊的適用前提
 
 - 你已經把 `driver-lab` 放進 guest
@@ -110,8 +146,8 @@ lspci -nn | grep 1234:11e8
 
 這時先回去看：
 
-- [edu-bringup-checklist.md](/Users/chilung/driver-lab/qemu/edu-bringup-checklist.md)
-- [qemu-edu-first-pass.md](/Users/chilung/driver-lab/docs/qemu-edu-first-pass.md)
+- [`../qemu/edu-bringup-checklist.md`](../qemu/edu-bringup-checklist.md)
+- [`qemu-edu-first-pass.md`](qemu-edu-first-pass.md)
 
 ## 第 4 步：先確認 repo 自己的腳本沒有最基本問題
 
