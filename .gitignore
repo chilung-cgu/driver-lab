@@ -21,3 +21,4 @@ modules.order
 *~
 .DS_Store
 tests/driver_lab_char_cli
+tests/driver_lab_race_cli
