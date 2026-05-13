@@ -10,8 +10,8 @@
 
 ## 開始前先看
 
-- [`../../docs/pcie-primer.md`](../../docs/pcie-primer.md)
-- [`../../docs/qemu-edu-first-pass.md`](../../docs/qemu-edu-first-pass.md)
+- [`../../docs/concepts/pcie-primer.md`](../../docs/concepts/pcie-primer.md)
+- [`../../docs/guides/qemu-edu-first-pass.md`](../../docs/guides/qemu-edu-first-pass.md)
 
 ## 先備條件
 

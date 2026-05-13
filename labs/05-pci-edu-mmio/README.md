@@ -14,8 +14,8 @@
 
 ## 開始前先看
 
-- [`../../docs/pcie-primer.md`](../../docs/pcie-primer.md)
-- [`../../docs/qemu-edu-first-pass.md`](../../docs/qemu-edu-first-pass.md)
+- [`../../docs/concepts/pcie-primer.md`](../../docs/concepts/pcie-primer.md)
+- [`../../docs/guides/qemu-edu-first-pass.md`](../../docs/guides/qemu-edu-first-pass.md)
 - [`../../qemu/edu-bringup-checklist.md`](../../qemu/edu-bringup-checklist.md)
 
 ## 先備條件
@@ -121,7 +121,7 @@ cd labs/05-pci-edu-mmio
 ## 參考
 
 - [`../../qemu/README.md`](../../qemu/README.md)
-- [`../../docs/source-index.md`](../../docs/source-index.md)
+- [`../../docs/reference/source-index.md`](../../docs/reference/source-index.md)
 
 ## 新手先記住這一關在補什麼
 
@@ -131,7 +131,7 @@ cd labs/05-pci-edu-mmio
 ## 第一次卡住先看哪裡
 
 - guest 裡看不到 `1234:11e8`
-  - 先看 [`../../docs/common-failures.md`](../../docs/common-failures.md)
+  - 先看 [`../../docs/reference/common-failures.md`](../../docs/reference/common-failures.md)
 - `probe()` 沒進來
   - 先檢查 PCI ID table
 - BAR map 失敗

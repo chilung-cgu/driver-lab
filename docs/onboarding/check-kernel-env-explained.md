@@ -206,6 +206,6 @@ make -C /lib/modules/"$(uname -r)"/build M="$PWD"
 
 看完這份解釋後，直接進：
 
-- [`../labs/00-hello-module/README.md`](../labs/00-hello-module/README.md)
+- [`../../labs/00-hello-module/README.md`](../../labs/00-hello-module/README.md)
 
 不要再停在環境腳本本身打轉。

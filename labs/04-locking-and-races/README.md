@@ -9,8 +9,8 @@
 
 ## 開始前先看
 
-- [`../../docs/concurrency-primer.md`](../../docs/concurrency-primer.md)
-- [`../../docs/lab-04-walkthrough.md`](../../docs/lab-04-walkthrough.md)
+- [`../../docs/concepts/concurrency-primer.md`](../../docs/concepts/concurrency-primer.md)
+- [`../../docs/guides/lab-04-walkthrough.md`](../../docs/guides/lab-04-walkthrough.md)
 
 ## 先備條件
 
@@ -147,11 +147,11 @@ expected_at_least=400 observed=412 safe_mode=1
 ## 第一次卡住先看哪裡
 
 - 如果 `insmod` 失敗：
-  - 先看 [`../../docs/common-failures.md`](../../docs/common-failures.md)
+  - 先看 [`../../docs/reference/common-failures.md`](../../docs/reference/common-failures.md)
 - 如果 `/dev/driver_lab_race0` 沒出現：
   - 先看 `dmesg`
 - 如果 `race` 指令跑完數字很奇怪：
-  - 先回去看 [`../../docs/lab-04-walkthrough.md`](../../docs/lab-04-walkthrough.md) 裡對 `expected_at_least` 的解釋
+  - 先回去看 [`../../docs/guides/lab-04-walkthrough.md`](../../docs/guides/lab-04-walkthrough.md) 裡對 `expected_at_least` 的解釋
 
 ## 新手先記住這一關在補什麼
 

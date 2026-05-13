@@ -160,7 +160,7 @@ driver 會先拿到 BAR，再把它 map 成可存取的 register 視角。
 ## `05-07` 最適合新手的學法
 
 1. 先讀這份 primer
-2. 再看 [`../qemu/edu-bringup-checklist.md`](../qemu/edu-bringup-checklist.md)
+2. 再看 [`../../qemu/edu-bringup-checklist.md`](../../qemu/edu-bringup-checklist.md)
 3. 先確認 guest 內真的看得到 `1234:11e8`
 4. 先做 `05`
 5. 再做 `06`

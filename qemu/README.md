@@ -45,9 +45,9 @@ QEMU 官方把 `edu` 定位成：
 
 - [`launch-edu-vm.sh`](launch-edu-vm.sh)：最小可用的 QEMU 啟動腳本
 - [`edu-bringup-checklist.md`](edu-bringup-checklist.md)：host 到 guest 的最小 bring-up 清單
-- [`../docs/qemu-edu-first-pass.md`](../docs/qemu-edu-first-pass.md)：第一次做 `05-07` 的白話導讀
-- [`../docs/linux-guest-05-to-07-walkthrough.md`](../docs/linux-guest-05-to-07-walkthrough.md)：第一次進 guest 的完整 runbook
-- [`../docs/linux-guest-05-to-07-checklist.md`](../docs/linux-guest-05-to-07-checklist.md)：第二次之後的速查單
+- [`../docs/guides/qemu-edu-first-pass.md`](../docs/guides/qemu-edu-first-pass.md)：第一次做 `05-07` 的白話導讀
+- [`../docs/guides/linux-guest-05-to-07-walkthrough.md`](../docs/guides/linux-guest-05-to-07-walkthrough.md)：第一次進 guest 的完整 runbook
+- [`../docs/guides/linux-guest-05-to-07-checklist.md`](../docs/guides/linux-guest-05-to-07-checklist.md)：第二次之後的速查單
 
 ## `launch-edu-vm.sh` 會怎麼選 accelerator
 
@@ -65,10 +65,10 @@ QEMU_EXTRA_ARGS="-monitor stdio" \
 
 ## 建議閱讀順序
 
-1. [`../docs/pcie-primer.md`](../docs/pcie-primer.md)
-2. [`../docs/qemu-edu-first-pass.md`](../docs/qemu-edu-first-pass.md)
+1. [`../docs/concepts/pcie-primer.md`](../docs/concepts/pcie-primer.md)
+2. [`../docs/guides/qemu-edu-first-pass.md`](../docs/guides/qemu-edu-first-pass.md)
 3. [`edu-bringup-checklist.md`](edu-bringup-checklist.md)
-4. [`../docs/linux-guest-05-to-07-walkthrough.md`](../docs/linux-guest-05-to-07-walkthrough.md)
+4. [`../docs/guides/linux-guest-05-to-07-walkthrough.md`](../docs/guides/linux-guest-05-to-07-walkthrough.md)
 
 ## 現在先不要追的東西
 

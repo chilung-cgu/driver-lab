@@ -8,7 +8,7 @@
 - 沒處理過 race condition
 - 看到 `mutex`、`spinlock`、`waitqueue`、`completion` 會直接卡住
 
-那請先看這份，再進 [`../labs/04-locking-and-races`](../labs/04-locking-and-races)。
+那請先看這份，再進 [`../../labs/04-locking-and-races`](../../labs/04-locking-and-races)。
 
 ## 先講結論
 

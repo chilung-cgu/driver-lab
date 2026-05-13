@@ -1,6 +1,6 @@
 # 從 0 到可練 PCIe AI 加速卡 Host Driver 的 16 週路線
 
-> 如果你目前完全沒有 driver 開發經驗，請先看 [`beginner-primer.md`](beginner-primer.md)，再回來看這份路線圖。
+> 如果你目前完全沒有 driver 開發經驗，請先看 [`../onboarding/beginner-primer.md`](../onboarding/beginner-primer.md)，再回來看這份路線圖。
 
 ## 核心原則
 
@@ -13,7 +13,7 @@
 
 目標：建立可重複 build / load / unload / 看 log 的 Linux lab。
 
-- Lab: [`../labs/00-hello-module`](../labs/00-hello-module)
+- Lab: [`../../labs/00-hello-module`](../../labs/00-hello-module)
 - 主題：
   - kernel headers
   - kbuild
@@ -25,7 +25,7 @@
 
 目標：熟悉 kernel module 最基本的觀測與 debug 手段。
 
-- Lab: [`../labs/01-debugfs-logging`](../labs/01-debugfs-logging)
+- Lab: [`../../labs/01-debugfs-logging`](../../labs/01-debugfs-logging)
 - 主題：
   - `module_init` / `module_exit`
   - `pr_info` / `pr_debug`
@@ -37,8 +37,8 @@
 
 目標：熟悉 user-kernel 邊界。
 
-- Lab: [`../labs/02-char-device`](../labs/02-char-device)
-- 下個目標 Lab: [`../labs/03-ioctl-poll-mmap`](../labs/03-ioctl-poll-mmap)
+- Lab: [`../../labs/02-char-device`](../../labs/02-char-device)
+- 下個目標 Lab: [`../../labs/03-ioctl-poll-mmap`](../../labs/03-ioctl-poll-mmap)
 - 主題：
   - char device
   - `read` / `write`
@@ -55,8 +55,8 @@
 
 目標：把 race、locking、等待機制練熟。
 
-- Lab: [`../labs/04-locking-and-races`](../labs/04-locking-and-races)
-- 前導：[`concurrency-primer.md`](concurrency-primer.md)
+- Lab: [`../../labs/04-locking-and-races`](../../labs/04-locking-and-races)
+- 前導：[`../concepts/concurrency-primer.md`](../concepts/concurrency-primer.md)
 - 導讀：[`lab-04-walkthrough.md`](lab-04-walkthrough.md)
 - 主題：
   - mutex
@@ -72,9 +72,9 @@
 
 目標：先讀懂 PCIe / DMA / IRQ 骨架，再開始寫。
 
-- 重點文檔：[`source-index.md`](source-index.md)
-- 重點閱讀：[`code-reading-guide.md`](code-reading-guide.md)
-- 前導：[`pcie-primer.md`](pcie-primer.md)
+- 重點文檔：[`../reference/source-index.md`](../reference/source-index.md)
+- 重點閱讀：[`../reference/code-reading-guide.md`](../reference/code-reading-guide.md)
+- 前導：[`../concepts/pcie-primer.md`](../concepts/pcie-primer.md)
 - 主題：
   - `pci_register_driver()`
   - `probe/remove`
@@ -88,10 +88,10 @@
 
 目標：使用 QEMU `edu` 裝置完成第一個像樣的 PCI driver。
 
-- Lab: [`../labs/05-pci-edu-mmio`](../labs/05-pci-edu-mmio)
-- Lab: [`../labs/06-pci-edu-irq`](../labs/06-pci-edu-irq)
-- Lab: [`../labs/07-pci-edu-dma`](../labs/07-pci-edu-dma)
-- QEMU 參考：[`../qemu/README.md`](../qemu/README.md)
+- Lab: [`../../labs/05-pci-edu-mmio`](../../labs/05-pci-edu-mmio)
+- Lab: [`../../labs/06-pci-edu-irq`](../../labs/06-pci-edu-irq)
+- Lab: [`../../labs/07-pci-edu-dma`](../../labs/07-pci-edu-dma)
+- QEMU 參考：[`../../qemu/README.md`](../../qemu/README.md)
 - 新手導讀：[`qemu-edu-first-pass.md`](qemu-edu-first-pass.md)
 
 > [!NOTE]
@@ -102,8 +102,8 @@
 
 目標：把「能跑」升級成「能驗證」。
 
-- Lab: [`../labs/08-runtime-library`](../labs/08-runtime-library)
-- Lab: [`../labs/09-stress-and-fault-injection`](../labs/09-stress-and-fault-injection)
+- Lab: [`../../labs/08-runtime-library`](../../labs/08-runtime-library)
+- Lab: [`../../labs/09-stress-and-fault-injection`](../../labs/09-stress-and-fault-injection)
 - 主題：
   - runtime library 補齊與測試
   - 目前 repo 已有：`03` 專用 repeated load-unload / parallel stress
@@ -118,7 +118,7 @@
 
 目標：把前面練的內容翻譯成 AI 加速卡 Host Driver 語言。
 
-- 文件：[`accelerator-driver-architecture.md`](accelerator-driver-architecture.md)
+- 文件：[`../concepts/accelerator-driver-architecture.md`](../concepts/accelerator-driver-architecture.md)
 - 主題：
   - command queue
   - doorbell

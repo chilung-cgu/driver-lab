@@ -2,7 +2,7 @@
 
 這份文件不是 API 手冊，而是給第一次接觸 race 的人看的「白話導讀版」。
 
-如果你還沒做過 [`../labs/03-ioctl-poll-mmap`](../labs/03-ioctl-poll-mmap)，先不要直接跳進來。
+如果你還沒做過 [`../../labs/03-ioctl-poll-mmap`](../../labs/03-ioctl-poll-mmap)，先不要直接跳進來。
 
 ## 這一關到底在做什麼
 
@@ -53,7 +53,7 @@ counter 增加流程被拆成：
 
 ## 你要先看哪幾個點
 
-第一次讀 [`../labs/04-locking-and-races/driver_lab_race.c`](../labs/04-locking-and-races/driver_lab_race.c) 時，只抓這幾段：
+第一次讀 [`../../labs/04-locking-and-races/driver_lab_race.c`](../../labs/04-locking-and-races/driver_lab_race.c) 時，只抓這幾段：
 
 1. `dl_counter`
    - 共享資料本體
@@ -70,7 +70,7 @@ counter 增加流程被拆成：
 
 ## userspace 測試工具在做什麼
 
-[`../tests/driver_lab_race_cli.c`](../tests/driver_lab_race_cli.c) 的重點不是漂亮，而是單純把 race 踩出來。
+[`../../tests/driver_lab_race_cli.c`](../../tests/driver_lab_race_cli.c) 的重點不是漂亮，而是單純把 race 踩出來。
 
 你第一次只要理解兩件事：
 

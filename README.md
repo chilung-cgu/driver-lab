@@ -13,10 +13,10 @@
 
 ## 如果你是完全新手，先照這個順序
 
-1. 看 [閱讀地圖](docs/reading-map.md)
-2. 看 [新手前導](docs/beginner-primer.md)
-3. 看 [Linux Host 建置與風險檢查](docs/linux-host-setup.md)
-4. 看 [第一次環境檢查輸出怎麼看](docs/check-kernel-env-explained.md)
+1. 看 [閱讀地圖](docs/onboarding/reading-map.md)
+2. 看 [新手前導](docs/onboarding/beginner-primer.md)
+3. 看 [Linux Host 建置與風險檢查](docs/onboarding/linux-host-setup.md)
+4. 看 [第一次環境檢查輸出怎麼看](docs/onboarding/check-kernel-env-explained.md)
 5. 然後只做 [`labs/00-hello-module`](labs/00-hello-module)
 
 你現在看不懂大部分內容是正常的。這個 repo 的正確打開方式不是先把全部文件讀完，而是先跑通最小閉環，再回頭理解 code。
@@ -39,53 +39,55 @@
 | `01-debugfs-logging` | 學會基本觀測與 debugfs | Linux host | 可直接練習 | [`labs/01-debugfs-logging/README.md`](labs/01-debugfs-logging/README.md) |
 | `02-char-device` | 熟悉 user-kernel 邊界與 `read/write` | Linux host | 可直接練習 | [`labs/02-char-device/README.md`](labs/02-char-device/README.md) |
 | `03-ioctl-poll-mmap` | 練 `ioctl / poll / mmap` 與 shared buffer | Linux host | driver、runtime、CLI、smoke test 已落地 | [`labs/03-ioctl-poll-mmap/README.md`](labs/03-ioctl-poll-mmap/README.md) |
-| `04-locking-and-races` | 練 race 重現、對照與 cleanup 對稱性 | Linux host | driver、CLI、smoke test 已落地 | [`docs/concurrency-primer.md`](docs/concurrency-primer.md) |
-| `05-pci-edu-mmio` | 練 PCI `probe`、BAR map、基本 MMIO | Linux guest | 第一版 driver 與 smoke test 已落地；未在這台 macOS 主機實測 | [`docs/qemu-edu-first-pass.md`](docs/qemu-edu-first-pass.md) |
-| `06-pci-edu-irq` | 練 IRQ request、raise、acknowledge | Linux guest | 第一版 driver 與 smoke test 已落地；未在這台 macOS 主機實測 | [`docs/linux-guest-05-to-07-walkthrough.md`](docs/linux-guest-05-to-07-walkthrough.md) |
-| `07-pci-edu-dma` | 練 coherent DMA 與 round-trip 驗證 | Linux guest | 第一版 driver 與 smoke test 已落地；未在這台 macOS 主機實測 | [`docs/linux-guest-05-to-07-walkthrough.md`](docs/linux-guest-05-to-07-walkthrough.md) |
+| `04-locking-and-races` | 練 race 重現、對照與 cleanup 對稱性 | Linux host | driver、CLI、smoke test 已落地 | [`docs/concepts/concurrency-primer.md`](docs/concepts/concurrency-primer.md) |
+| `05-pci-edu-mmio` | 練 PCI `probe`、BAR map、基本 MMIO | Linux guest | 第一版 driver 與 smoke test 已落地；未在這台 macOS 主機實測 | [`docs/guides/qemu-edu-first-pass.md`](docs/guides/qemu-edu-first-pass.md) |
+| `06-pci-edu-irq` | 練 IRQ request、raise、acknowledge | Linux guest | 第一版 driver 與 smoke test 已落地；未在這台 macOS 主機實測 | [`docs/guides/linux-guest-05-to-07-walkthrough.md`](docs/guides/linux-guest-05-to-07-walkthrough.md) |
+| `07-pci-edu-dma` | 練 coherent DMA 與 round-trip 驗證 | Linux guest | 第一版 driver 與 smoke test 已落地；未在這台 macOS 主機實測 | [`docs/guides/linux-guest-05-to-07-walkthrough.md`](docs/guides/linux-guest-05-to-07-walkthrough.md) |
 | `08-runtime-library` | 把 `02/03` 的 ABI 封裝成 runtime | Linux host | `build` 與 `02/03` 對應封裝已驗證；不是產品級 runtime | [`labs/08-runtime-library/README.md`](labs/08-runtime-library/README.md) |
 | `09-stress-and-fault-injection` | 把「能跑」提升成「能重複驗證」 | Linux host | 已有 `03` 專用 stress 腳本；fault injection 尚未自動化 | [`labs/09-stress-and-fault-injection/README.md`](labs/09-stress-and-fault-injection/README.md) |
 
 ## 文件入口
 
+如果你想先看 `docs/` 目錄的分類總覽，再進各份文件，可先看 [Docs Index](docs/README.md)。
+
 ### 起步必讀
 
-- [閱讀地圖](docs/reading-map.md)
-- [新手前導](docs/beginner-primer.md)
-- [Linux Host 建置與風險檢查](docs/linux-host-setup.md)
-- [第一次環境檢查輸出怎麼看](docs/check-kernel-env-explained.md)
+- [閱讀地圖](docs/onboarding/reading-map.md)
+- [新手前導](docs/onboarding/beginner-primer.md)
+- [Linux Host 建置與風險檢查](docs/onboarding/linux-host-setup.md)
+- [第一次環境檢查輸出怎麼看](docs/onboarding/check-kernel-env-explained.md)
 
 ### 概念前導
 
-- [新手術語表](docs/beginner-glossary.md)
-- [併發與同步白話前導](docs/concurrency-primer.md)
-- [PCIe / MMIO / IRQ / DMA 白話前導](docs/pcie-primer.md)
-- [AI 加速卡 Host Driver 架構對映](docs/accelerator-driver-architecture.md)
+- [新手術語表](docs/onboarding/beginner-glossary.md)
+- [併發與同步白話前導](docs/concepts/concurrency-primer.md)
+- [PCIe / MMIO / IRQ / DMA 白話前導](docs/concepts/pcie-primer.md)
+- [AI 加速卡 Host Driver 架構對映](docs/concepts/accelerator-driver-architecture.md)
 
 ### 操作 Runbook
 
-- [16 週學習路線](docs/learning-roadmap.md)
-- [04 Locking and Races 導讀](docs/lab-04-walkthrough.md)
-- [QEMU EDU 新手起手式](docs/qemu-edu-first-pass.md)
-- [Linux Guest 操作手冊：05 到 07](docs/linux-guest-05-to-07-walkthrough.md)
-- [Linux Guest 快速檢查表：05 到 07](docs/linux-guest-05-to-07-checklist.md)
+- [16 週學習路線](docs/guides/learning-roadmap.md)
+- [04 Locking and Races 導讀](docs/guides/lab-04-walkthrough.md)
+- [QEMU EDU 新手起手式](docs/guides/qemu-edu-first-pass.md)
+- [Linux Guest 操作手冊：05 到 07](docs/guides/linux-guest-05-to-07-walkthrough.md)
+- [Linux Guest 快速檢查表：05 到 07](docs/guides/linux-guest-05-to-07-checklist.md)
 
 ### 除錯與參考
 
-- [常見失敗圖鑑](docs/common-failures.md)
-- [官方來源索引](docs/source-index.md)
-- [程式閱讀指南](docs/code-reading-guide.md)
-- [Debug / 測試 Playbook](docs/debugging-playbook.md)
+- [常見失敗圖鑑](docs/reference/common-failures.md)
+- [官方來源索引](docs/reference/source-index.md)
+- [程式閱讀指南](docs/reference/code-reading-guide.md)
+- [Debug / 測試 Playbook](docs/reference/debugging-playbook.md)
 - [QEMU 說明](qemu/README.md)
 
 ### 專案 / Agent Workflow
 
-- [AI Agent + Git Checkpoint 規則範本](docs/ai-agent-git-checkpoint-policy.md)
+- [AI Agent + Git Checkpoint 規則範本](docs/workflow/ai-agent-git-checkpoint-policy.md)
 - [Git hooks 安裝腳本](scripts/install-git-hooks.sh)
 
 ## 建議的第一天流程
 
-1. 完成 [閱讀地圖](docs/reading-map.md) 指定的前三份文件
+1. 完成 [閱讀地圖](docs/onboarding/reading-map.md) 指定的前三份文件
 2. 在 Linux 環境執行 [`scripts/check-kernel-env.sh`](scripts/check-kernel-env.sh)
 3. 完成 [`labs/00-hello-module/README.md`](labs/00-hello-module/README.md)
 4. 完成 [`labs/01-debugfs-logging/README.md`](labs/01-debugfs-logging/README.md)

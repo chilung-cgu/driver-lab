@@ -115,9 +115,9 @@ Git 官方文件支援把 hook 放在 `$GIT_DIR/hooks`，也支援用 `core.hook
 
 `driver-lab` 目前已經附上：
 
-- [`.githooks/pre-commit`](../.githooks/pre-commit)
-- [`.githooks/commit-msg`](../.githooks/commit-msg)
-- [`../scripts/install-git-hooks.sh`](../scripts/install-git-hooks.sh)
+- [`.githooks/pre-commit`](../../.githooks/pre-commit)
+- [`.githooks/commit-msg`](../../.githooks/commit-msg)
+- [`../../scripts/install-git-hooks.sh`](../../scripts/install-git-hooks.sh)
 
 啟用方式：
 

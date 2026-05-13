@@ -31,8 +31,8 @@
 先至少看過下面這三份，再回來跑這份手冊：
 
 1. [`qemu-edu-first-pass.md`](qemu-edu-first-pass.md)
-2. [`../qemu/README.md`](../qemu/README.md)
-3. [`../qemu/edu-bringup-checklist.md`](../qemu/edu-bringup-checklist.md)
+2. [`../../qemu/README.md`](../../qemu/README.md)
+3. [`../../qemu/edu-bringup-checklist.md`](../../qemu/edu-bringup-checklist.md)
 
 ## Host 和 Guest 的邊界先分清楚
 
@@ -146,7 +146,7 @@ lspci -nn | grep 1234:11e8
 
 這時先回去看：
 
-- [`../qemu/edu-bringup-checklist.md`](../qemu/edu-bringup-checklist.md)
+- [`../../qemu/edu-bringup-checklist.md`](../../qemu/edu-bringup-checklist.md)
 - [`qemu-edu-first-pass.md`](qemu-edu-first-pass.md)
 
 ## 第 4 步：先確認 repo 自己的腳本沒有最基本問題

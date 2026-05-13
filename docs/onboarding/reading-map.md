@@ -38,18 +38,18 @@
 
 建議順序：
 
-1. [`pcie-primer.md`](pcie-primer.md)
-2. [`qemu-edu-first-pass.md`](qemu-edu-first-pass.md)
-3. [`../qemu/README.md`](../qemu/README.md)
-4. [`linux-guest-05-to-07-walkthrough.md`](linux-guest-05-to-07-walkthrough.md)
+1. [`../concepts/pcie-primer.md`](../concepts/pcie-primer.md)
+2. [`../guides/qemu-edu-first-pass.md`](../guides/qemu-edu-first-pass.md)
+3. [`../../qemu/README.md`](../../qemu/README.md)
+4. [`../guides/linux-guest-05-to-07-walkthrough.md`](../guides/linux-guest-05-to-07-walkthrough.md)
 
 ## Walkthrough 和 Checklist 差在哪裡
 
-- [`linux-guest-05-to-07-walkthrough.md`](linux-guest-05-to-07-walkthrough.md)
+- [`../guides/linux-guest-05-to-07-walkthrough.md`](../guides/linux-guest-05-to-07-walkthrough.md)
   - 給第一次進 guest 的人
   - 會解釋每一步為什麼要做
   - 適合你還不知道卡在哪一層時使用
-- [`linux-guest-05-to-07-checklist.md`](linux-guest-05-to-07-checklist.md)
+- [`../guides/linux-guest-05-to-07-checklist.md`](../guides/linux-guest-05-to-07-checklist.md)
   - 給已經跑過一次的人
   - 只保留最短的執行順序與成功訊號
   - 適合第二次、第三次重跑時速查
@@ -60,9 +60,9 @@
 
 ### 學習主線
 
-- `docs/beginner-*`
-- `docs/*primer.md`
-- `docs/*walkthrough.md`
+- `docs/onboarding/`
+- `docs/concepts/`
+- `docs/guides/`
 - `labs/`
 - `runtime/`
 - `tests/`
@@ -70,9 +70,9 @@
 
 ### Workflow / Meta
 
-- [`ai-agent-git-checkpoint-policy.md`](ai-agent-git-checkpoint-policy.md)
+- [`../workflow/ai-agent-git-checkpoint-policy.md`](../workflow/ai-agent-git-checkpoint-policy.md)
 - `.githooks/`
-- [`../scripts/install-git-hooks.sh`](../scripts/install-git-hooks.sh)
+- [`../../scripts/install-git-hooks.sh`](../../scripts/install-git-hooks.sh)
 
 這些 workflow 文件不是 driver 教學本體。
 如果你只是要學 driver，可以先略過。

@@ -154,8 +154,8 @@ QEMU 官方文件明確說，即使用 MSI，也還是要更新 acknowledge regi
 
 第一次只做下面這條：
 
-1. 讀 [`../docs/pcie-primer.md`](pcie-primer.md)
-2. 跑 [`../qemu/launch-edu-vm.sh`](../qemu/launch-edu-vm.sh)
+1. 讀 [`../concepts/pcie-primer.md`](../concepts/pcie-primer.md)
+2. 跑 [`../../qemu/launch-edu-vm.sh`](../../qemu/launch-edu-vm.sh)
 3. 在 guest 確認 `lspci -nn`
 4. 先完成 `05`
 5. `05` 穩後才做 `06`

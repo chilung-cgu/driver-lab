@@ -46,7 +46,7 @@ lspci -nn | grep 1234:11e8
 
 1. 把 `driver-lab` 帶進 guest
 2. 在 guest 內補齊 build 工具與 kernel headers
-3. 讀 [`../docs/linux-guest-05-to-07-walkthrough.md`](../docs/linux-guest-05-to-07-walkthrough.md)
+3. 讀 [`../docs/guides/linux-guest-05-to-07-walkthrough.md`](../docs/guides/linux-guest-05-to-07-walkthrough.md)
 4. 在 guest 內依序完成 `05`、`06`、`07`
 
 ## 先不要急著 debug 的東西

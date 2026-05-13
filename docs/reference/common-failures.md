@@ -52,7 +52,7 @@
 先檢查：
 
 - 是否用 `sudo`
-- [`docs/linux-host-setup.md`](linux-host-setup.md) 裡的 module signing / Secure Boot 說明
+- [`../onboarding/linux-host-setup.md`](../onboarding/linux-host-setup.md) 裡的 module signing / Secure Boot 說明
 
 ## `modprobe: FATAL: Module ... not found`
 
@@ -113,7 +113,7 @@
 
 先回去看：
 
-- [`qemu-edu-first-pass.md`](qemu-edu-first-pass.md)
+- [`../guides/qemu-edu-first-pass.md`](../guides/qemu-edu-first-pass.md)
 - QEMU EDU 官方文件對 `0x64` 的描述
 
 ## DMA 看起來有跑，但資料不對

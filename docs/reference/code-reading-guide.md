@@ -75,5 +75,5 @@
 
 ## 輸出物
 
-每看完一支 driver，建議在 [`../notes/reading-log-template.md`](../notes/reading-log-template.md) 寫一份摘要。
+每看完一支 driver，建議在 [`../../notes/reading-log-template.md`](../../notes/reading-log-template.md) 寫一份摘要。
 
