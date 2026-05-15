@@ -1,3 +1,8 @@
+/*
+ * 這一關在 PCI + IRQ 基礎上加入 DMA。
+ * 核心觀念：不是 CPU 自己 memcpy，而是 driver 給裝置一個 device 可用的位址，
+ * 由裝置去搬資料，再用 IRQ 通知完成。
+ */
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
 #include <linux/completion.h>
@@ -114,7 +119,10 @@ static int dl_edu_dma_run_once(struct dl_edu_dma_dev *dl, dma_addr_t src,
 {
     int ret;
 
-    /* 每次 DMA 都重新設定 source/destination/count/command。 */
+    /*
+     * 每次 DMA 都重新設定 source/destination/count/command。
+     * 對新手來說，這裡就是「把一張搬運單交給裝置」。
+     */
     reinit_completion(&dl->irq_done);
     dl_edu_dma_program_addrs(dl, src, dst);
     iowrite32(DL_EDU_DMA_BUFFER_BYTES, dl->bar0 + DL_EDU_DMA_COUNT_REG);
@@ -190,7 +198,10 @@ static int dl_edu_dma_probe(struct pci_dev *pdev, const struct pci_device_id *id
     }
     dev_info(&pdev->dev, "dma mask configured to 28 bits\n");
 
-    /* 第一版先用 coherent buffer，避免一開始就把 sync 細節混進來。 */
+    /*
+     * 第一版先用 coherent buffer，避免一開始就把 sync 細節混進來。
+     * dma_handle 是給裝置看的 DMA address，dma_buf 是 CPU 在 kernel 裡用的指標。
+     */
     dl->dma_buf = dma_alloc_coherent(&pdev->dev,
                                      DL_EDU_DMA_BUFFER_BYTES * 2,
                                      &dl->dma_handle, GFP_KERNEL);
@@ -299,6 +310,7 @@ MODULE_DEVICE_TABLE(pci, dl_edu_dma_ids);
 static struct pci_driver dl_edu_dma_driver = {
     .name = KBUILD_MODNAME,
     .id_table = dl_edu_dma_ids,
+    /* probe 建立 PCI/MMIO/IRQ/DMA path；remove 反向釋放所有資源。 */
     .probe = dl_edu_dma_probe,
     .remove = dl_edu_dma_remove,
 };

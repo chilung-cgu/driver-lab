@@ -111,10 +111,16 @@ make
 
 ## 看 source code 時先抓哪幾個點
 
-1. `driver_lab_char_init()`：如何註冊 major/minor、class、device
-2. `dl_char_write()`：資料怎麼從 userspace 進 kernel buffer
-3. `dl_char_read()`：資料怎麼從 kernel buffer 回 userspace
-4. `driver_lab_char_exit()`：cleanup 是否跟 init 對稱
+第一次讀 code 時，先把「userspace 檔案操作怎麼進 driver」串起來：
+
+1. `driver_lab_char_init()`：如何取得 major/minor，並建立 `/dev/driver_lab_char0`
+2. `dl_char_fops`：VFS 看到 `.read` / `.write` 時，會呼叫哪個 driver callback
+3. `dl_char_write()`：資料怎麼從 userspace 複製進 kernel buffer
+4. `dl_char_read()`：資料怎麼從 kernel buffer 複製回 userspace
+5. `dl_char_lock`：為什麼 read/write 共享同一份 buffer 時需要 lock
+6. `driver_lab_char_exit()`：cleanup 是否跟 init 拿資源的順序相反
+
+先不要追 `struct inode` 或 `struct file` 的完整定義。你只需要知道它們是 VFS 傳進 callback 的上下文。
 
 ## 目前限制
 

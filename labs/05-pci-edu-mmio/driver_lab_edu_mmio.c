@@ -1,3 +1,7 @@
+/*
+ * 第一個 PCI lab：讓 Linux PCI core 找到 QEMU EDU 裝置，呼叫 probe()，
+ * 然後把 BAR0 map 成 CPU 可讀寫的 MMIO 位址。
+ */
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
 #include <linux/io.h>
@@ -23,6 +27,10 @@ struct dl_edu_mmio_dev {
     u32 liveness_result;
 };
 
+/*
+ * probe() 不是 module 載入時無條件執行。
+ * 它是在 PCI core 發現有裝置 match dl_edu_mmio_ids 時，才把 pdev 交給 driver。
+ */
 static int dl_edu_mmio_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 {
     struct dl_edu_mmio_dev *dl;
@@ -112,6 +120,7 @@ static void dl_edu_mmio_remove(struct pci_dev *pdev)
 }
 
 static const struct pci_device_id dl_edu_mmio_ids[] = {
+    /* QEMU EDU device 的 vendor/device ID。 */
     { PCI_DEVICE(DL_EDU_VENDOR_ID, DL_EDU_DEVICE_ID) },
     { }
 };
@@ -120,10 +129,12 @@ MODULE_DEVICE_TABLE(pci, dl_edu_mmio_ids);
 static struct pci_driver dl_edu_mmio_driver = {
     .name = KBUILD_MODNAME,
     .id_table = dl_edu_mmio_ids,
+    /* PCI core match 到 id_table 後呼叫 probe；裝置移除或 module 卸載時呼叫 remove。 */
     .probe = dl_edu_mmio_probe,
     .remove = dl_edu_mmio_remove,
 };
 
+/* module_pci_driver() 會產生 module init/exit，負責註冊與反註冊 pci_driver。 */
 module_pci_driver(dl_edu_mmio_driver);
 
 MODULE_LICENSE("GPL");

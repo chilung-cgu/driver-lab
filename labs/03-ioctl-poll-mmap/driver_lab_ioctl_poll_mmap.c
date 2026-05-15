@@ -1,3 +1,7 @@
+/*
+ * 這一關把同一個 /dev node 擴充成多條路徑：
+ * data path(read/write)、control path(ioctl)、event path(poll)、shared memory(mmap)。
+ */
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
 #include <linux/cdev.h>
@@ -27,6 +31,10 @@ static DEFINE_MUTEX(dl_lock);
 static DECLARE_WAIT_QUEUE_HEAD(dl_read_wq);
 static DECLARE_WAIT_QUEUE_HEAD(dl_event_wq);
 
+/*
+ * 這些是 driver 的共享狀態。
+ * dl_lock 保護 buffer/event/shared page 的一致性，避免不同 callback 同時修改。
+ */
 static char dl_buffer[DL_MESSAGE_BYTES];
 static size_t dl_buffer_len;
 static unsigned int dl_event_count;
@@ -37,6 +45,10 @@ static void dl_sync_shared_page_locked(void)
 {
     struct dl_shared_page *page;
 
+    /*
+     * 函式名稱中的 _locked 是提醒呼叫者：進來前必須已經拿到 dl_lock。
+     * shared page 是給 mmap userspace 看的快照，所以每次 state 改變都同步更新。
+     */
     page = (struct dl_shared_page *)dl_shared_page_addr;
     memset(page, 0, sizeof(*page));
     page->magic = DL_SHARED_MAGIC;
@@ -49,6 +61,10 @@ static void dl_sync_shared_page_locked(void)
 
 static void dl_publish_message_locked(const char *src, size_t len)
 {
+    /*
+     * write() 與 ioctl trigger 都會走到這裡，集中維護 buffer/event 語意，
+     * 避免不同入口各自更新 state 後出現不一致。
+     */
     memset(dl_buffer, 0, sizeof(dl_buffer));
     memcpy(dl_buffer, src, len);
     dl_buffer[len] = '\0';
@@ -76,6 +92,10 @@ static ssize_t dl_read(struct file *file, char __user *buf,
 {
     ssize_t ret;
 
+    /*
+     * non-blocking fd 沒資料時要立刻回 -EAGAIN；
+     * blocking fd 則睡在 waitqueue，等 write/ioctl 產生資料後被喚醒。
+     */
     if ((file->f_flags & O_NONBLOCK) && READ_ONCE(dl_buffer_len) == 0)
         return -EAGAIN;
 
@@ -140,6 +160,10 @@ static __poll_t dl_poll(struct file *file, poll_table *wait)
 {
     __poll_t mask = 0;
 
+    /*
+     * poll_wait() 不是立刻睡著；它是把目前 fd 與 waitqueue 關聯起來，
+     * 讓 userspace poll() 能在事件發生時被喚醒。
+     */
     poll_wait(file, &dl_read_wq, wait);
     poll_wait(file, &dl_event_wq, wait);
 
@@ -164,6 +188,7 @@ static long dl_unlocked_ioctl(struct file *file, unsigned int cmd,
     case DL_IOC_SET_MESSAGE:
         size_t len;
 
+        /* arg 是 userspace 傳進來的指標，所以必須 copy_from_user()。 */
         if (copy_from_user(&msg, (void __user *)arg, sizeof(msg)))
             return -EFAULT;
 
@@ -190,6 +215,7 @@ static long dl_unlocked_ioctl(struct file *file, unsigned int cmd,
         status.mmap_size = DL_MMAP_BYTES;
         mutex_unlock(&dl_lock);
 
+        /* 把 kernel 端整理好的 status 結構安全複製回 userspace。 */
         if (copy_to_user((void __user *)arg, &status, sizeof(status)))
             return -EFAULT;
         break;
@@ -230,6 +256,10 @@ static int dl_mmap(struct file *file, struct vm_area_struct *vma)
     unsigned long size;
     unsigned long pfn;
 
+    /*
+     * mmap 不是把任意 kernel memory 暴露出去。
+     * 這裡只允許從 offset 0 映射最多一頁 shared page。
+     */
     size = vma->vm_end - vma->vm_start;
     if (vma->vm_pgoff != 0)
         return -EINVAL;
@@ -242,6 +272,7 @@ static int dl_mmap(struct file *file, struct vm_area_struct *vma)
 
 static const struct file_operations dl_fops = {
     .owner = THIS_MODULE,
+    /* /dev/driver_lab_ctl0 支援的所有 userspace 入口都集中在這裡。 */
     .open = dl_open,
     .release = dl_release,
     .read = dl_read,

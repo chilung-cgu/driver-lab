@@ -106,6 +106,20 @@ cd labs/07-pci-edu-dma
 - 這一關不只是「搬資料」
 - 你在學的是：哪些記憶體可以安全地讓裝置看到，以及失敗時怎麼收乾淨
 
+## 看 source code 時先抓哪幾個點
+
+DMA 這關容易一次看到太多名詞。第一次先抓「buffer 是誰看得到」：
+
+1. `dl_edu_dma_probe()`：先完成 PCI enable、BAR map、IRQ setup，再進 DMA setup
+2. `dma_set_mask_and_coherent()`：先確認裝置能定址 driver 要給它的 DMA 位址範圍
+3. `dma_alloc_coherent()`：配置 CPU 與 device 都能安全存取的 coherent buffer
+4. `dl_edu_dma_program_addrs()`：把 source / destination DMA address 寫進 EDU register
+5. `dl_edu_dma_run_once()`：每次 DMA transfer 如何設定 count、command、等待完成
+6. `dl_edu_dma_handler()`：DMA 完成中斷如何 acknowledge 並喚醒等待路徑
+7. `dl_edu_dma_remove()`：卸載時如何 free IRQ、釋放 coherent buffer、unmap BAR
+
+先不要把 DMA 想成 `memcpy()`。這裡的核心是「裝置拿到一個它能用的位址，自己去搬資料」。
+
 ## 第一次卡住先看哪裡
 
 - DMA mask 設不過

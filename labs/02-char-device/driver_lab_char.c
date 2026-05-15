@@ -1,3 +1,8 @@
+/*
+ * 這一關是第一個真正建立 /dev node 的 lab。
+ * userspace 對 /dev/driver_lab_char0 做 read/write 時，VFS 會轉呼叫本檔案的
+ * file_operations callback。
+ */
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
 #include <linux/cdev.h>
@@ -17,6 +22,10 @@ static struct cdev dl_char_cdev;
 static struct class *dl_char_class;
 static struct device *dl_char_device;
 
+/*
+ * read/write 會共享同一份 kernel buffer。
+ * 即使教學範例很小，也先用 mutex 養成「共享狀態要保護」的習慣。
+ */
 static DEFINE_MUTEX(dl_char_lock);
 static char dl_char_buffer[DL_CHAR_BUFFER_SIZE];
 static size_t dl_char_buffer_len;
@@ -39,6 +48,10 @@ static ssize_t dl_char_read(struct file *file, char __user *buf,
 {
     ssize_t ret;
 
+    /*
+     * buf 是 userspace pointer，不能當成一般 kernel pointer 直接解參考。
+     * simple_read_from_buffer() 內部會處理 copy_to_user() 這類安全複製。
+     */
     if (mutex_lock_interruptible(&dl_char_lock))
         return -ERESTARTSYS;
 
@@ -65,6 +78,10 @@ static ssize_t dl_char_write(struct file *file, const char __user *buf,
     if (count > DL_CHAR_BUFFER_SIZE - 1)
         return -EMSGSIZE;
 
+    /*
+     * 這裡的 buf 也是 userspace pointer。
+     * simple_write_to_buffer() 會透過安全路徑把資料搬進 kernel buffer。
+     */
     if (mutex_lock_interruptible(&dl_char_lock))
         return -ERESTARTSYS;
 
@@ -89,6 +106,7 @@ out:
 
 static const struct file_operations dl_char_fops = {
     .owner = THIS_MODULE,
+    /* /dev/driver_lab_char0 的 open/read/write 最後會走到這些 callback。 */
     .open = dl_char_open,
     .release = dl_char_release,
     .read = dl_char_read,
@@ -141,6 +159,10 @@ err_unregister_region:
 
 static void __exit driver_lab_char_exit(void)
 {
+    /*
+     * cleanup 順序要跟 init 拿資源的順序相反：
+     * 先移除 /dev node，再 class，再 cdev，最後釋放 major/minor。
+     */
     device_destroy(dl_char_class, dl_char_devt);
     class_destroy(dl_char_class);
     cdev_del(&dl_char_cdev);

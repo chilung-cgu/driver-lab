@@ -1,3 +1,7 @@
+/*
+ * 這一關刻意保留「會 race」與「用 mutex 修正」兩種模式。
+ * 目的不是寫一支產品 driver，而是讓 lost update 可以被觀察、被解釋、再被修正。
+ */
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
 #include <linux/cdev.h>
@@ -26,6 +30,10 @@ static struct device *dl_race_device;
 static DEFINE_MUTEX(dl_race_lock);
 static struct task_struct *dl_race_worker;
 
+/*
+ * 這些變數會同時被 userspace ioctl/read path 與背景 kthread 使用。
+ * 新手讀這關時，先把「誰會讀/寫這些 state」標出來。
+ */
 static unsigned int dl_counter;
 static bool dl_safe_mode;
 static bool dl_worker_running;
@@ -131,7 +139,10 @@ static long dl_race_ioctl(struct file *file, unsigned int cmd,
         break;
 
     case DL_RACE_IOC_GET_STATUS:
-        /* 把目前狀態打包回傳，讓 CLI 可直接印出觀察結果。 */
+        /*
+         * ioctl status 回傳的是結構化 ABI；read() 回傳的是給人看的文字。
+         * 兩者都讀同一份 state，所以都要用同一把 lock 保護。
+         */
         mutex_lock(&dl_race_lock);
         status.counter = dl_counter;
         status.safe_mode = dl_safe_mode ? 1U : 0U;
@@ -162,6 +173,7 @@ static long dl_race_ioctl(struct file *file, unsigned int cmd,
 
 static const struct file_operations dl_race_fops = {
     .owner = THIS_MODULE,
+    /* /dev/driver_lab_race0 的 read/ioctl 入口。 */
     .open = dl_race_open,
     .release = dl_race_release,
     .read = dl_race_read,

@@ -142,3 +142,17 @@ sudo rmmod driver_lab_ioctl_poll_mmap
 - `read/write` 不夠時，要用 `ioctl` 放控制命令
 - 如果 userspace 要等事件，不應一直 busy loop，要有 `poll`
 - 如果資料量變大，可能不想每次都 `copy_to_user` / `copy_from_user`，這時才會碰到 `mmap`
+
+## 看 source code 時先抓哪幾個點
+
+這一關內容比 `02` 多很多，不建議第一次逐行硬讀。先把它拆成四條路徑：
+
+1. `driver_lab_ioctl_poll_mmap_init()`：建立 `/dev/driver_lab_ctl0` 與 shared page
+2. `dl_fops`：確認 `read/write/ioctl/poll/mmap` 分別接到哪個 callback
+3. `dl_publish_message_locked()`：所有寫入與事件觸發最後如何更新同一份 kernel state
+4. `dl_unlocked_ioctl()`：control path 如何依 `cmd` 分派不同動作
+5. `dl_poll()`：userspace 等事件時，driver 如何把 waitqueue 接進來
+6. `dl_mmap()`：userspace 如何看到一頁由 driver 維護的 shared page
+7. `driver_lab_ioctl_poll_mmap_exit()`：device node、cdev、class、page 如何被清掉
+
+讀這關時要一直問：這個 callback 是 control path、data path、event path，還是 shared memory path？

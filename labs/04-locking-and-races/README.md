@@ -157,3 +157,16 @@ expected_at_least=400 observed=412 safe_mode=1
 
 - 單執行緒能跑，不代表多執行緒安全
 - driver 常死在 race、lifetime、cleanup，不是死在語法
+
+## 看 source code 時先抓哪幾個點
+
+這一關要刻意看到「錯」與「修正」的對照：
+
+1. `dl_counter`、`dl_safe_mode`、`dl_worker_running`：先找出哪些 state 被多條路徑共享
+2. `dl_race_increment_unlocked()`：故意拆開 read-modify-write，讓 race 容易重現
+3. `dl_race_increment_locked()`：用 `mutex` 保護同一個 counter 的最小修正版
+4. `dl_race_ioctl()`：userspace 如何切換 safe mode、reset、讀 status
+5. `dl_race_worker_fn()`：背景 kthread 如何模擬 driver 內部也會同時改 state
+6. `driver_lab_race_exit()`：卸載時為什麼要先停 worker，再清 device 資源
+
+你不需要在第一輪就理解所有 kernel concurrency primitive。先把 `mutex` 解決 lost update 的原因講清楚。

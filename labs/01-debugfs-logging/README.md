@@ -94,6 +94,18 @@ sudo rmmod driver_lab_debugfs_logging
 3. `emit_debug` 變數與 `pr_debug()` 是否對得起來
 4. 卸載模組後，`/sys/kernel/debug/driver_lab_debugfs` 是否消失
 
+## 看 source code 時先抓哪幾個點
+
+第一次不要從 include 或每個 helper 開始背。先照這個順序看：
+
+1. `driver_lab_debugfs_logging_init()`：module 載入後建立哪些 debugfs 檔案
+2. `dl_trigger_write()`：userspace 寫入 `trigger` 後，kernel state 怎麼被更新
+3. `dl_status_show()`：`cat status` 時，driver 如何把 kernel state 轉成文字
+4. `dl_status_fops` / `dl_trigger_fops`：debugfs 檔案如何接到 read/write callback
+5. `driver_lab_debugfs_logging_exit()`：卸載時 debugfs 目錄如何被移除
+
+這一關的重點不是 debugfs API 背誦，而是建立「driver 要有可觀測狀態」的習慣。
+
 ## 注意
 
 - debugfs 不是正式 ABI

@@ -99,6 +99,19 @@ cd labs/06-pci-edu-irq
 - 前一關是「我能碰到 device」
 - 這一關是「device 主動通知我事件時，我能接住並清掉它」
 
+## 看 source code 時先抓哪幾個點
+
+先把 IRQ 當成「裝置敲門」來讀：
+
+1. `dl_edu_irq_probe()`：沿用 `05` 的 PCI enable / BAR map，然後多申請 IRQ vector
+2. `request_irq()`：把 `dl_edu_irq_handler()` 登記成中斷進來時的 handler
+3. `iowrite32(... DL_EDU_IRQ_RAISE_REG)`：自我測試如何叫 EDU 觸發一次中斷
+4. `dl_edu_irq_handler()`：handler 如何讀 status、判斷是不是自己的事件、寫 acknowledge
+5. `complete()` / `wait_for_completion_timeout()`：probe 如何等待 handler 確認中斷真的發生
+6. `dl_edu_irq_remove()`：卸載時先停 IRQ，再釋放 PCI resource
+
+第一輪先記住：handler 裡不能只印 log，還必須把裝置端的中斷狀態清掉，否則可能一直重進。
+
 ## 第一次卡住先看哪裡
 
 - handler 沒進來

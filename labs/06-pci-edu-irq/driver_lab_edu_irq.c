@@ -1,3 +1,7 @@
+/*
+ * 這一關在 05 的 MMIO 基礎上加入 IRQ。
+ * 裝置不再只是被 CPU 主動讀寫，而是可以主動用 interrupt 通知 driver。
+ */
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
 #include <linux/completion.h>
@@ -43,7 +47,10 @@ static irqreturn_t dl_edu_irq_handler(int irq, void *opaque)
     dl->last_irq_status = status;
     dl->irq_count++;
 
-    /* EDU 即使用 MSI，也仍然需要明確寫 acknowledge register 清中斷。 */
+    /*
+     * EDU 即使用 MSI，也仍然需要明確寫 acknowledge register 清中斷。
+     * 新手要特別記住：handler 不是只印 log，還要處理並清掉裝置端狀態。
+     */
     iowrite32(status, dl->bar0 + DL_EDU_IRQ_ACK_REG);
     complete(&dl->irq_done);
     dev_info(&dl->pdev->dev, "irq status=0x%08x acknowledged\n", status);
@@ -112,7 +119,10 @@ static int dl_edu_irq_probe(struct pci_dev *pdev, const struct pci_device_id *id
     dev_info(&pdev->dev, "request_irq ok: vector=%d flags=0x%lx\n",
              dl->irq_vector, dl->irq_flags);
 
-    /* 自我測試：直接寫 interrupt raise register，把事件打進 handler。 */
+    /*
+     * 自我測試：直接寫 interrupt raise register，把事件打進 handler。
+     * 這讓 lab 不需要額外 userspace 介面也能驗證 IRQ path。
+     */
     reinit_completion(&dl->irq_done);
     iowrite32(DL_EDU_TEST_IRQ_MASK, dl->bar0 + DL_EDU_IRQ_RAISE_REG);
 
@@ -172,6 +182,7 @@ MODULE_DEVICE_TABLE(pci, dl_edu_irq_ids);
 static struct pci_driver dl_edu_irq_driver = {
     .name = KBUILD_MODNAME,
     .id_table = dl_edu_irq_ids,
+    /* probe 建立 PCI/MMIO/IRQ path；remove 反向釋放。 */
     .probe = dl_edu_irq_probe,
     .remove = dl_edu_irq_remove,
 };

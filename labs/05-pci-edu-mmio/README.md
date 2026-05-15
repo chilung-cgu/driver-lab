@@ -128,6 +128,18 @@ cd labs/05-pci-edu-mmio
 - 前面你都在練「沒有真硬體時的共通 driver 技能」
 - 這一關開始，你才第一次真的碰到 PCI device discovery 與 MMIO register access
 
+## 看 source code 時先抓哪幾個點
+
+第一次讀 PCI driver，不要先追 PCI core 內部。先看這條最小生命週期：
+
+1. `dl_edu_mmio_ids`：這支 driver 宣告自己要 match 哪個 PCI vendor/device ID
+2. `dl_edu_mmio_driver`：告訴 PCI core `probe/remove` 分別是哪個函式
+3. `dl_edu_mmio_probe()`：裝置 match 後，driver 如何 enable device、request BAR、map BAR
+4. `ioread32()` / `iowrite32()`：CPU 如何透過 MMIO 讀寫 QEMU EDU register
+5. `dl_edu_mmio_remove()`：裝置移除或 module 卸載時，如何反向釋放 BAR 與 disable device
+
+這一關的重點是「先安全拿到 BAR0 並做一個最小 register round-trip」，不是設計完整 PCIe accelerator。
+
 ## 第一次卡住先看哪裡
 
 - guest 裡看不到 `1234:11e8`
