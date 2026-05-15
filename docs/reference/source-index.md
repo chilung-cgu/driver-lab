@@ -8,6 +8,10 @@
 |---|---|---|
 | Linux PCI driver | [How To Write Linux PCI Drivers](https://docs.kernel.org/PCI/pci.html) | `probe/remove`、PCI 初始化、DMA、IRQ 骨架 |
 | 外掛模組建置 | [Building External Modules](https://docs.kernel.org/kbuild/modules.html) | kbuild 正確用法 |
+| Driver entry/exit | [Driver Basics](https://docs.kernel.org/driver-api/basics.html) | `module_init()` / `module_exit()` 的角色 |
+| Kernel logging | [Message logging with printk](https://docs.kernel.org/core-api/printk-basics.html) | `printk`、`pr_info()`、`pr_debug()`、`pr_fmt()` |
+| Module license | [Linux kernel licensing rules](https://docs.kernel.org/process/license-rules.html) | `MODULE_LICENSE()` 與 taint / GPL-compatible module 判斷 |
+| Kernel/module parameters | [The kernel's command-line parameters](https://docs.kernel.org/admin-guide/kernel-parameters.html) | `module_param()` 與 module parameter 觀念 |
 | DMA API | [Dynamic DMA mapping Guide](https://docs.kernel.org/core-api/dma-api-howto.html) | coherent vs streaming DMA、DMA address 觀念 |
 | KUnit | [KUnit](https://docs.kernel.org/dev-tools/kunit/) | 白箱 kernel unit test |
 | kselftest | [Linux Kernel Selftests](https://docs.kernel.org/dev-tools/kselftest.html) | 從 userspace 驗證 kernel 行為 |
