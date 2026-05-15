@@ -11,7 +11,16 @@ SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
 cd "$SCRIPT_DIR"
 
 ROOT_DIR=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
+MODULE_NAME=driver_lab_debugfs_logging
 SUDO=
+
+cleanup() {
+    if lsmod | grep -q "^${MODULE_NAME} "; then
+        $SUDO rmmod "$MODULE_NAME" || true
+    fi
+}
+
+trap cleanup EXIT INT TERM
 
 if [ "$(id -u)" -ne 0 ]; then
     SUDO=sudo
@@ -21,8 +30,8 @@ fi
 make
 
 # 如果前一次測試留下同名 module，先卸載，避免 insmod 失敗。
-if lsmod | grep -q '^driver_lab_debugfs_logging '; then
-    $SUDO rmmod driver_lab_debugfs_logging
+if lsmod | grep -q "^${MODULE_NAME} "; then
+    $SUDO rmmod "$MODULE_NAME"
 fi
 
 # 載入後先讀 status，再寫 trigger，確認 driver state 有變化。
@@ -37,7 +46,7 @@ if [ -e /proc/dynamic_debug/control ]; then
 fi
 
 $SUDO dmesg | tail -n 50 | grep 'driver_lab_debugfs_logging'
-$SUDO rmmod driver_lab_debugfs_logging
+$SUDO rmmod "$MODULE_NAME"
 make clean
 
 printf '01-debugfs-logging smoke test passed.\n'

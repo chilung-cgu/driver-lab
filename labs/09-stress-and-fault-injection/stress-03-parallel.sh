@@ -12,20 +12,29 @@ SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
 ROOT_DIR=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
 LAB_DIR="$ROOT_DIR/labs/03-ioctl-poll-mmap"
 CLI="$ROOT_DIR/tests/driver_lab_char_cli"
+MODULE_NAME=driver_lab_ioctl_poll_mmap
 SUDO=
 
 if [ "$(id -u)" -ne 0 ]; then
     SUDO=sudo
 fi
 
+cleanup() {
+    if lsmod | grep -q "^${MODULE_NAME} "; then
+        $SUDO rmmod "$MODULE_NAME" || true
+    fi
+}
+
+trap cleanup EXIT INT TERM
+
 make -C "$LAB_DIR"
 make -C "$ROOT_DIR/runtime"
 
-if lsmod | grep -q '^driver_lab_ioctl_poll_mmap '; then
-    $SUDO rmmod driver_lab_ioctl_poll_mmap
+if lsmod | grep -q "^${MODULE_NAME} "; then
+    $SUDO rmmod "$MODULE_NAME"
 fi
 
-$SUDO insmod "$LAB_DIR/driver_lab_ioctl_poll_mmap.ko"
+$SUDO insmod "$LAB_DIR/${MODULE_NAME}.ko"
 
 # 每個 worker 反覆呼叫同一個 CLI，模擬多個 userspace client 同時打 driver。
 worker() {
@@ -51,5 +60,5 @@ pid3=$!
 
 wait "$pid0" "$pid1" "$pid2" "$pid3"
 
-$SUDO rmmod driver_lab_ioctl_poll_mmap
+$SUDO rmmod "$MODULE_NAME"
 printf 'stress-03-parallel passed.\n'

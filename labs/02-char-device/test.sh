@@ -10,12 +10,16 @@ fi
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
 cd "$SCRIPT_DIR"
 
+MODULE_NAME=driver_lab_char
 SUDO=
 MESSAGE='hello-char-device'
 READBACK_FILE=$(mktemp)
 EXPECTED_FILE=$(mktemp)
 
 cleanup() {
+    if lsmod | grep -q "^${MODULE_NAME} "; then
+        $SUDO rmmod "$MODULE_NAME" || true
+    fi
     rm -f "$READBACK_FILE"
     rm -f "$EXPECTED_FILE"
 }
@@ -29,8 +33,8 @@ fi
 make
 
 # 如果前一次測試留下同名 module，先卸載，避免 /dev 節點或 major/minor 狀態混亂。
-if lsmod | grep -q '^driver_lab_char '; then
-    $SUDO rmmod driver_lab_char
+if lsmod | grep -q "^${MODULE_NAME} "; then
+    $SUDO rmmod "$MODULE_NAME"
 fi
 
 # 寫入固定訊息，再讀回檔案，比對 read/write 路徑是否一致。
@@ -40,7 +44,7 @@ $SUDO dd if=/dev/driver_lab_char0 of="$READBACK_FILE" bs=1 count=${#MESSAGE} sta
 printf '%s' "$MESSAGE" >"$EXPECTED_FILE"
 diff -u "$EXPECTED_FILE" "$READBACK_FILE"
 $SUDO dmesg | tail -n 50 | grep 'driver_lab_char'
-$SUDO rmmod driver_lab_char
+$SUDO rmmod "$MODULE_NAME"
 make clean
 
 printf '02-char-device smoke test passed.\n'

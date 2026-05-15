@@ -10,11 +10,15 @@ fi
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
 ROOT_DIR=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
 CLI="$ROOT_DIR/tests/driver_lab_race_cli"
+MODULE_NAME=driver_lab_race
 SUDO=
 UNSAFE_LOG=$(mktemp)
 SAFE_LOG=$(mktemp)
 
 cleanup() {
+    if lsmod | grep -q "^${MODULE_NAME} "; then
+        $SUDO rmmod "$MODULE_NAME" || true
+    fi
     rm -f "$UNSAFE_LOG" "$SAFE_LOG" "$CLI"
 }
 
@@ -30,11 +34,11 @@ make
 cc -Wall -Wextra -Werror -pthread -o "$CLI" "$ROOT_DIR/tests/driver_lab_race_cli.c"
 
 # 如果前一次測試留下同名 module，先卸載，避免背景 worker 狀態混亂。
-if lsmod | grep -q '^driver_lab_race '; then
-    $SUDO rmmod driver_lab_race
+if lsmod | grep -q "^${MODULE_NAME} "; then
+    $SUDO rmmod "$MODULE_NAME"
 fi
 
-$SUDO insmod ./driver_lab_race.ko
+$SUDO insmod "./${MODULE_NAME}.ko"
 
 "$CLI" /dev/driver_lab_race0 safe-mode 0
 "$CLI" /dev/driver_lab_race0 reset
@@ -57,7 +61,7 @@ if [ "$safe_observed" -lt "$unsafe_observed" ]; then
     exit 1
 fi
 
-$SUDO rmmod driver_lab_race
+$SUDO rmmod "$MODULE_NAME"
 make clean
 
 printf '04-locking-and-races smoke test passed.\n'

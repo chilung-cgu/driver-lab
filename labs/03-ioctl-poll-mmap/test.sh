@@ -9,10 +9,19 @@ fi
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
 ROOT_DIR=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
+MODULE_NAME=driver_lab_ioctl_poll_mmap
 SUDO=
 POLL_LOG=$(mktemp)
+poll_pid=
 
 cleanup() {
+    if [ -n "$poll_pid" ] && kill -0 "$poll_pid" 2>/dev/null; then
+        kill "$poll_pid" 2>/dev/null || true
+        wait "$poll_pid" 2>/dev/null || true
+    fi
+    if lsmod | grep -q "^${MODULE_NAME} "; then
+        $SUDO rmmod "$MODULE_NAME" || true
+    fi
     rm -f "$POLL_LOG"
 }
 
@@ -27,11 +36,11 @@ make
 make -C "$ROOT_DIR/runtime"
 
 # 如果前一次測試留下同名 module，先卸載，避免 device node 狀態混亂。
-if lsmod | grep -q '^driver_lab_ioctl_poll_mmap '; then
-    $SUDO rmmod driver_lab_ioctl_poll_mmap
+if lsmod | grep -q "^${MODULE_NAME} "; then
+    $SUDO rmmod "$MODULE_NAME"
 fi
 
-$SUDO insmod ./driver_lab_ioctl_poll_mmap.ko
+$SUDO insmod "./${MODULE_NAME}.ko"
 
 # CLI 透過 runtime 呼叫 driver，這裡逐一驗證 control/data/shared/event path。
 "$ROOT_DIR/tests/driver_lab_char_cli" /dev/driver_lab_ctl0 ioctl-write hello-ioctl
@@ -45,10 +54,11 @@ poll_pid=$!
 sleep 1
 "$ROOT_DIR/tests/driver_lab_char_cli" /dev/driver_lab_ctl0 trigger
 wait "$poll_pid"
+poll_pid=
 grep 'poll ret=1' "$POLL_LOG"
 
 "$ROOT_DIR/tests/driver_lab_char_cli" /dev/driver_lab_ctl0 clear
-$SUDO rmmod driver_lab_ioctl_poll_mmap
+$SUDO rmmod "$MODULE_NAME"
 make clean
 
 printf '03-ioctl-poll-mmap smoke test passed.\n'

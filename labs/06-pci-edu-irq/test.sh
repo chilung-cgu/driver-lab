@@ -14,6 +14,9 @@ DMESG_LOG=$(mktemp)
 SUDO=
 
 cleanup() {
+    if lsmod | grep -q "^${MODULE_NAME} "; then
+        $SUDO rmmod "$MODULE_NAME" || true
+    fi
     rm -f "$DMESG_LOG"
 }
 

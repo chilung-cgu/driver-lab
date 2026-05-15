@@ -11,6 +11,7 @@ fi
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
 ROOT_DIR=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
 LAB_DIR="$ROOT_DIR/labs/03-ioctl-poll-mmap"
+MODULE_NAME=driver_lab_ioctl_poll_mmap
 SUDO=
 i=0
 
@@ -18,16 +19,24 @@ if [ "$(id -u)" -ne 0 ]; then
     SUDO=sudo
 fi
 
+cleanup() {
+    if lsmod | grep -q "^${MODULE_NAME} "; then
+        $SUDO rmmod "$MODULE_NAME" || true
+    fi
+}
+
+trap cleanup EXIT INT TERM
+
 make -C "$LAB_DIR"
 
 # 連續 load/unload 20 次；若 cleanup 不完整，這類測試通常比單次 smoke test 更容易暴露。
 while [ "$i" -lt 20 ]; do
-    if lsmod | grep -q '^driver_lab_ioctl_poll_mmap '; then
-        $SUDO rmmod driver_lab_ioctl_poll_mmap
+    if lsmod | grep -q "^${MODULE_NAME} "; then
+        $SUDO rmmod "$MODULE_NAME"
     fi
 
-    $SUDO insmod "$LAB_DIR/driver_lab_ioctl_poll_mmap.ko"
-    $SUDO rmmod driver_lab_ioctl_poll_mmap
+    $SUDO insmod "$LAB_DIR/${MODULE_NAME}.ko"
+    $SUDO rmmod "$MODULE_NAME"
     i=$((i + 1))
 done
 
