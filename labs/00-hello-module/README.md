@@ -28,6 +28,17 @@
 - `rmmod` 卸載模組時，kernel 會呼叫 `module_exit()` 指定的函式
 - 這不是一般 userspace 程式，所以最重要的觀測點是 `dmesg`
 
+第一次看到 source code 時，你不需要把每個 macro 都背起來。
+
+這一關的最低理解門檻只有：
+
+- 你知道 module 是被 `insmod` 載入，不是用 `./program` 執行
+- 你知道載入成功時會進 `driver_lab_hello_init()`
+- 你知道卸載時會進 `driver_lab_hello_exit()`
+- 你知道 `pr_info()` 印出的文字要去 `dmesg` 看
+
+其他像 `MODULE_LICENSE()`、`MODULE_AUTHOR()`、`MODULE_DESCRIPTION()`，第一次先當成 module metadata。它們很重要，但不是 Chapter 0 的主要卡點。
+
 ## 你現在在系統的哪一層
 
 這一關還沒有 `/dev`、沒有 user-kernel data path，也沒有硬體。
@@ -67,6 +78,31 @@ make clean
 - `rmmod`：卸載 module
 - `make clean`：刪掉建置產物
 
+## 執行流程
+
+這支 module 沒有 `main()`。
+
+它的流程是：
+
+```text
+make
+  -> 產生 driver_lab_hello.ko
+
+sudo insmod ./driver_lab_hello.ko who=linux repeat=2
+  -> kernel 載入 module
+  -> kernel 呼叫 driver_lab_hello_init()
+  -> pr_info() 把訊息放進 kernel log
+
+sudo dmesg | tail -n 20
+  -> 從 userspace 觀察剛剛的 kernel log
+
+sudo rmmod driver_lab_hello
+  -> kernel 呼叫 driver_lab_hello_exit()
+  -> module 從 kernel 移除
+```
+
+所以你讀 code 時不要找 `main()`。kernel module 的入口是 `module_init()` 指定的函式。
+
 ## 自動化 smoke test
 
 ```sh
@@ -92,6 +128,33 @@ make clean
 - `driver_lab_hello_init()`：模組載入時做什麼
 - `driver_lab_hello_exit()`：模組卸載時做什麼
 - `module_param()`：參數是怎麼進來的
+
+## Chapter 0 符號速查
+
+| 符號 | 現在先怎麼理解 | Chapter 0 需要深入嗎 |
+|---|---|---|
+| `pr_fmt(fmt)` | 幫這個檔案的 `pr_info()` log 自動加上 module 名稱前綴 | 不需要，知道它讓 `dmesg` 比較好讀即可 |
+| `#include <linux/...>` | kernel module 用的 header，不是一般 C library header | 不需要逐個背 |
+| `module_param(who, charp, 0444)` | 宣告 `who` 可以從 `insmod ... who=...` 傳進來 | 需要知道用途 |
+| `MODULE_PARM_DESC()` | 參數說明，會讓 `modinfo` 顯示較清楚 | 暫時當 metadata |
+| `static int __init driver_lab_hello_init(void)` | module 載入時要跑的函式 | 需要知道這是載入入口 |
+| `static void __exit driver_lab_hello_exit(void)` | module 卸載時要跑的函式 | 需要知道這是卸載入口 |
+| `pr_info()` | kernel log 的 info 等級輸出，通常用 `dmesg` 看 | 需要知道用途 |
+| `module_init()` | 告訴 kernel 載入 module 時呼叫哪個函式 | 需要知道用途 |
+| `module_exit()` | 告訴 kernel 卸載 module 時呼叫哪個函式 | 需要知道用途 |
+| `MODULE_LICENSE()` | 告訴 kernel module loader 這個 module 的 license 類型，也會影響 taint / GPL-only symbol 判斷 | 先知道它不是裝飾品即可 |
+| `MODULE_AUTHOR()` | module 作者資訊，`modinfo` 可看到 | 暫時當 metadata |
+| `MODULE_DESCRIPTION()` | module 說明，`modinfo` 可看到 | 暫時當 metadata |
+| `-EINVAL` | 回傳錯誤碼，代表參數不合法 | 知道它會讓 `insmod` 失敗即可 |
+
+## 你現在不需要卡住的地方
+
+- 不需要理解 `__init` / `__exit` 背後的 section 管理細節。
+- 不需要理解 `0444` 的所有權限位元，只要知道這裡表示參數可被讀取。
+- 不需要背 `MODULE_*` 巨集的實作。
+- 不需要知道 kernel log ring buffer 的完整內部結構。
+
+這一關要先練的是「能 build、能 load、能觀察、能 unload」。如果這個閉環能穩定跑通，後面再回頭補細節比較有效。
 
 ## 下一步
 
