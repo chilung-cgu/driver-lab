@@ -9,14 +9,16 @@
 先只看下面三份，不要一開始就打開所有 lab：
 
 1. [`beginner-primer.md`](beginner-primer.md)
-2. [`linux-host-setup.md`](linux-host-setup.md)
-3. [`check-kernel-env-explained.md`](check-kernel-env-explained.md)
+2. [`lab-file-roles.md`](lab-file-roles.md)
+3. [`linux-host-setup.md`](linux-host-setup.md)
 
 這三份分別在補：
 
 - 你現在站在哪一層
+- lab 目錄裡每種檔案扮演什麼角色
 - Linux host 需要哪些條件
-- 第一次看到環境檢查輸出時，怎麼判斷自己缺了什麼
+
+接著再看 [`check-kernel-env-explained.md`](check-kernel-env-explained.md)，用來理解第一次環境檢查輸出。
 
 ## 第一天只做到哪裡
 

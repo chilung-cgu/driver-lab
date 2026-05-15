@@ -19,9 +19,10 @@
 
 1. [`onboarding/reading-map.md`](onboarding/reading-map.md)
 2. [`onboarding/beginner-primer.md`](onboarding/beginner-primer.md)
-3. [`onboarding/linux-host-setup.md`](onboarding/linux-host-setup.md)
-4. [`onboarding/check-kernel-env-explained.md`](onboarding/check-kernel-env-explained.md)
-5. 回到 repo 根目錄，開始做 `labs/00-hello-module`
+3. [`onboarding/lab-file-roles.md`](onboarding/lab-file-roles.md)
+4. [`onboarding/linux-host-setup.md`](onboarding/linux-host-setup.md)
+5. [`onboarding/check-kernel-env-explained.md`](onboarding/check-kernel-env-explained.md)
+6. 回到 repo 根目錄，開始做 `labs/00-hello-module`
 
 ## QEMU 相關文件在哪裡
 

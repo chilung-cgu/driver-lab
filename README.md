@@ -15,9 +15,10 @@
 
 1. 看 [閱讀地圖](docs/onboarding/reading-map.md)
 2. 看 [新手前導](docs/onboarding/beginner-primer.md)
-3. 看 [Linux Host 建置與風險檢查](docs/onboarding/linux-host-setup.md)
-4. 看 [第一次環境檢查輸出怎麼看](docs/onboarding/check-kernel-env-explained.md)
-5. 然後只做 [`labs/00-hello-module`](labs/00-hello-module)
+3. 看 [Lab 檔案角色導讀](docs/onboarding/lab-file-roles.md)
+4. 看 [Linux Host 建置與風險檢查](docs/onboarding/linux-host-setup.md)
+5. 看 [第一次環境檢查輸出怎麼看](docs/onboarding/check-kernel-env-explained.md)
+6. 然後只做 [`labs/00-hello-module`](labs/00-hello-module)
 
 你現在看不懂大部分內容是正常的。這個 repo 的正確打開方式不是先把全部文件讀完，而是先跑通最小閉環，再回頭理解 code。
 
@@ -54,6 +55,7 @@
 
 - [閱讀地圖](docs/onboarding/reading-map.md)
 - [新手前導](docs/onboarding/beginner-primer.md)
+- [Lab 檔案角色導讀](docs/onboarding/lab-file-roles.md)
 - [Linux Host 建置與風險檢查](docs/onboarding/linux-host-setup.md)
 - [第一次環境檢查輸出怎麼看](docs/onboarding/check-kernel-env-explained.md)
 
@@ -151,4 +153,5 @@ cd labs/00-hello-module
 - 先做 `00-02`，不要一開始跳 PCIe
 - 先讓每個 lab 可觀測、可重複、可清理
 - 先接受「第一次先跑通、第二次再看懂 code」這個節奏
-- 每次新增功能時，同步補 `README`、`test.sh`、`quality.sh`、`debug-checklist.md`、`postmortem.md`
+- 每次新增功能時，同步補 `README`、`test.sh`、`quality.sh`、`debug-checklist.md`
+- 遇到實際故障或重要學習事故時，再用 `notes/postmortem-template.md` 建立復盤紀錄
