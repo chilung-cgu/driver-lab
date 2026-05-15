@@ -9,6 +9,10 @@
 #include <sys/ioctl.h>
 #include <unistd.h>
 
+/*
+ * 這支 CLI 的目的不是漂亮，而是讓多條 userspace thread 同時打同一個 driver。
+ * 這樣 04 lab 才能觀察 unsafe/safe mode 的 race 差異。
+ */
 struct worker_args {
     /* 多條 userspace thread 共用同一個 device fd。 */
     int fd;
@@ -59,6 +63,7 @@ int main(int argc, char **argv)
     }
 
     if (strcmp(argv[2], "status") == 0) {
+        /* 結構化讀回 driver 的共享 state。 */
         if (ioctl(fd, DL_RACE_IOC_GET_STATUS, &status) != 0) {
             perror("DL_RACE_IOC_GET_STATUS");
             close(fd);
@@ -68,6 +73,7 @@ int main(int argc, char **argv)
         printf("counter=%u safe_mode=%u worker_running=%u\n",
                status.counter, status.safe_mode, status.worker_running);
     } else if (strcmp(argv[2], "reset") == 0) {
+        /* 每次 race 實驗前先 reset，避免上一輪數字干擾觀察。 */
         if (ioctl(fd, DL_RACE_IOC_RESET_COUNTER) != 0) {
             perror("DL_RACE_IOC_RESET_COUNTER");
             close(fd);
@@ -82,6 +88,7 @@ int main(int argc, char **argv)
             return 1;
         }
 
+        /* safe-mode=0 示範 race；safe-mode=1 使用 mutex 修正。 */
         value = (unsigned int)strtoul(argv[3], NULL, 10);
         if (ioctl(fd, DL_RACE_IOC_SET_SAFE_MODE, &value) != 0) {
             perror("DL_RACE_IOC_SET_SAFE_MODE");
@@ -98,6 +105,7 @@ int main(int argc, char **argv)
             return 1;
         }
 
+        /* 單執行緒重複 increment，適合先確認 ioctl path 可用。 */
         count = atoi(argv[3]);
         for (i = 0; i < count; ++i) {
             if (ioctl(fd, DL_RACE_IOC_INC_COUNTER) != 0) {
@@ -119,6 +127,7 @@ int main(int argc, char **argv)
             return 1;
         }
 
+        /* 多執行緒同時 increment，才是這個 lab 要觀察的重點。 */
         threads = atoi(argv[3]);
         loops = atoi(argv[4]);
         if (threads <= 0 || loops <= 0) {

@@ -6,6 +6,12 @@
 #include <string.h>
 #include <sys/mman.h>
 
+/*
+ * 這支 CLI 是教學用 userspace client。
+ * 它刻意把每個 subcommand 對到一條 driver path，方便你觀察：
+ * write/read -> data path，ioctl-* -> control path，poll -> event path，
+ * mmap-read -> shared memory path。
+ */
 static void usage(const char *prog)
 {
     fprintf(stderr, "Usage:\n");
@@ -38,6 +44,10 @@ int main(int argc, char **argv)
     if (strcmp(argv[2], "poll") == 0)
         open_flags |= O_NONBLOCK;
 
+    /*
+     * 所有 subcommand 都先打開同一個 device node。
+     * 差異在後面呼叫 runtime 的哪一個 helper。
+     */
     if (dl_runtime_open_flags(&handle, argv[1], open_flags) != 0) {
         perror("dl_runtime_open");
         return 1;
@@ -50,7 +60,7 @@ int main(int argc, char **argv)
             return 1;
         }
 
-        /* 對應前期 lab 的單次 write 模型，一次送一段訊息。 */
+        /* data path：對應 driver 的 .write callback。 */
         ret = dl_runtime_write(&handle, argv[3], strlen(argv[3]));
         if (ret < 0) {
             perror("dl_runtime_write");
@@ -66,6 +76,7 @@ int main(int argc, char **argv)
             return 1;
         }
 
+        /* control path：用 ioctl 設定 driver 內部 message。 */
         if (dl_runtime_ioctl_set_message(&handle, argv[3]) != 0) {
             perror("dl_runtime_ioctl_set_message");
             dl_runtime_close(&handle);
@@ -74,7 +85,7 @@ int main(int argc, char **argv)
 
         printf("ioctl message updated\n");
     } else if (strcmp(argv[2], "read") == 0) {
-        /* 把目前 kernel buffer 裡的內容讀回來。 */
+        /* data path：對應 driver 的 .read callback，把 kernel buffer 讀回來。 */
         ret = dl_runtime_read(&handle, buffer, sizeof(buffer) - 1);
         if (ret < 0) {
             perror("dl_runtime_read");
@@ -85,6 +96,7 @@ int main(int argc, char **argv)
         buffer[ret] = '\0';
         printf("read %zd bytes: %s\n", ret, buffer);
     } else if (strcmp(argv[2], "status") == 0) {
+        /* control path：用 ioctl 讀回結構化狀態。 */
         if (dl_runtime_ioctl_get_status(&handle, &status) != 0) {
             perror("dl_runtime_ioctl_get_status");
             dl_runtime_close(&handle);
@@ -95,6 +107,7 @@ int main(int argc, char **argv)
                status.buffer_len, status.event_count,
                status.event_pending, status.mmap_size);
     } else if (strcmp(argv[2], "trigger") == 0) {
+        /* event path：請 driver 產生一個事件，通常用來喚醒 poll。 */
         if (dl_runtime_ioctl_trigger_event(&handle) != 0) {
             perror("dl_runtime_ioctl_trigger_event");
             dl_runtime_close(&handle);
@@ -103,6 +116,7 @@ int main(int argc, char **argv)
 
         printf("event triggered\n");
     } else if (strcmp(argv[2], "clear") == 0) {
+        /* control path：清掉 driver buffer 與 pending event 狀態。 */
         if (dl_runtime_ioctl_clear_buffer(&handle) != 0) {
             perror("dl_runtime_ioctl_clear_buffer");
             dl_runtime_close(&handle);
@@ -117,6 +131,7 @@ int main(int argc, char **argv)
             return 1;
         }
 
+        /* event path：等待 driver 回報可讀資料或事件，不要 busy loop。 */
         timeout_ms = atoi(argv[3]);
         ret = dl_runtime_poll_readable(&handle, timeout_ms, &revents);
         if (ret < 0) {
@@ -127,6 +142,7 @@ int main(int argc, char **argv)
 
         printf("poll ret=%zd revents=0x%x\n", ret, (unsigned int)revents);
     } else if (strcmp(argv[2], "mmap-read") == 0) {
+        /* shared memory path：直接讀 driver mmap 出來的一頁 shared state。 */
         shared = dl_runtime_mmap_shared(&handle, DL_MMAP_BYTES);
         if (shared == MAP_FAILED) {
             perror("dl_runtime_mmap_shared");
