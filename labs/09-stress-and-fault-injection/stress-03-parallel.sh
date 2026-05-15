@@ -1,6 +1,8 @@
 #!/bin/sh
 set -eu
 
+# 對 03 driver 做 parallel userspace access。
+# 目標是提高 read/write/ioctl/poll 共享狀態被同時碰到的機率。
 if [ "$(uname -s)" != "Linux" ]; then
     printf 'ERROR: 這個腳本必須在 Linux 主機上執行。\n' >&2
     exit 1
@@ -25,6 +27,7 @@ fi
 
 $SUDO insmod "$LAB_DIR/driver_lab_ioctl_poll_mmap.ko"
 
+# 每個 worker 反覆呼叫同一個 CLI，模擬多個 userspace client 同時打 driver。
 worker() {
     idx=$1
     i=0

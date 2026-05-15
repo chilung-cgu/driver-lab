@@ -1,3 +1,4 @@
+# obj-m 告訴 kbuild：把 driver_lab_edu_dma.c 建成 .ko 外掛 module。
 obj-m += driver_lab_edu_dma.o
 
 # KDIR 指向目前正在跑的 Linux kernel build tree。
@@ -9,10 +10,13 @@ PWD := $(shell pwd)
 .PHONY: all clean modules_install
 
 all:
+	# 建出 driver_lab_edu_dma.ko；真正 load/test 要在 Linux guest 內做。
 	$(MAKE) -C $(KDIR) M=$(PWD) modules
 
 clean:
+	# 清掉 kbuild 產生的暫存檔與 .ko。
 	$(MAKE) -C $(KDIR) M=$(PWD) clean
 
 modules_install:
+	# 保留標準 kbuild 目標；一般學習流程不需要執行。
 	$(MAKE) -C $(KDIR) M=$(PWD) modules_install

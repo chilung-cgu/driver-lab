@@ -1,6 +1,7 @@
 #!/bin/sh
 set -eu
 
+# 這支 smoke test 驗證 race lab：先跑 unsafe，再跑 safe-mode，觀察 mutex 是否改善結果。
 if [ "$(uname -s)" != "Linux" ]; then
     printf 'ERROR: test.sh 必須在 Linux 主機上執行。\n' >&2
     exit 1
@@ -28,6 +29,7 @@ make
 # 這支 CLI 只是在 userspace 端重現 race，不需要另外裝進系統。
 cc -Wall -Wextra -Werror -pthread -o "$CLI" "$ROOT_DIR/tests/driver_lab_race_cli.c"
 
+# 如果前一次測試留下同名 module，先卸載，避免背景 worker 狀態混亂。
 if lsmod | grep -q '^driver_lab_race '; then
     $SUDO rmmod driver_lab_race
 fi

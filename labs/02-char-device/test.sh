@@ -1,6 +1,7 @@
 #!/bin/sh
 set -eu
 
+# 這支 smoke test 驗證 char device 最小資料路徑：write 到 /dev，再 read 回來比對。
 if [ "$(uname -s)" != "Linux" ]; then
     printf 'ERROR: test.sh 必須在 Linux 主機上執行。\n' >&2
     exit 1
@@ -27,10 +28,12 @@ fi
 
 make
 
+# 如果前一次測試留下同名 module，先卸載，避免 /dev 節點或 major/minor 狀態混亂。
 if lsmod | grep -q '^driver_lab_char '; then
     $SUDO rmmod driver_lab_char
 fi
 
+# 寫入固定訊息，再讀回檔案，比對 read/write 路徑是否一致。
 $SUDO insmod ./driver_lab_char.ko
 printf '%s' "$MESSAGE" | $SUDO tee /dev/driver_lab_char0 >/dev/null
 $SUDO dd if=/dev/driver_lab_char0 of="$READBACK_FILE" bs=1 count=${#MESSAGE} status=none

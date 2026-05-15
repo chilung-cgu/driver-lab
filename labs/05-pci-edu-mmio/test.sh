@@ -1,6 +1,8 @@
 #!/bin/sh
 set -eu
 
+# 這支 smoke test 必須在看得到 QEMU EDU 的 Linux guest 內跑。
+# 它驗證 PCI probe、BAR0 map、liveness MMIO read/write。
 if [ "$(uname -s)" != "Linux" ]; then
     printf 'ERROR: test.sh 必須在 Linux 主機或 Linux guest 上執行。\n' >&2
     exit 1
@@ -34,10 +36,12 @@ fi
 cd "$SCRIPT_DIR"
 make
 
+# 如果前一次測試留下同名 module，先卸載，避免 bind 狀態混亂。
 if lsmod | grep -q "^${MODULE_NAME} "; then
     $SUDO rmmod "$MODULE_NAME"
 fi
 
+# 清 dmesg 只是為了讓本次測試的成功訊號比較容易 grep。
 $SUDO dmesg -C || true
 $SUDO insmod "./${MODULE_NAME}.ko"
 $SUDO dmesg | tee "$DMESG_LOG"
