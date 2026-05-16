@@ -227,6 +227,41 @@ modinfo ./driver_lab_hello.ko
 
 在 `01-debugfs-logging` 會開始碰到它。
 
+## `dynamic debug`
+
+意思：
+
+- Linux kernel 提供的一套 runtime debug log 開關機制
+
+你現在先記：
+
+- `pr_debug()` 不一定預設出現在 `dmesg`
+- dynamic debug 可以選擇只打開某個 module、某個檔案、某個函式或某一行的 debug log
+- `01-debugfs-logging` 第一輪只用到「打開某個 module」這種最簡單形式
+
+例子：
+
+```sh
+echo 'module driver_lab_debugfs_logging +p' | sudo tee /proc/dynamic_debug/control
+```
+
+這代表：
+
+- 找到 module 名稱是 `driver_lab_debugfs_logging` 的 debug callsites
+- 加上 `p` flag，讓這些 `pr_debug()` 可以被印出
+
+## `/proc/dynamic_debug/control`
+
+意思：
+
+- dynamic debug 的控制檔
+
+你現在先記：
+
+- 如果這個檔案存在，代表目前 kernel 支援 dynamic debug 控制介面
+- 寫入像 `module xxx +p` 的命令，可以打開特定 debug log
+- 如果不存在，`01` 的 test 會跳過 dynamic debug 那段，不應直接判定 driver 壞掉
+
 ## `pr_fmt()`
 
 意思：
@@ -259,6 +294,64 @@ modinfo ./driver_lab_hello.ko
 不適合：
 
 - 正式產品 ABI
+
+## `debugfs_create_file()`
+
+意思：
+
+- 在 debugfs 裡建立一個由 driver callback 支援的檔案
+
+在 `01-debugfs-logging` 裡：
+
+```c
+debugfs_create_file("trigger", 0200, dl_root, NULL, &dl_trigger_fops);
+```
+
+你現在先記：
+
+- `"trigger"` 是檔名
+- `0200` 表示這個檔案主要給 root 寫入
+- `&dl_trigger_fops` 是 callback 表，寫入時會走到 `dl_trigger_write()`
+
+## `debugfs_create_u32()`
+
+意思：
+
+- 在 debugfs 裡快速建立一個可以讀寫或讀取 `u32` 變數的檔案
+
+在 `01-debugfs-logging` 裡：
+
+```c
+debugfs_create_u32("trigger_count", 0444, dl_root, &dl_trigger_count);
+```
+
+你現在先記：
+
+- 這種 helper 適合導出簡單 counter 或開關
+- 不需要你自己寫完整 read callback
+
+## `debugfs_remove()`
+
+意思：
+
+- 移除 debugfs entry
+
+在這個 repo 裡：
+
+- module exit 時會呼叫它，避免 module 卸載後 `/sys/kernel/debug/...` 留下失效入口
+
+## `struct dentry`
+
+意思：
+
+- kernel VFS 裡代表 directory entry 的物件
+
+對 `01-debugfs-logging` 的第一輪理解：
+
+- `dl_root` 記住 debugfs 目錄
+- 卸載時用它移除整棵 debugfs 目錄樹
+
+你現在不需要深入 dcache 或 VFS 內部。
 
 ## `taint`
 
@@ -371,6 +464,28 @@ driver module 載入後就是在這裡跑。
 
 - 它是 userspace 檔案操作進入 driver 的中間層
 
+## `struct inode`
+
+意思：
+
+- VFS 用來代表檔案節點資訊的物件
+
+在 `01-debugfs-logging` 裡：
+
+- `dl_status_open(struct inode *inode, struct file *file)` 會收到它
+- 第一輪只需要知道：open callback 會拿到 `inode`，然後交給 `single_open()`
+
+## `struct file`
+
+意思：
+
+- VFS 用來代表「已開啟檔案」的物件
+
+在 `01-debugfs-logging` 裡：
+
+- `dl_status_open()` 和 `dl_trigger_write()` 都會收到 `struct file *`
+- 第一輪只需要知道：read/write/open callback 會透過它知道目前操作的是哪個開啟檔案
+
 ## `file_operations`
 
 意思：
@@ -383,6 +498,73 @@ driver module 載入後就是在這裡跑。
 - `.read`
 - `.write`
 - `.release`
+
+在 `01-debugfs-logging` 裡：
+
+- `dl_status_fops` 把 `cat status` 接到 `dl_status_open()` / `seq_read`
+- `dl_trigger_fops` 把 `tee > trigger` 接到 `dl_trigger_write()`
+
+## `struct seq_file`
+
+意思：
+
+- kernel 用來產生可被 userspace 讀取的文字輸出 helper
+
+你現在先把它想成：
+
+- 比自己手刻一堆 read buffer 邏輯更安全、規則更清楚的輸出工具
+- `seq_printf()` 寫進 `seq_file`，最後會變成 `cat status` 看到的文字
+
+在 `01-debugfs-logging` 裡：
+
+```c
+static int dl_status_show(struct seq_file *m, void *unused)
+{
+	seq_printf(m, "trigger_count=%u\n", dl_trigger_count);
+}
+```
+
+第一輪只要知道：`dl_status_show()` 產生 `status` 的文字內容。
+
+## `single_open()`
+
+意思：
+
+- `seq_file` 的簡化 open helper
+
+在 `01-debugfs-logging` 裡：
+
+- `cat status` 時，open path 會呼叫 `single_open()`
+- `single_open()` 會把後續輸出接到 `dl_status_show()`
+
+## `seq_read()` / `seq_lseek()` / `single_release()`
+
+意思：
+
+- `seq_file` 常見配套 callback
+
+你現在先記：
+
+- `.read = seq_read`：讓 userspace 可以讀 `seq_file` 產生的文字
+- `.llseek = seq_lseek`：支援基本 seek 行為
+- `.release = single_release`：關閉檔案時釋放 `single_open()` 建立的狀態
+
+第一輪不用深入它們內部。
+
+## `copy_from_user()`
+
+意思：
+
+- 從 userspace buffer 安全複製資料到 kernel buffer
+
+為什麼需要：
+
+- kernel 不能把 userspace 傳進來的 pointer 當成一般 kernel pointer 直接用
+- 複製可能失敗，所以 driver 要檢查回傳值
+
+在 `01-debugfs-logging` 裡：
+
+- 寫 `trigger` 時，payload 會從 userspace 複製到 kernel stack 上的 local buffer
 
 ## `ABI`
 

@@ -38,8 +38,9 @@
 第一週的合理目標是完成 `00-02`：
 
 1. `00`：最小 build / load / unload / dmesg 閉環
-2. `01`：debugfs 與 logging 觀測
-3. `02`：`/dev`、`read/write`、`file_operations`
+2. [`00 到 01：debugfs 過渡導讀`](00-to-01-debugfs-bridge.md)：先補 debugfs / VFS callback / dynamic debug 的最低心智模型
+3. `01`：debugfs 與 logging 觀測
+4. `02`：`/dev`、`read/write`、`file_operations`
 
 每一關都要回到 README 的「完成後你應該能回答」。如果只會照抄命令，但答不出入口、觀測點、cleanup 與失敗查證點，就先不要前進。
 

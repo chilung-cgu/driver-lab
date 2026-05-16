@@ -20,6 +20,16 @@ flowchart LR
     D --> H["later: hardware path\nBAR / IRQ / DMA"]
 ```
 
+> **逐步說明：**
+>
+> 1. **userspace 發出請求**：shell、CLI 或 test script 呼叫 `read()`、`write()`、`ioctl()` 這類 system call。
+> 2. **VFS 做分派**：Linux 先經過 VFS 這層，再找到對應 driver 登記的 callback。
+> 3. **driver callback 執行**：你的 module 裡的函式開始處理資料、更新狀態或喚醒等待者。
+> 4. **kernel state 被改變或讀出**：早期 labs 會先碰 buffer、lock、debugfs 這些容易觀測的狀態。
+> 5. **之後才接硬體路徑**：PCI BAR、IRQ、DMA 會在 `05-07` 才加入。
+>
+> **白話總結**：userspace 像是在櫃台送出申請，VFS 像分流窗口，driver callback 才是真正處理申請的人。
+
 你現在前 3 個 lab 的目標，不是馬上碰硬體，而是先把：
 
 - `module lifecycle`
@@ -83,6 +93,8 @@ flowchart LR
 2. 觀察 `dmesg`、`/sys/kernel/debug`、`/dev/...`
 3. 再回頭對照 source code
 4. 最後試著用自己的話解釋
+
+做完 `00` 要進 `01` 前，先讀 [`00-to-01-debugfs-bridge.md`](00-to-01-debugfs-bridge.md)。`01` 會第一次碰到 debugfs、VFS callback、`struct file`、`struct inode`、`struct seq_file` 和 dynamic debug；第一輪看不懂它們的完整定義是正常的。
 
 ## 你會一直反覆看到的名詞
 

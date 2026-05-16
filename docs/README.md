@@ -24,6 +24,7 @@
 5. [`onboarding/linux-host-setup.md`](onboarding/linux-host-setup.md)
 6. [`onboarding/check-kernel-env-explained.md`](onboarding/check-kernel-env-explained.md)
 7. 回到 repo 根目錄，開始做 `labs/00-hello-module`
+8. 完成 `00` 後，先讀 [`onboarding/00-to-01-debugfs-bridge.md`](onboarding/00-to-01-debugfs-bridge.md)，再進 `labs/01-debugfs-logging`
 
 ## QEMU 相關文件在哪裡
 

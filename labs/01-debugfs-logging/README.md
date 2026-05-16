@@ -18,11 +18,19 @@
 
 ## 先備理解
 
+如果你剛做完 `00-hello-module`，先讀：
+
+- [`../../docs/onboarding/00-to-01-debugfs-bridge.md`](../../docs/onboarding/00-to-01-debugfs-bridge.md)
+
+這份橋接文件會先解釋 `debugfs`、VFS callback、`struct file`、`struct inode`、`struct seq_file` 和 dynamic debug 的最低心智模型。
+
 這一關的重點不是「多一個檔案系統」，而是你開始學會：
 
 - 不只看 log，也要主動把 driver 狀態導出來
 - 把「最後一次發生了什麼」變成可讀資訊
 - 把 `pr_debug()` 當成可精準開關的 debug 路徑，而不是永遠打開
+
+第一輪不要求你完整理解 VFS 或 `seq_file`。你只要能把「命令 -> debugfs 檔案 -> driver callback -> kernel state -> 觀測結果」串起來，就可以繼續往下做。
 
 ## 這一關的心智模型
 
@@ -30,11 +38,21 @@
 
 ```mermaid
 flowchart LR
-    W["userspace write\ntee > trigger"] --> T["dl_trigger_write()"]
+    W["userspace write<br>tee > trigger"] --> T["dl_trigger_write()"]
     T --> S["更新 counter / last_message"]
     S --> D["status / trigger_count / emit_debug"]
     S --> L["pr_info / pr_debug"]
 ```
+
+> **逐步說明：**
+>
+> 1. **userspace 寫入 `trigger`**：你用 `printf ... | sudo tee .../trigger` 把一段文字送進 debugfs 檔案。
+> 2. **kernel 呼叫 `dl_trigger_write()`**：這個檔案不是普通磁碟檔；driver 登記了 write callback，所以寫入會進 driver。
+> 3. **driver 更新狀態**：callback 會更新 `dl_trigger_count` 與 `dl_last_message`。
+> 4. **狀態可被讀出**：`status`、`trigger_count`、`emit_debug` 讓你從 userspace 看 kernel state。
+> 5. **log 可被觀測**：`pr_info()` 通常會進 `dmesg`；`pr_debug()` 需要 dynamic debug 開啟後才容易看到。
+>
+> **白話總結**：`trigger` 像一個測試按鈕，按下去後 driver 更新內部狀態；`status` 像狀態面板，讓你確認按鈕真的生效。
 
 ## 提供的介面
 
@@ -74,6 +92,41 @@ sudo rmmod driver_lab_debugfs_logging
 - 再次 `tee > trigger`：觀察 dynamic debug 開啟後的差異
 - `rmmod`：卸載 module
 
+## `test.sh` 逐段在做什麼
+
+`test.sh` 不是另一套新概念，它只是把 README 的手動步驟自動跑一次。
+
+| 片段 | 第一輪理解 |
+|---|---|
+| `if [ "$(uname -s)" != "Linux" ]` | macOS 不能載入 Linux kernel module，所以先擋掉錯誤環境。 |
+| `"$ROOT_DIR/scripts/mount-debugfs.sh"` | 確保 `/sys/kernel/debug` 存在，否則後面看不到 debugfs 檔案。 |
+| `make` | 建出 `driver_lab_debugfs_logging.ko`。 |
+| `lsmod ... rmmod` | 如果前一次測試留下同名 module，先卸載，避免 `insmod` 卡住。 |
+| `insmod` | 載入 module，讓 `driver_lab_debugfs_logging_init()` 建立 debugfs 檔案。 |
+| `cat .../status` | 讀取 driver 導出的狀態文字。 |
+| `tee .../trigger` | 寫入 debugfs 檔案，觸發 `dl_trigger_write()`。 |
+| `cat .../trigger_count` | 確認 trigger counter 有被更新。 |
+| `dmesg ... grep` | 從 kernel log 確認 module 有輸出。 |
+| `rmmod` / `make clean` | 卸載 module 並清掉 build artifact。 |
+
+dynamic debug 那段：
+
+```sh
+if [ -e /proc/dynamic_debug/control ]; then
+	echo 'module driver_lab_debugfs_logging +p' | $SUDO tee /proc/dynamic_debug/control >/dev/null
+	printf '%s' 'smoke-two' | $SUDO tee /sys/kernel/debug/driver_lab_debugfs/trigger >/dev/null
+fi
+```
+
+逐行看：
+
+- `if [ -e /proc/dynamic_debug/control ]`：這顆 kernel 有 dynamic debug 才跑。沒有這個檔案就跳過，不代表 lab 壞掉。
+- `module driver_lab_debugfs_logging +p`：只打開 `driver_lab_debugfs_logging` 這個 module 裡的 `pr_debug()` print flag。
+- `tee /proc/dynamic_debug/control`：把控制命令交給 kernel dynamic debug 機制。
+- 再寫一次 `trigger`：讓 `dl_trigger_write()` 再跑一次，這次 `pr_debug()` 有機會進 log。
+
+第一輪你不用背 dynamic debug 的完整 query language。先記住：`pr_info()` 通常直接可見，`pr_debug()` 通常要被打開才看得到。
+
 ## 自動化 smoke test
 
 ```sh
@@ -104,6 +157,28 @@ sudo rmmod driver_lab_debugfs_logging
 2. `trigger_count` 是否真的增加
 3. `emit_debug` 變數與 `pr_debug()` 是否對得起來
 4. 卸載模組後，`/sys/kernel/debug/driver_lab_debugfs` 是否消失
+
+## 如果你完全看不懂 source code，先看哪 5 行
+
+先不要從 `#include` 或 struct 定義開始。直接找這 5 個位置：
+
+1. `debugfs_create_dir(DL_DEBUGFS_DIR_NAME, NULL)`：建立 `/sys/kernel/debug/driver_lab_debugfs` 目錄。
+2. `debugfs_create_file("status", 0444, dl_root, NULL, &dl_status_fops)`：建立可讀的 `status` 檔。
+3. `debugfs_create_file("trigger", 0200, dl_root, NULL, &dl_trigger_fops)`：建立可寫的 `trigger` 檔。
+4. `dl_trigger_write()`：寫 `trigger` 後，counter 和 last message 在這裡更新。
+5. `dl_status_show()`：讀 `status` 時，輸出的文字在這裡產生。
+
+如果這 5 個位置能對上 README 的命令，你就已經抓到 `01` 的主線。
+
+## 這些 struct 第一輪怎麼理解
+
+| 名稱 | 第一輪理解 | 現在要深入嗎 |
+|---|---|---|
+| `struct dentry` | debugfs 目錄或檔案在 kernel 裡的代表物件。`dl_root` 用來記住根目錄，卸載時才能移除。 | 不需要 |
+| `struct inode` | VFS 傳給 open callback 的檔案節點資訊。這一關只把它交給 `single_open()`。 | 不需要 |
+| `struct file` | VFS 傳給 read/write/open callback 的開啟檔案物件。這一關只需要知道 callback 會收到它。 | 不需要 |
+| `struct seq_file` | kernel 用來產生可被 `cat` 讀取的文字輸出 helper。`seq_printf()` 會把文字放進這個輸出流程。 | 只需知道用途 |
+| `struct file_operations` | 一張 callback 表，告訴 kernel 讀寫 debugfs 檔案時要呼叫哪些 driver 函式。 | 需要知道用途 |
 
 ## 看 source code 時先抓哪幾個點
 

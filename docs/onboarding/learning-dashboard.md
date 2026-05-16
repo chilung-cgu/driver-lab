@@ -32,7 +32,7 @@
 | Lab | 必讀 | 成功訊號 | 可以前進前要會講 |
 |---|---|---|---|
 | `00-hello-module` | [`../../labs/00-hello-module/README.md`](../../labs/00-hello-module/README.md) | module 可 build / load / unload，`dmesg` 有 log | module 沒有 `main()`，入口由 `module_init()` 指定 |
-| `01-debugfs-logging` | [`../../labs/01-debugfs-logging/README.md`](../../labs/01-debugfs-logging/README.md) | debugfs 檔案可讀寫，counter 會變 | debugfs 是 debug 介面，不是穩定產品 ABI |
+| `01-debugfs-logging` | [`00-to-01-debugfs-bridge.md`](00-to-01-debugfs-bridge.md)、[`../../labs/01-debugfs-logging/README.md`](../../labs/01-debugfs-logging/README.md) | debugfs 檔案可讀寫，counter 會變 | debugfs 是 debug 觀測入口；寫 `trigger` 會進 `dl_trigger_write()`；dynamic debug 是選擇性開 `pr_debug()` |
 | `02-char-device` | [`../../labs/02-char-device/README.md`](../../labs/02-char-device/README.md) | `/dev/driver_lab_char0` 可 write/read | userspace 的 `read/write` 會走到 driver 的 `file_operations` callback |
 
 完成這階段後，你應該能畫出：
