@@ -117,6 +117,17 @@ sudo rmmod driver_lab_hello
 - `rmmod` 成功
 - `make clean` 成功
 
+## 完成後你應該能回答
+
+| 問題 | 標準答案 |
+|---|---|
+| module 的載入入口在哪裡？ | `insmod` 成功後，kernel 會呼叫 `module_init()` 登記的 `driver_lab_hello_init()`。 |
+| module 的卸載入口在哪裡？ | `rmmod driver_lab_hello` 時，kernel 會呼叫 `module_exit()` 登記的 `driver_lab_hello_exit()`。 |
+| 第一個觀測點是什麼？ | `sudo dmesg | tail` 裡的 `driver_lab_hello` log。 |
+| 這一關主要拿到什麼 resource？ | 這一關沒有建立 `/dev`、debugfs 或硬體 resource；主要只是把 `.ko` 載入 kernel。 |
+| cleanup 做了什麼？ | `driver_lab_hello_exit()` 只印出卸載 log；真正把 module 從 kernel 移除的是 `rmmod` 流程。 |
+| `insmod` 失敗時第一個看哪裡？ | 先看 `sudo dmesg | tail -n 50`，再檢查 `/lib/modules/$(uname -r)/build` 與 Secure Boot / module signature。 |
+
 ## 常見失敗
 
 - `/lib/modules/$(uname -r)/build` 不存在

@@ -137,6 +137,19 @@ sudo rmmod driver_lab_ioctl_poll_mmap
 ./test.sh
 ```
 
+## 完成後你應該能回答
+
+| 問題 | 標準答案 |
+|---|---|
+| 這一關的 userspace 入口在哪裡？ | `/dev/driver_lab_ctl0`；同一個 device node 同時提供 `read/write`、`ioctl`、`poll`、`mmap`。 |
+| data path 是什麼？ | `write()` 更新 driver buffer，`read()` 從 driver buffer 讀回資料。 |
+| control path 是什麼？ | `ioctl` command，例如 `DL_IOC_SET_MESSAGE`、`DL_IOC_GET_STATUS`、`DL_IOC_TRIGGER_EVENT`、`DL_IOC_CLEAR_BUFFER`。 |
+| event path 是什麼？ | `poll()` 透過 waitqueue 等待可讀資料或 pending event，不需要 userspace busy loop。 |
+| shared memory path 是什麼？ | `mmap()` 映射 driver 維護的一頁 shared page，userspace 可讀到 magic、event count、buffer snapshot。 |
+| 這一關主要拿到什麼 resource？ | char device resource、waitqueue、共享狀態 buffer，以及一頁用來 mmap 的 shared page。 |
+| cleanup 要釋放哪些東西？ | 先移除 `/dev`/class/cdev/major-minor，再 `free_page()` 釋放 shared page。 |
+| `poll` 沒醒時第一個看哪裡？ | 先確認是否真的執行了 `trigger` 或寫入資料，再看 `dmesg` 與 `driver_lab_char_cli ... status`。 |
+
 ## 新手先記住這一關在補什麼
 
 - `read/write` 不夠時，要用 `ioctl` 放控制命令

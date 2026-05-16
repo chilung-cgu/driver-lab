@@ -74,6 +74,18 @@
 - [`../02-char-device/README.md`](../02-char-device/README.md)
 - [`../03-ioctl-poll-mmap/README.md`](../03-ioctl-poll-mmap/README.md)
 
+## 完成後你應該能回答
+
+| 問題 | 標準答案 |
+|---|---|
+| runtime 是 kernel driver 嗎？ | 不是。runtime 是 userspace 封裝層，負責把 driver ABI 包成較一致的 C API。 |
+| runtime 包了哪些路徑？ | `open/close`、`read/write`、`ioctl`、`poll`、`mmap`。 |
+| 第一個觀測點是什麼？ | `make -C runtime` 能建出 `tests/driver_lab_char_cli`，CLI 無參數時會印 usage 並回傳非 0。 |
+| runtime 與 UAPI header 的關係是什麼？ | UAPI header 定義 kernel/userspace 都要同意的 ABI；runtime include 它並把 syscall 呼叫包起來。 |
+| 這一關主要產生什麼 artifact？ | userspace CLI binary `tests/driver_lab_char_cli`，不是 `.ko`。 |
+| cleanup 做了什麼？ | `make -C runtime clean` 刪除 CLI build artifact。 |
+| runtime build 失敗時第一個看哪裡？ | 先看 compiler error，再確認 include path 是否能找到 `runtime/include/driver_lab_uapi.h`。 |
+
 ## 新手現在最該理解的點
 
 先不要把 runtime 想成「多餘的一層」。

@@ -125,6 +125,19 @@ sudo rmmod driver_lab_race
 
 這就是最基本的 race 對照實驗。
 
+## 完成後你應該能回答
+
+| 問題 | 標準答案 |
+|---|---|
+| 這一關的 userspace 入口在哪裡？ | `/dev/driver_lab_race0`；CLI 透過 ioctl 切換模式、reset、increment 與讀 status。 |
+| unsafe mode 在示範什麼？ | `safe_mode = 0` 時故意不保護 read-modify-write，讓多條路徑容易造成 lost update。 |
+| safe mode 怎麼修正第一層問題？ | `safe_mode = 1` 時用 `mutex` 包住共享 counter 的 increment，讓同一時間只有一條路徑修改它。 |
+| 背景 kthread 為什麼重要？ | 它模擬 driver 內部也可能同時碰共享 state；race 不只來自 userspace thread。 |
+| 第一個觀測點是什麼？ | `driver_lab_race_cli ... race <threads> <loops>` 的 `expected_at_least` 與 `observed` 差異。 |
+| 這一關主要拿到什麼 resource？ | char device resource 與一條背景 kthread。 |
+| cleanup 要先做什麼？ | 卸載時先停背景 worker，再移除 device/class/cdev/major-minor，避免 thread 繼續碰已拆掉的資源。 |
+| race 結果看起來怪時第一個看哪裡？ | 先確認目前 `safe_mode`，再回頭看 `expected_at_least` 的定義與 `dmesg`。 |
+
 ## 一次合理的示範輸出
 
 下面只是示意，不是唯一正確數字：

@@ -87,6 +87,17 @@ sudo rmmod driver_lab_debugfs_logging
 - `trigger_count` 會增加
 - dynamic debug 啟用後，看得到 `pr_debug()` 路徑
 
+## 完成後你應該能回答
+
+| 問題 | 標準答案 |
+|---|---|
+| 這一關的入口在哪裡？ | module 載入入口是 `driver_lab_debugfs_logging_init()`；userspace 觸發 driver 行為的入口是寫入 debugfs 的 `trigger` 檔案。 |
+| debugfs 在這裡扮演什麼角色？ | debugfs 是 debug / 觀測介面，不是穩定產品 ABI；它適合導出狀態與暫時 debug knob。 |
+| 第一個觀測點是什麼？ | `/sys/kernel/debug/driver_lab_debugfs/status`、`trigger_count`、`emit_debug`，以及 `dmesg` 裡的 module log。 |
+| 這一關主要拿到什麼 resource？ | debugfs directory 與多個 debugfs files。 |
+| cleanup 做了什麼？ | module 卸載時移除 debugfs 目錄與底下檔案，避免留下 stale debug entry。 |
+| 失敗時第一個看哪裡？ | 先確認 `/sys/kernel/debug` 是否已掛載，再看 `sudo dmesg | tail -n 50`。 |
+
 ## 新手最該觀察什麼
 
 1. `status` 內容在每次 write 前後有沒有變化

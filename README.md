@@ -14,11 +14,12 @@
 ## 如果你是完全新手，先照這個順序
 
 1. 看 [閱讀地圖](docs/onboarding/reading-map.md)
-2. 看 [新手前導](docs/onboarding/beginner-primer.md)
-3. 看 [Lab 檔案角色導讀](docs/onboarding/lab-file-roles.md)
-4. 看 [Linux Host 建置與風險檢查](docs/onboarding/linux-host-setup.md)
-5. 看 [第一次環境檢查輸出怎麼看](docs/onboarding/check-kernel-env-explained.md)
-6. 然後只做 [`labs/00-hello-module`](labs/00-hello-module)
+2. 看 [0 基礎學習儀表板](docs/onboarding/learning-dashboard.md)
+3. 看 [新手前導](docs/onboarding/beginner-primer.md)
+4. 看 [Lab 檔案角色導讀](docs/onboarding/lab-file-roles.md)
+5. 看 [Linux Host 建置與風險檢查](docs/onboarding/linux-host-setup.md)
+6. 看 [第一次環境檢查輸出怎麼看](docs/onboarding/check-kernel-env-explained.md)
+7. 然後只做 [`labs/00-hello-module`](labs/00-hello-module)
 
 你現在看不懂大部分內容是正常的。這個 repo 的正確打開方式不是先把全部文件讀完，而是先跑通最小閉環，再回頭理解 code。
 
@@ -89,12 +90,18 @@
 
 ## 建議的第一天流程
 
-1. 完成 [閱讀地圖](docs/onboarding/reading-map.md) 指定的前三份文件
-2. 在 Linux 環境執行 [`scripts/check-kernel-env.sh`](scripts/check-kernel-env.sh)
-3. 完成 [`labs/00-hello-module/README.md`](labs/00-hello-module/README.md)
-4. 完成 [`labs/01-debugfs-logging/README.md`](labs/01-debugfs-logging/README.md)
-5. 完成 [`labs/02-char-device/README.md`](labs/02-char-device/README.md)
-6. 能清楚解釋 `read/write`、`debugfs`、cleanup path 之後，再前進 `03` 與 `04`
+1. 完成 [閱讀地圖](docs/onboarding/reading-map.md) 指定的起步文件
+2. 用 [0 基礎學習儀表板](docs/onboarding/learning-dashboard.md) 確認今天只追 `00`
+3. 在 Linux 環境執行 [`scripts/check-kernel-env.sh`](scripts/check-kernel-env.sh)
+4. 完成 [`labs/00-hello-module/README.md`](labs/00-hello-module/README.md)
+5. 回答 `00` README 裡的「完成後你應該能回答」
+
+## 建議的第一週流程
+
+1. 反覆跑通 `00`，直到你能說明 `insmod`、`rmmod`、`module_init()`、`dmesg`
+2. 完成 [`labs/01-debugfs-logging/README.md`](labs/01-debugfs-logging/README.md)，理解 debugfs 是 debug 介面
+3. 完成 [`labs/02-char-device/README.md`](labs/02-char-device/README.md)，理解 `/dev/...` 與 `file_operations`
+4. 能清楚解釋 `read/write`、`debugfs`、cleanup path 之後，再前進 `03` 與 `04`
 
 ## 專案結構
 

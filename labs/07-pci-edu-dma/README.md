@@ -101,6 +101,18 @@ cd labs/07-pci-edu-dma
 - `coherent buffer allocated`
 - `round-trip compare passed`
 
+## 完成後你應該能回答
+
+| 問題 | 標準答案 |
+|---|---|
+| coherent DMA buffer 有哪兩種視角？ | CPU 用 kernel pointer 存取同一塊 buffer；裝置用 DMA address 存取同一塊 buffer。 |
+| 為什麼要先設 DMA mask？ | 要確認裝置能定址 driver 分配給它的 DMA address 範圍；EDU lab 使用 28-bit mask。 |
+| round-trip 驗證在驗什麼？ | 先 RAM -> EDU，再 EDU -> RAM，最後用 `memcmp()` 比對 tx/rx buffer 是否一致。 |
+| 第一個觀測點是什麼？ | `dmesg` 中的 `dma mask configured`、`coherent buffer allocated`、`round-trip compare passed`。 |
+| 這一關主要拿到什麼 resource？ | BAR0 MMIO mapping、IRQ vector/handler、coherent DMA buffer。 |
+| cleanup 要釋放哪些東西？ | `free_irq()`、`pci_free_irq_vectors()`、`dma_free_coherent()`、`pci_iounmap()`、`pci_release_region()`、`pci_disable_device()`。 |
+| round-trip 失敗時第一個看哪裡？ | 先核對 DMA source/destination register、方向 bit、count，再看 timeout 或 IRQ completion log。 |
+
 ## 新手先記住這一關在補什麼
 
 - 這一關不只是「搬資料」

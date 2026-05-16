@@ -94,6 +94,18 @@ cd labs/06-pci-edu-irq
 - `irq status=...`
 - `irq self-test passed`
 
+## 完成後你應該能回答
+
+| 問題 | 標準答案 |
+|---|---|
+| 這一關建立在哪一關的基礎上？ | 建立在 `05` 的 PCI enable、BAR map、MMIO register access 之上，再加入 IRQ path。 |
+| IRQ handler 要做什麼？ | 不只印 log；它要讀 interrupt status、判斷是不是自己的事件、寫 acknowledge register，最後喚醒 completion。 |
+| 這一關如何觸發中斷？ | probe 自我測試會寫 EDU 的 interrupt raise register `0x60`。 |
+| 第一個觀測點是什麼？ | `dmesg` 中的 `request_irq ok`、`irq status=`、`irq self-test passed`。 |
+| 這一關主要拿到什麼 resource？ | BAR0 MMIO mapping、IRQ vector、IRQ handler registration。 |
+| cleanup 要釋放哪些東西？ | 先 `free_irq()` 與 `pci_free_irq_vectors()`，再 unmap BAR、release region、disable device。 |
+| handler 一直重進時第一個看哪裡？ | 優先檢查 handler 是否正確寫 interrupt acknowledge register `0x64`。 |
+
 ## 新手先記住這一關在補什麼
 
 - 前一關是「我能碰到 device」

@@ -85,6 +85,18 @@
 2. parallel access 可以穩定重現與觀察結果
 3. 每次失敗時知道要回頭看哪一份 log
 
+## 完成後你應該能回答
+
+| 問題 | 標準答案 |
+|---|---|
+| 這一關目前完成到哪裡？ | 目前已有 `03-ioctl-poll-mmap` 專用 repeated reload 與 parallel access stress 腳本。 |
+| 這一關目前還沒完成什麼？ | 尚未完成 KUnit、kselftest、`failslab`、`fail_page_alloc`、`fail_usercopy` 自動化與完整 fault injection framework。 |
+| repeated load/unload 主要驗什麼？ | 驗 init/exit cleanup 是否對稱，避免多跑幾次才暴露的 resource 泄漏或狀態殘留。 |
+| parallel access 主要驗什麼？ | 對共享狀態施壓，讓 read/write/ioctl/poll 同時被碰到時的問題更容易出現。 |
+| stress 和 regression 差在哪裡？ | stress 是重複施壓；regression 是每次修改後固定重跑，避免舊功能壞掉。 |
+| 第一個觀測點是什麼？ | `stress-03-reload passed.`、`stress-03-parallel passed.`，以及失敗時的 `dmesg`。 |
+| 失敗時第一個看哪裡？ | repeated reload 先看 cleanup path；parallel access 先看是否有 process 還持有 fd，再看 `dmesg`。 |
+
 ## 第一次卡住先看哪裡
 
 - repeated load/unload 偶發失敗

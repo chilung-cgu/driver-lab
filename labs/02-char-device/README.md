@@ -103,6 +103,17 @@ make
 - 可成功 read
 - unload 時沒有 resource 洩漏或明顯錯誤
 
+## 完成後你應該能回答
+
+| 問題 | 標準答案 |
+|---|---|
+| userspace 的入口在哪裡？ | `/dev/driver_lab_char0`；對它做 `read()` / `write()` 會經過 VFS 轉到 driver 的 `file_operations` callback。 |
+| `.read` / `.write` 分別接到哪裡？ | `.read` 接到 `dl_char_read()`，`.write` 接到 `dl_char_write()`。 |
+| 第一個觀測點是什麼？ | 寫入 `/dev/driver_lab_char0` 後讀回資料，並用 `dmesg` 觀察 `driver_lab_char` log。 |
+| 這一關主要拿到什麼 resource？ | major/minor device number、`cdev`、`class`、`device`，最後由 udev 建立 `/dev/driver_lab_char0`。 |
+| cleanup 要釋放哪些東西？ | `device_destroy()`、`class_destroy()`、`cdev_del()`、`unregister_chrdev_region()`，順序要大致反向於 init 拿資源的順序。 |
+| `/dev/driver_lab_char0` 沒出現時第一個看哪裡？ | 先看 `sudo dmesg | tail -n 50`，再查 `lsmod` 與 `ls -l /dev/driver_lab_char0`。 |
+
 ## 目前這支 driver 的刻意簡化
 
 - 每次 write 都會覆蓋整個 kernel buffer，不做 append

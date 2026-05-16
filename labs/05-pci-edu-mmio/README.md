@@ -111,6 +111,18 @@ cd labs/05-pci-edu-mmio
 5. 從 `dmesg` 檢查 `probe` / BAR map / liveness log
 6. `rmmod`
 
+## 完成後你應該能回答
+
+| 問題 | 標準答案 |
+|---|---|
+| `probe()` 什麼時候會被呼叫？ | PCI core 掃到裝置，且 vendor/device ID match `dl_edu_mmio_ids` 後，才呼叫 `dl_edu_mmio_probe()`。 |
+| 這一關的硬體入口是什麼？ | QEMU EDU PCI device，PCI ID 是 `1234:11e8`。 |
+| BAR0 在這裡是什麼？ | BAR0 是 EDU 的 MMIO register window；`pci_iomap()` 後 driver 可用 `ioread32()` / `iowrite32()` 存取 register。 |
+| 第一個觀測點是什麼？ | `lspci -nn | grep 1234:11e8` 與 `dmesg` 裡的 `probe start`、`BAR0 mapped`、`liveness check passed`。 |
+| 這一關主要拿到什麼 resource？ | PCI device enable 狀態、BAR0 region、BAR0 MMIO mapping。 |
+| cleanup 要釋放哪些東西？ | `pci_iounmap()`、`pci_release_region()`、`pci_disable_device()`。 |
+| `probe()` 沒進來時第一個看哪裡？ | 先在 guest 內跑 `lspci -nn | grep 1234:11e8`，確認 QEMU EDU 真的存在。 |
+
 ## 先不要急著碰的東西
 
 - MSI-X
