@@ -36,12 +36,12 @@ fi
 
 # 載入後先讀 status，再寫 trigger，確認 driver state 有變化。
 $SUDO insmod ./driver_lab_debugfs_logging.ko
-cat /sys/kernel/debug/driver_lab_debugfs/status
+$SUDO cat /sys/kernel/debug/driver_lab_debugfs/status
 printf '%s' 'smoke-one' | $SUDO tee /sys/kernel/debug/driver_lab_debugfs/trigger >/dev/null
-cat /sys/kernel/debug/driver_lab_debugfs/trigger_count
+$SUDO cat /sys/kernel/debug/driver_lab_debugfs/trigger_count
 
 if [ -e /proc/dynamic_debug/control ]; then
-    echo 'module driver_lab_debugfs_logging +p' | $SUDO tee /proc/dynamic_debug/control >/dev/null
+	echo 'module driver_lab_debugfs_logging +p' | $SUDO tee /proc/dynamic_debug/control >/dev/null
     printf '%s' 'smoke-two' | $SUDO tee /sys/kernel/debug/driver_lab_debugfs/trigger >/dev/null
 fi
 

@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 #ifndef DRIVER_LAB_UAPI_H
 #define DRIVER_LAB_UAPI_H
 
@@ -22,15 +23,15 @@
 
 /* DL_IOC_SET_MESSAGE 的 payload：userspace 把一段固定上限的文字送進 driver。 */
 struct dl_ioctl_message {
-    char text[DL_MESSAGE_BYTES];
+	char text[DL_MESSAGE_BYTES];
 };
 
 /* DL_IOC_GET_STATUS 的回傳：讓 userspace 觀察 driver 目前狀態。 */
 struct dl_ioctl_status {
-    unsigned int buffer_len;
-    unsigned int event_count;
-    unsigned int event_pending;
-    unsigned int mmap_size;
+	unsigned int buffer_len;
+	unsigned int event_count;
+	unsigned int event_pending;
+	unsigned int mmap_size;
 };
 
 /*
@@ -38,12 +39,12 @@ struct dl_ioctl_status {
  * userspace mmap 後會直接讀這個 struct，因此欄位順序與大小也是 ABI。
  */
 struct dl_shared_page {
-    unsigned int magic;
-    unsigned int version;
-    unsigned int event_count;
-    unsigned int event_pending;
-    unsigned int buffer_len;
-    char buffer[DL_MESSAGE_BYTES];
+	unsigned int magic;
+	unsigned int version;
+	unsigned int event_count;
+	unsigned int event_pending;
+	unsigned int buffer_len;
+	char buffer[DL_MESSAGE_BYTES];
 };
 
 /*

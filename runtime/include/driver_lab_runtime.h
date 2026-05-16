@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 #ifndef DRIVER_LAB_RUNTIME_H
 #define DRIVER_LAB_RUNTIME_H
 
@@ -15,7 +16,7 @@ extern "C" {
  * 對新手來說，可以先把它想成「已開啟的 /dev/...」。
  */
 struct dl_runtime_handle {
-    int fd;
+	int fd;
 };
 
 /* 開啟 lab driver 匯出的 device node，例如 /dev/driver_lab_char0。 */

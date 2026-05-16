@@ -20,9 +20,10 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 cleanup() {
-    if lsmod | grep -q "^${MODULE_NAME} "; then
-        $SUDO rmmod "$MODULE_NAME" || true
-    fi
+	if lsmod | grep -q "^${MODULE_NAME} "; then
+		$SUDO rmmod "$MODULE_NAME" || true
+	fi
+	make -C "$LAB_DIR" clean >/dev/null 2>&1 || true
 }
 
 trap cleanup EXIT INT TERM

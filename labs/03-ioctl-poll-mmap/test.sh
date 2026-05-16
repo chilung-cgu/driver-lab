@@ -43,21 +43,21 @@ fi
 $SUDO insmod "./${MODULE_NAME}.ko"
 
 # CLI 透過 runtime 呼叫 driver，這裡逐一驗證 control/data/shared/event path。
-"$ROOT_DIR/tests/driver_lab_char_cli" /dev/driver_lab_ctl0 ioctl-write hello-ioctl
-"$ROOT_DIR/tests/driver_lab_char_cli" /dev/driver_lab_ctl0 status | grep 'buffer_len='
-"$ROOT_DIR/tests/driver_lab_char_cli" /dev/driver_lab_ctl0 read | grep 'hello-ioctl'
-"$ROOT_DIR/tests/driver_lab_char_cli" /dev/driver_lab_ctl0 mmap-read | grep 'magic=0x'
+$SUDO "$ROOT_DIR/tests/driver_lab_char_cli" /dev/driver_lab_ctl0 ioctl-write hello-ioctl
+$SUDO "$ROOT_DIR/tests/driver_lab_char_cli" /dev/driver_lab_ctl0 status | grep 'buffer_len='
+$SUDO "$ROOT_DIR/tests/driver_lab_char_cli" /dev/driver_lab_ctl0 read | grep 'hello-ioctl'
+$SUDO "$ROOT_DIR/tests/driver_lab_char_cli" /dev/driver_lab_ctl0 mmap-read | grep 'magic=0x'
 
 # 背景 poll 先等事件；主流程再 trigger，確認 waitqueue path 真的會喚醒。
-"$ROOT_DIR/tests/driver_lab_char_cli" /dev/driver_lab_ctl0 poll 3000 >"$POLL_LOG" &
+$SUDO "$ROOT_DIR/tests/driver_lab_char_cli" /dev/driver_lab_ctl0 poll 3000 >"$POLL_LOG" &
 poll_pid=$!
 sleep 1
-"$ROOT_DIR/tests/driver_lab_char_cli" /dev/driver_lab_ctl0 trigger
+$SUDO "$ROOT_DIR/tests/driver_lab_char_cli" /dev/driver_lab_ctl0 trigger
 wait "$poll_pid"
 poll_pid=
 grep 'poll ret=1' "$POLL_LOG"
 
-"$ROOT_DIR/tests/driver_lab_char_cli" /dev/driver_lab_ctl0 clear
+$SUDO "$ROOT_DIR/tests/driver_lab_char_cli" /dev/driver_lab_ctl0 clear
 $SUDO rmmod "$MODULE_NAME"
 make clean
 

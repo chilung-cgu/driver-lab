@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * 這一關刻意保留「會 race」與「用 mutex 修正」兩種模式。
  * 目的不是寫一支產品 driver，而是讓 lost update 可以被觀察、被解釋、再被修正。
@@ -40,219 +41,219 @@ static bool dl_worker_running;
 
 static void dl_race_increment_locked(void)
 {
-    /* 這是修正後的最小版本：一次只讓一條路徑修改 counter。 */
-    dl_counter++;
+	/* 這是修正後的最小版本：一次只讓一條路徑修改 counter。 */
+	dl_counter++;
 }
 
 static void dl_race_increment_unlocked(void)
 {
-    unsigned int snapshot;
+	unsigned int snapshot;
 
-    /*
-     * 故意把「讀 -> 等一下 -> 寫回」拆開，
-     * 讓多條 userspace 路徑更容易踩出 lost update。
-     */
-    snapshot = dl_counter;
-    usleep_range(1000, 2000);
-    dl_counter = snapshot + 1;
+	/*
+	 * 故意把「讀 -> 等一下 -> 寫回」拆開，
+	 * 讓多條 userspace 路徑更容易踩出 lost update。
+	 */
+	snapshot = dl_counter;
+	usleep_range(1000, 2000);
+	dl_counter = snapshot + 1;
 }
 
 static void dl_race_increment(void)
 {
-    /*
-     * 這裡刻意只示範「counter 沒有被妥善保護」的 race。
-     * safe_mode 本身則用 READ_ONCE/WRITE_ONCE 包起來，
-     * 避免新手把「示範 race」和「額外的未同步旗標讀寫」混為一談。
-     */
-    if (READ_ONCE(dl_safe_mode)) {
-        mutex_lock(&dl_race_lock);
-        dl_race_increment_locked();
-        mutex_unlock(&dl_race_lock);
-        return;
-    }
+	/*
+	 * 這裡刻意只示範「counter 沒有被妥善保護」的 race。
+	 * safe_mode 本身則用 READ_ONCE/WRITE_ONCE 包起來，
+	 * 避免新手把「示範 race」和「額外的未同步旗標讀寫」混為一談。
+	 */
+	if (READ_ONCE(dl_safe_mode)) {
+		mutex_lock(&dl_race_lock);
+		dl_race_increment_locked();
+		mutex_unlock(&dl_race_lock);
+		return;
+	}
 
-    dl_race_increment_unlocked();
+	dl_race_increment_unlocked();
 }
 
 static int dl_race_worker_fn(void *unused)
 {
-    /* 模擬「就算 userspace 沒下指令，driver 背後也可能有工作在跑」。 */
-    while (!kthread_should_stop()) {
-        if (READ_ONCE(dl_safe_mode)) {
-            mutex_lock(&dl_race_lock);
-            dl_race_increment_locked();
-            mutex_unlock(&dl_race_lock);
-        } else {
-            dl_race_increment_unlocked();
-        }
+	/* 模擬「就算 userspace 沒下指令，driver 背後也可能有工作在跑」。 */
+	while (!kthread_should_stop()) {
+		if (READ_ONCE(dl_safe_mode)) {
+			mutex_lock(&dl_race_lock);
+			dl_race_increment_locked();
+			mutex_unlock(&dl_race_lock);
+		} else {
+			dl_race_increment_unlocked();
+		}
 
-        msleep(20);
-    }
+		msleep(20);
+	}
 
-    return 0;
+	return 0;
 }
 
 static int dl_race_open(struct inode *inode, struct file *file)
 {
-    pr_info("device opened\n");
-    return 0;
+	pr_info("device opened\n");
+	return 0;
 }
 
 static int dl_race_release(struct inode *inode, struct file *file)
 {
-    pr_info("device released\n");
-    return 0;
+	pr_info("device released\n");
+	return 0;
 }
 
 static ssize_t dl_race_read(struct file *file, char __user *buf,
-                            size_t count, loff_t *ppos)
+							size_t count, loff_t *ppos)
 {
-    char status[DL_STATUS_BUFFER_BYTES];
-    int len;
+	char status[DL_STATUS_BUFFER_BYTES];
+	int len;
 
-    /* read() 只負責把目前狀態白話地吐回 userspace。 */
-    mutex_lock(&dl_race_lock);
-    len = scnprintf(status, sizeof(status),
-                    "counter=%u safe_mode=%u worker_running=%u\n",
-                    dl_counter, dl_safe_mode ? 1 : 0,
-                    dl_worker_running ? 1 : 0);
-    mutex_unlock(&dl_race_lock);
+	/* read() 只負責把目前狀態白話地吐回 userspace。 */
+	mutex_lock(&dl_race_lock);
+	len = scnprintf(status, sizeof(status),
+					"counter=%u safe_mode=%u worker_running=%u\n",
+					dl_counter, dl_safe_mode ? 1 : 0,
+					dl_worker_running ? 1 : 0);
+	mutex_unlock(&dl_race_lock);
 
-    return simple_read_from_buffer(buf, count, ppos, status, len);
+	return simple_read_from_buffer(buf, count, ppos, status, len);
 }
 
 static long dl_race_ioctl(struct file *file, unsigned int cmd,
-                          unsigned long arg)
+						  unsigned long arg)
 {
-    struct dl_race_status status;
-    unsigned int safe_mode;
+	struct dl_race_status status;
+	unsigned int safe_mode;
 
-    switch (cmd) {
-    case DL_RACE_IOC_SET_SAFE_MODE:
-        /* 讓 userspace 可以切換「故意示範 race」與「用 mutex 修正」兩種模式。 */
-        if (copy_from_user(&safe_mode, (void __user *)arg, sizeof(safe_mode)))
-            return -EFAULT;
+	switch (cmd) {
+	case DL_RACE_IOC_SET_SAFE_MODE:
+		/* 讓 userspace 可以切換「故意示範 race」與「用 mutex 修正」兩種模式。 */
+		if (copy_from_user(&safe_mode, (void __user *)arg, sizeof(safe_mode)))
+			return -EFAULT;
 
-        mutex_lock(&dl_race_lock);
-        WRITE_ONCE(dl_safe_mode, safe_mode ? true : false);
-        mutex_unlock(&dl_race_lock);
-        break;
+		mutex_lock(&dl_race_lock);
+		WRITE_ONCE(dl_safe_mode, safe_mode ? true : false);
+		mutex_unlock(&dl_race_lock);
+		break;
 
-    case DL_RACE_IOC_GET_STATUS:
-        /*
-         * ioctl status 回傳的是結構化 ABI；read() 回傳的是給人看的文字。
-         * 兩者都讀同一份 state，所以都要用同一把 lock 保護。
-         */
-        mutex_lock(&dl_race_lock);
-        status.counter = dl_counter;
-        status.safe_mode = dl_safe_mode ? 1U : 0U;
-        status.worker_running = dl_worker_running ? 1U : 0U;
-        mutex_unlock(&dl_race_lock);
+	case DL_RACE_IOC_GET_STATUS:
+		/*
+		 * ioctl status 回傳的是結構化 ABI；read() 回傳的是給人看的文字。
+		 * 兩者都讀同一份 state，所以都要用同一把 lock 保護。
+		 */
+		mutex_lock(&dl_race_lock);
+		status.counter = dl_counter;
+		status.safe_mode = dl_safe_mode ? 1U : 0U;
+		status.worker_running = dl_worker_running ? 1U : 0U;
+		mutex_unlock(&dl_race_lock);
 
-        if (copy_to_user((void __user *)arg, &status, sizeof(status)))
-            return -EFAULT;
-        break;
+		if (copy_to_user((void __user *)arg, &status, sizeof(status)))
+			return -EFAULT;
+		break;
 
-    case DL_RACE_IOC_INC_COUNTER:
-        /* 這是 race 實驗的主角：多條 thread 會反覆打這個 ioctl。 */
-        dl_race_increment();
-        break;
+	case DL_RACE_IOC_INC_COUNTER:
+		/* 這是 race 實驗的主角：多條 thread 會反覆打這個 ioctl。 */
+		dl_race_increment();
+		break;
 
-    case DL_RACE_IOC_RESET_COUNTER:
-        mutex_lock(&dl_race_lock);
-        dl_counter = 0;
-        mutex_unlock(&dl_race_lock);
-        break;
+	case DL_RACE_IOC_RESET_COUNTER:
+		mutex_lock(&dl_race_lock);
+		dl_counter = 0;
+		mutex_unlock(&dl_race_lock);
+		break;
 
-    default:
-        return -ENOTTY;
-    }
+	default:
+		return -ENOTTY;
+	}
 
-    return 0;
+	return 0;
 }
 
 static const struct file_operations dl_race_fops = {
-    .owner = THIS_MODULE,
-    /* /dev/driver_lab_race0 的 read/ioctl 入口。 */
-    .open = dl_race_open,
-    .release = dl_race_release,
-    .read = dl_race_read,
-    .unlocked_ioctl = dl_race_ioctl,
-    .llseek = no_llseek,
+	.owner = THIS_MODULE,
+	/* /dev/driver_lab_race0 的 read/ioctl 入口。 */
+	.open = dl_race_open,
+	.release = dl_race_release,
+	.read = dl_race_read,
+	.unlocked_ioctl = dl_race_ioctl,
+	.llseek = noop_llseek,
 };
 
 static int __init driver_lab_race_init(void)
 {
-    int ret;
+	int ret;
 
-    /* 先註冊字元裝置號，後面才能建立 /dev 節點。 */
-    ret = alloc_chrdev_region(&dl_race_devt, 0, 1, DL_RACE_CLASS_NAME);
-    if (ret)
-        return ret;
+	/* 先註冊字元裝置號，後面才能建立 /dev 節點。 */
+	ret = alloc_chrdev_region(&dl_race_devt, 0, 1, DL_RACE_CLASS_NAME);
+	if (ret)
+		return ret;
 
-    cdev_init(&dl_race_cdev, &dl_race_fops);
-    dl_race_cdev.owner = THIS_MODULE;
+	cdev_init(&dl_race_cdev, &dl_race_fops);
+	dl_race_cdev.owner = THIS_MODULE;
 
-    ret = cdev_add(&dl_race_cdev, dl_race_devt, 1);
-    if (ret)
-        goto err_unregister_chrdev;
+	ret = cdev_add(&dl_race_cdev, dl_race_devt, 1);
+	if (ret)
+		goto err_unregister_chrdev;
 
-    dl_race_class = class_create(DL_RACE_CLASS_NAME);
-    if (IS_ERR(dl_race_class)) {
-        ret = PTR_ERR(dl_race_class);
-        goto err_del_cdev;
-    }
+	dl_race_class = class_create(DL_RACE_CLASS_NAME);
+	if (IS_ERR(dl_race_class)) {
+		ret = PTR_ERR(dl_race_class);
+		goto err_del_cdev;
+	}
 
-    dl_race_device = device_create(dl_race_class, NULL, dl_race_devt, NULL,
-                                   DL_RACE_DEVICE_NAME);
-    if (IS_ERR(dl_race_device)) {
-        ret = PTR_ERR(dl_race_device);
-        goto err_destroy_class;
-    }
+	dl_race_device = device_create(dl_race_class, NULL, dl_race_devt, NULL,
+								   DL_RACE_DEVICE_NAME);
+	if (IS_ERR(dl_race_device)) {
+		ret = PTR_ERR(dl_race_device);
+		goto err_destroy_class;
+	}
 
-    /* 啟動背景 worker，讓 race 不只來自 userspace，也來自 driver 內部工作。 */
-    dl_race_worker = kthread_run(dl_race_worker_fn, NULL, "dl_race_worker");
-    if (IS_ERR(dl_race_worker)) {
-        ret = PTR_ERR(dl_race_worker);
-        goto err_destroy_device;
-    }
+	/* 啟動背景 worker，讓 race 不只來自 userspace，也來自 driver 內部工作。 */
+	dl_race_worker = kthread_run(dl_race_worker_fn, NULL, "dl_race_worker");
+	if (IS_ERR(dl_race_worker)) {
+		ret = PTR_ERR(dl_race_worker);
+		goto err_destroy_device;
+	}
 
-    mutex_lock(&dl_race_lock);
-    dl_counter = 0;
-    WRITE_ONCE(dl_safe_mode, false);
-    dl_worker_running = true;
-    mutex_unlock(&dl_race_lock);
+	mutex_lock(&dl_race_lock);
+	dl_counter = 0;
+	WRITE_ONCE(dl_safe_mode, false);
+	dl_worker_running = true;
+	mutex_unlock(&dl_race_lock);
 
-    pr_info("created /dev/%s (major=%d minor=%d)\n",
-            DL_RACE_DEVICE_NAME, MAJOR(dl_race_devt), MINOR(dl_race_devt));
-    return 0;
+	pr_info("created /dev/%s (major=%d minor=%d)\n",
+			DL_RACE_DEVICE_NAME, MAJOR(dl_race_devt), MINOR(dl_race_devt));
+	return 0;
 
 err_destroy_device:
-    device_destroy(dl_race_class, dl_race_devt);
+	device_destroy(dl_race_class, dl_race_devt);
 err_destroy_class:
-    class_destroy(dl_race_class);
+	class_destroy(dl_race_class);
 err_del_cdev:
-    cdev_del(&dl_race_cdev);
+	cdev_del(&dl_race_cdev);
 err_unregister_chrdev:
-    unregister_chrdev_region(dl_race_devt, 1);
-    return ret;
+	unregister_chrdev_region(dl_race_devt, 1);
+	return ret;
 }
 
 static void __exit driver_lab_race_exit(void)
 {
-    /* 先停 worker，再拆裝置資源，避免背景 thread 繼續碰已釋放的物件。 */
-    mutex_lock(&dl_race_lock);
-    dl_worker_running = false;
-    mutex_unlock(&dl_race_lock);
+	/* 先停 worker，再拆裝置資源，避免背景 thread 繼續碰已釋放的物件。 */
+	mutex_lock(&dl_race_lock);
+	dl_worker_running = false;
+	mutex_unlock(&dl_race_lock);
 
-    if (dl_race_worker)
-        kthread_stop(dl_race_worker);
+	if (dl_race_worker)
+		kthread_stop(dl_race_worker);
 
-    device_destroy(dl_race_class, dl_race_devt);
-    class_destroy(dl_race_class);
-    cdev_del(&dl_race_cdev);
-    unregister_chrdev_region(dl_race_devt, 1);
-    pr_info("device removed\n");
+	device_destroy(dl_race_class, dl_race_devt);
+	class_destroy(dl_race_class);
+	cdev_del(&dl_race_cdev);
+	unregister_chrdev_region(dl_race_devt, 1);
+	pr_info("device removed\n");
 }
 
 module_init(driver_lab_race_init);

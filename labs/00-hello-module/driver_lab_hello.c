@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * pr_fmt() 會被 pr_info()/pr_err() 這類 logging macro 使用。
  * 這裡把 module 名稱自動加到每一行 log 前面，之後看 dmesg 時比較容易知道
@@ -38,18 +39,18 @@ MODULE_PARM_DESC(repeat, "How many hello messages to emit (1-8)");
  */
 static int __init driver_lab_hello_init(void)
 {
-    int i;
+	int i;
 
-    /* 第一個 lab 先保持規則單純，讓 smoke test 容易預測。 */
-    if (repeat < 1 || repeat > 8)
-        return -EINVAL;
+	/* 第一個 lab 先保持規則單純，讓 smoke test 容易預測。 */
+	if (repeat < 1 || repeat > 8)
+		return -EINVAL;
 
-    pr_info("init who=%s repeat=%d\n", who, repeat);
+	pr_info("init who=%s repeat=%d\n", who, repeat);
 
-    for (i = 0; i < repeat; ++i)
-        pr_info("hello %d/%d to %s\n", i + 1, repeat, who);
+	for (i = 0; i < repeat; ++i)
+		pr_info("hello %d/%d to %s\n", i + 1, repeat, who);
 
-    return 0;
+	return 0;
 }
 
 /*
@@ -59,7 +60,7 @@ static int __init driver_lab_hello_init(void)
  */
 static void __exit driver_lab_hello_exit(void)
 {
-    pr_info("exit\n");
+	pr_info("exit\n");
 }
 
 /* 明確告訴 kernel：載入與卸載時分別要呼叫哪兩個函式。 */

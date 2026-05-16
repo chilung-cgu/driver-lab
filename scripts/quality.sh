@@ -157,7 +157,10 @@ run_checkpatch() {
     checkpatch=
 
     if checkpatch=$(locate_checkpatch); then
-        find "$TARGET_DIR" -type f -name '*.c' | while IFS= read -r file; do
+        find "$TARGET_DIR" -type f \( -name '*.c' -o -name '*.h' \) \
+            ! -name '*.mod.c' \
+            ! -name '.module-common.c' \
+            ! -path '*/.tmp_versions/*' | while IFS= read -r file; do
             printf 'checkpatch %s\n' "$file"
             perl "$checkpatch" --no-tree -f "$file"
         done

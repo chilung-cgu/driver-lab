@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 #ifndef DRIVER_LAB_RACE_UAPI_H
 #define DRIVER_LAB_RACE_UAPI_H
 
@@ -8,12 +9,12 @@
 #endif
 
 struct dl_race_status {
-    /* 目前共享 counter 的值。 */
-    unsigned int counter;
-    /* 0: 故意不加鎖，1: 用 mutex 保護。 */
-    unsigned int safe_mode;
-    /* 背景 worker thread 是否仍在運作。 */
-    unsigned int worker_running;
+	/* 目前共享 counter 的值。 */
+	unsigned int counter;
+	/* 0: 故意不加鎖，1: 用 mutex 保護。 */
+	unsigned int safe_mode;
+	/* 背景 worker thread 是否仍在運作。 */
+	unsigned int worker_running;
 };
 
 #define DL_RACE_IOCTL_TYPE 'R'

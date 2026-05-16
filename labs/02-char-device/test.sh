@@ -13,15 +13,15 @@ cd "$SCRIPT_DIR"
 MODULE_NAME=driver_lab_char
 SUDO=
 MESSAGE='hello-char-device'
-READBACK_FILE=$(mktemp)
-EXPECTED_FILE=$(mktemp)
+TMP_DIR=$(mktemp -d)
+READBACK_FILE="$TMP_DIR/readback"
+EXPECTED_FILE="$TMP_DIR/expected"
 
 cleanup() {
-    if lsmod | grep -q "^${MODULE_NAME} "; then
-        $SUDO rmmod "$MODULE_NAME" || true
-    fi
-    rm -f "$READBACK_FILE"
-    rm -f "$EXPECTED_FILE"
+	if lsmod | grep -q "^${MODULE_NAME} "; then
+		$SUDO rmmod "$MODULE_NAME" || true
+	fi
+	rm -rf "$TMP_DIR"
 }
 
 trap cleanup EXIT INT TERM
