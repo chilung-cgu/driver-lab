@@ -125,6 +125,14 @@ sudo rmmod driver_lab_race
 
 這就是最基本的 race 對照實驗。
 
+## 第一輪閱讀界線
+
+| 分類 | 內容 |
+|---|---|
+| 第一輪必懂 | unsafe mode 故意示範 lost update；safe mode 用 mutex 保護共享 counter；背景 kthread 也是共享狀態的競爭來源。 |
+| 可以先略過 | spinlock、atomic、completion、workqueue 的完整使用時機；KASAN/KCSAN/lockdep 的實戰細節。 |
+| 之後再回來補 | process context vs IRQ context 的 lock 選擇、worker lifetime、卸載時如何避免背景工作碰已釋放資源。 |
+
 ## 完成後你應該能回答
 
 | 問題 | 標準答案 |

@@ -101,6 +101,14 @@ cd labs/07-pci-edu-dma
 - `coherent buffer allocated`
 - `round-trip compare passed`
 
+## 第一輪閱讀界線
+
+| 分類 | 內容 |
+|---|---|
+| 第一輪必懂 | coherent DMA buffer 同時有 CPU pointer 和 device DMA address；round-trip 是 RAM -> EDU -> RAM；最後用 `memcmp()` 驗資料一致。 |
+| 可以先略過 | streaming DMA API、cache coherency 細節、IOMMU、scatter-gather、DMA engine framework。 |
+| 之後再回來補 | DMA direction、mapping lifetime、硬體 DMA mask 限制、錯誤路徑如何避免 buffer 或 IRQ resource 泄漏。 |
+
 ## 完成後你應該能回答
 
 | 問題 | 標準答案 |

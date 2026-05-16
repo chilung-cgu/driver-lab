@@ -111,6 +111,14 @@ cd labs/05-pci-edu-mmio
 5. 從 `dmesg` 檢查 `probe` / BAR map / liveness log
 6. `rmmod`
 
+## 第一輪閱讀界線
+
+| 分類 | 內容 |
+|---|---|
+| 第一輪必懂 | QEMU EDU 必須先出現在 guest 的 PCI bus；PCI ID match 後才會進 `probe()`；BAR0 map 後才能用 `ioread32()` / `iowrite32()` 讀寫 register。 |
+| 可以先略過 | PCI enumeration 的完整流程；BAR assignment 的平台細節；AER、reset、power management。 |
+| 之後再回來補 | `pci_request_region()` 的 resource ownership、MMIO ordering、不同 BAR 類型與 real hardware bring-up 差異。 |
+
 ## 完成後你應該能回答
 
 | 問題 | 標準答案 |

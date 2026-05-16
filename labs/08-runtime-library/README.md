@@ -74,6 +74,14 @@
 - [`../02-char-device/README.md`](../02-char-device/README.md)
 - [`../03-ioctl-poll-mmap/README.md`](../03-ioctl-poll-mmap/README.md)
 
+## 第一輪閱讀界線
+
+| 分類 | 內容 |
+|---|---|
+| 第一輪必懂 | runtime 是 userspace library，不是 kernel driver；它把 open/read/write/ioctl/poll/mmap 包成一致的 C API；目前主要服務 `02/03`。 |
+| 可以先略過 | 產品級 timeout/retry/error mapping；跨版本 ABI compatibility；PCIe/QEMU EDU 專用 helper。 |
+| 之後再回來補 | runtime API 穩定性、錯誤碼收斂、CLI/test 如何避免直接散寫 syscall。 |
+
 ## 完成後你應該能回答
 
 | 問題 | 標準答案 |

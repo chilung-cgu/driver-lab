@@ -137,6 +137,14 @@ sudo rmmod driver_lab_ioctl_poll_mmap
 ./test.sh
 ```
 
+## 第一輪閱讀界線
+
+| 分類 | 內容 |
+|---|---|
+| 第一輪必懂 | `03` 把 `02` 的 read/write 擴成四條路：data path、control path、event path、shared memory path；每條路都有對應 CLI subcommand 可觀測。 |
+| 可以先略過 | `_IOW/_IOR` macro 的所有位元編碼細節；`poll_table` 內部；page fault 與 VMA 的完整 memory-management 流程。 |
+| 之後再回來補 | ABI versioning、blocking/non-blocking 的完整錯誤語意、runtime 如何把 ioctl/poll/mmap 包成穩定 API。 |
+
 ## 完成後你應該能回答
 
 | 問題 | 標準答案 |

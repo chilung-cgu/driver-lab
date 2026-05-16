@@ -94,6 +94,14 @@ cd labs/06-pci-edu-irq
 - `irq status=...`
 - `irq self-test passed`
 
+## 第一輪閱讀界線
+
+| 分類 | 內容 |
+|---|---|
+| 第一輪必懂 | IRQ 是裝置通知 driver 的路徑；handler 要讀 status、判斷事件、寫 acknowledge、喚醒 completion；MSI 需要 bus mastering。 |
+| 可以先略過 | INTx/MSI/MSI-X 的完整硬體差異；interrupt affinity；threaded IRQ；shared IRQ 的所有 corner cases。 |
+| 之後再回來補 | 為什麼 handler 要短、哪些工作不能在 hard IRQ context 做、真實裝置如何設計多個 IRQ vector。 |
+
 ## 完成後你應該能回答
 
 | 問題 | 標準答案 |

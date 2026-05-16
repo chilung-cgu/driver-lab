@@ -85,6 +85,14 @@
 2. parallel access 可以穩定重現與觀察結果
 3. 每次失敗時知道要回頭看哪一份 log
 
+## 第一輪閱讀界線
+
+| 分類 | 內容 |
+|---|---|
+| 第一輪必懂 | repeated load/unload 主要驗 cleanup 對稱性；parallel access 主要驗共享狀態壓力；目前已有 `03` 專用 stress 腳本。 |
+| 可以先略過 | KUnit、kselftest、`failslab`、`fail_page_alloc`、`fail_usercopy` 的完整框架與設定細節。 |
+| 之後再回來補 | fault injection 自動化、長時間 regression matrix、`05-07` QEMU EDU stress suite。 |
+
 ## 完成後你應該能回答
 
 | 問題 | 標準答案 |

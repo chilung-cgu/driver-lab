@@ -140,6 +140,14 @@ fi
 - `trigger_count` 會增加
 - dynamic debug 啟用後，看得到 `pr_debug()` 路徑
 
+## 第一輪閱讀界線
+
+| 分類 | 內容 |
+|---|---|
+| 第一輪必懂 | debugfs 是 debug 觀測入口；寫 `trigger` 會進 `dl_trigger_write()`；讀 `status` 會走到 `dl_status_show()`；`pr_debug()` 可用 dynamic debug 選擇性打開。 |
+| 可以先略過 | `struct inode`、`struct file`、`struct seq_file` 的完整內部結構；dynamic debug query language 的完整語法。 |
+| 之後再回來補 | VFS 如何管理 open file lifetime；`seq_file` 如何處理多段輸出；debugfs API 在大型 driver 裡的目錄設計。 |
+
 ## 完成後你應該能回答
 
 | 問題 | 標準答案 |

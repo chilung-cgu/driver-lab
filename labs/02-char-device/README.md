@@ -103,6 +103,14 @@ make
 - 可成功 read
 - unload 時沒有 resource 洩漏或明顯錯誤
 
+## 第一輪閱讀界線
+
+| 分類 | 內容 |
+|---|---|
+| 第一輪必懂 | `/dev/driver_lab_char0` 是 userspace 入口；`write()` 會進 `dl_char_write()`；`read()` 會進 `dl_char_read()`；init 拿到的 device resource 要在 exit 反向釋放。 |
+| 可以先略過 | `struct inode` / `struct file` 的完整內容；udev/devtmpfs 建立 device node 的完整流程；major/minor 編號管理的所有細節。 |
+| 之後再回來補 | `cdev` lifetime、device class 與 sysfs 的關係、同一個 device 被多個 process 同時開啟時的語意。 |
+
 ## 完成後你應該能回答
 
 | 問題 | 標準答案 |
