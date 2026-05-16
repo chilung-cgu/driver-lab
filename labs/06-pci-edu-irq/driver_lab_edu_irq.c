@@ -82,6 +82,12 @@ static int dl_edu_irq_probe(struct pci_dev *pdev, const struct pci_device_id *id
 		return ret;
 	}
 
+	/*
+	 * MSI 是裝置主動送出的 memory write；如果 PCI core 配到 MSI，
+	 * 需要先開 bus mastering，EDU 才能把 MSI 送出去。
+	 */
+	pci_set_master(pdev);
+
 	ret = pci_request_region(pdev, DL_EDU_BAR_INDEX, KBUILD_MODNAME);
 	if (ret) {
 		dev_err(&pdev->dev, "pci_request_region BAR%d failed: %d\n",

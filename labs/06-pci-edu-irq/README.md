@@ -71,9 +71,9 @@
 `dmesg` 裡第一版通常至少要看到：
 
 ```text
-driver_lab_edu: request_irq ok
-driver_lab_edu: irq status=0x1
-driver_lab_edu: irq acknowledged
+driver_lab_edu_irq: request_irq ok
+driver_lab_edu_irq: irq status=0x00000001 acknowledged
+driver_lab_edu_irq: irq self-test passed
 ```
 
 這裡最重要的不是 log 漂不漂亮，而是：
@@ -101,6 +101,7 @@ cd labs/06-pci-edu-irq
 | 這一關建立在哪一關的基礎上？ | 建立在 `05` 的 PCI enable、BAR map、MMIO register access 之上，再加入 IRQ path。 |
 | IRQ handler 要做什麼？ | 不只印 log；它要讀 interrupt status、判斷是不是自己的事件、寫 acknowledge register，最後喚醒 completion。 |
 | 這一關如何觸發中斷？ | probe 自我測試會寫 EDU 的 interrupt raise register `0x60`。 |
+| 為什麼 `06` 也呼叫 `pci_set_master()`？ | 因為 PCI MSI 是 device-originated memory write；若 PCI core 配到 MSI，裝置需要 bus mastering 才能把 MSI 送出。 |
 | 第一個觀測點是什麼？ | `dmesg` 中的 `request_irq ok`、`irq status=`、`irq self-test passed`。 |
 | 這一關主要拿到什麼 resource？ | BAR0 MMIO mapping、IRQ vector、IRQ handler registration。 |
 | cleanup 要釋放哪些東西？ | 先 `free_irq()` 與 `pci_free_irq_vectors()`，再 unmap BAR、release region、disable device。 |
