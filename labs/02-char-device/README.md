@@ -48,6 +48,16 @@ sequenceDiagram
     V-->>U: read() returns data
 ```
 
+> **逐步說明：**
+>
+> 1. **userspace 寫入 device node**：`tee /dev/driver_lab_char0` 不是寫普通檔案，而是對 char device 做 `write()`。
+> 2. **VFS 分派到 driver**：kernel 透過 major/minor 與 `cdev` 找到 `dl_char_fops`，再呼叫 `.write` 指向的 `dl_char_write()`。
+> 3. **driver 更新 kernel buffer**：`dl_char_write()` 用 `copy_from_user()` 把 userspace 字串複製進 driver 維護的 buffer。
+> 4. **userspace 讀回資料**：`dd if=/dev/driver_lab_char0` 觸發 `read()`，VFS 再呼叫 `dl_char_read()`。
+> 5. **driver 回傳 buffer**：`dl_char_read()` 用 `copy_to_user()` 把 kernel buffer 複製回 userspace。
+>
+> **白話總結**：`/dev/driver_lab_char0` 像一個櫃台窗口，寫入是把資料交給 driver，讀取是請 driver 把目前保存的資料拿回來。
+
 ## 提供的裝置
 
 ```text
@@ -79,6 +89,19 @@ make clean
 ```sh
 ./test.sh
 ```
+
+`test.sh` 逐段在驗什麼：
+
+1. 確認目前是 Linux，因為 macOS 不能載入 Linux kernel module。
+2. `make` 建出 `driver_lab_char.ko`。
+3. 如果前一次測試留下同名 module，先 `rmmod` 清掉。
+4. `insmod` 載入 module，讓 `/dev/driver_lab_char0` 出現。
+5. 用 `tee` 寫入固定字串，再用 `dd` 讀回同樣長度。
+6. 用 `diff -u` 比對 expected/readback，確認 data path 沒跑偏。
+7. 用 `dmesg | grep driver_lab_char` 確認 kernel log 有本 lab 訊息。
+8. `rmmod` 與 `make clean` 收尾。
+
+第一輪看不懂 shell 細節沒關係，先抓住它在驗「write 進 driver，再 read 回來」。
 
 ## user-space runtime
 

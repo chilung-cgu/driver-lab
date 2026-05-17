@@ -96,6 +96,16 @@ flowchart LR
     K --> R["read()"]
 ```
 
+> **逐步說明：**
+>
+> 1. **CLI 發出不同操作**：同一支 CLI 可能呼叫 `write()`、`ioctl()`、`poll()` 或 `mmap()`。
+> 2. **driver 更新共享狀態**：不管是寫入訊息或觸發 event，最後都會改到 `buffer`、`event_count`、`event_pending` 這類 kernel state。
+> 3. **`read()` 讀 data path**：userspace 透過 `read()` 把目前 buffer 取回，這是最像 `02` 的路徑。
+> 4. **`poll()` 等 event path**：如果目前沒有資料或事件，userspace 可以睡著等 driver 喚醒，不需要一直輪詢。
+> 5. **`mmap()` 看 shared page**：userspace 讀到的是 driver 維護的一頁 snapshot，不是任意 kernel memory。
+>
+> **白話總結**：`03` 像把同一個櫃台分成資料、控制、等待通知、公告欄四種服務；入口一樣是 device node，但用途變多了。
+
 ## 成功標準
 
 - userspace 能透過 `ioctl` 控制 driver
@@ -136,6 +146,21 @@ sudo rmmod driver_lab_ioctl_poll_mmap
 ```sh
 ./test.sh
 ```
+
+`test.sh` 逐段在驗什麼：
+
+1. 確認目前是 Linux，並進入本 lab 目錄。
+2. `make` 建 module，`make -C ../../runtime` 建 userspace runtime 與 CLI。
+3. 若前一次留下 module，先卸載，避免 device node 狀態混亂。
+4. `insmod` 載入 `driver_lab_ioctl_poll_mmap.ko`。
+5. `ioctl-write hello-ioctl` 驗 control path 可以設定訊息。
+6. `status` 驗 `DL_IOC_GET_STATUS` 能回報 driver 狀態。
+7. `read` 驗 data path 能讀回剛設定的訊息。
+8. `mmap-read` 驗 shared page 可被 userspace 讀到。
+9. 背景啟動 `poll 3000`，主流程再 `trigger`，確認 waitqueue event path 真的會醒。
+10. `clear`、`rmmod`、`make clean` 收尾。
+
+第一輪重點不是 shell 技巧，而是確認四條 ABI 路徑都有被跑到。
 
 ## 第一輪閱讀界線
 

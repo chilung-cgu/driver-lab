@@ -454,6 +454,94 @@ driver module 載入後就是在這裡跑。
 - 它看起來像檔案
 - 但你對它做的 `read()` / `write()`，最後可能會進到 driver callback
 
+## `dev_t`
+
+意思：
+
+- kernel 用來表示 major/minor device number 的型別
+
+你現在先記：
+
+- major 大致代表哪一類 driver
+- minor 大致代表同一個 driver 底下的哪一個 device
+- `02-char-device` 會用 `alloc_chrdev_region()` 申請一個 `dev_t`
+
+## major / minor
+
+意思：
+
+- char/block device node 背後的編號
+
+第一輪理解：
+
+- `/dev/driver_lab_char0` 看起來是路徑
+- kernel 最後是靠 major/minor 找到對應的 char device 與 callback
+
+## `alloc_chrdev_region()`
+
+意思：
+
+- 向 kernel 動態申請 char device 的 major/minor 編號範圍
+
+在 `02-char-device` 裡：
+
+- init path 先申請 device number
+- exit path 要用 `unregister_chrdev_region()` 釋放
+
+## `cdev`
+
+意思：
+
+- character device 的 kernel 物件
+
+你現在先把它想成：
+
+- 把某組 major/minor 與 `file_operations` callback 接起來的物件
+
+## `cdev_init()` / `cdev_add()` / `cdev_del()`
+
+意思：
+
+- `cdev_init()`：初始化 char device 物件，指定 callback 表
+- `cdev_add()`：把它正式加入 kernel
+- `cdev_del()`：卸載時移除
+
+第一輪先記：
+
+- `cdev_add()` 成功後，VFS 才能透過這個 char device 找到 driver callback
+
+## `class_create()`
+
+意思：
+
+- 建立 Linux device model 裡的一個 class
+
+在教學第一輪，你可以先把它當成：
+
+- 建立 `/dev/...` 節點前需要的一層分類資訊
+
+不用急著理解完整 sysfs device model。
+
+## `device_create()`
+
+意思：
+
+- 建立一個 device 物件，通常會讓系統建立對應 `/dev/...` 節點
+
+在 `02-char-device` 裡：
+
+- 它讓你最後看到 `/dev/driver_lab_char0`
+
+## `device_destroy()` / `class_destroy()`
+
+意思：
+
+- `device_create()` / `class_create()` 的 cleanup 對應動作
+
+你現在先記：
+
+- init 取得的 resource，要在 exit 大致反向釋放
+
 ## `VFS`
 
 意思：
@@ -503,6 +591,10 @@ driver module 載入後就是在這裡跑。
 
 - `dl_status_fops` 把 `cat status` 接到 `dl_status_open()` / `seq_read`
 - `dl_trigger_fops` 把 `tee > trigger` 接到 `dl_trigger_write()`
+
+在 `02-char-device` 裡：
+
+- `dl_char_fops` 把 `/dev/driver_lab_char0` 的 `read/write` 接到 `dl_char_read()` / `dl_char_write()`
 
 ## `struct seq_file`
 
@@ -566,6 +658,21 @@ static int dl_status_show(struct seq_file *m, void *unused)
 
 - 寫 `trigger` 時，payload 會從 userspace 複製到 kernel stack 上的 local buffer
 
+## `copy_to_user()`
+
+意思：
+
+- 從 kernel buffer 安全複製資料到 userspace buffer
+
+為什麼需要：
+
+- kernel 不能直接信任 userspace 傳進來的 pointer
+- 複製可能失敗，所以 driver 要回報錯誤
+
+在 `02-char-device` 裡：
+
+- `read()` 會把 kernel buffer 的內容複製回 userspace
+
 ## `ABI`
 
 意思：
@@ -582,3 +689,105 @@ static int dl_status_show(struct seq_file *m, void *unused)
 - `ioctl` command number 是什麼
 - `poll` 等什麼事件
 - `mmap` 映射哪塊 buffer
+
+## `UAPI`
+
+意思：
+
+- User API，kernel 對 userspace 公開的 header / 常數 / struct 約定
+
+在這個 repo 裡：
+
+- `runtime/include/driver_lab_uapi.h` 定義 `03` 的 ioctl command 與 status struct
+
+你現在先記：
+
+- kernel driver 和 userspace runtime 要 include 同一份 UAPI，才不會各講各的格式
+
+## `ioctl`
+
+意思：
+
+- 一條給 userspace 對 driver 下控制命令的 syscall path
+
+你現在先把它想成：
+
+- `read/write` 負責資料
+- `ioctl` 負責命令或狀態查詢
+
+在 `03-ioctl-poll-mmap` 裡：
+
+- `DL_IOC_SET_MESSAGE`
+- `DL_IOC_GET_STATUS`
+- `DL_IOC_TRIGGER_EVENT`
+- `DL_IOC_CLEAR_BUFFER`
+
+## `_IOW` / `_IOR`
+
+意思：
+
+- Linux 常用來定義 ioctl command number 的 macro
+
+第一輪先記：
+
+- `_IOW` 大致表示 userspace 寫資料給 kernel
+- `_IOR` 大致表示 kernel 回資料給 userspace
+- 完整 bit layout 可以等之後再補
+
+## waitqueue
+
+意思：
+
+- kernel 裡讓 task 等某個條件成立的等待佇列
+
+在 `03` 裡：
+
+- `poll()` 會把等待者接到 waitqueue
+- driver 狀態改變時再喚醒它
+
+## `poll`
+
+意思：
+
+- userspace 用來等待 fd 是否可讀、可寫或有事件的介面
+
+你現在先記：
+
+- 它避免 userspace 一直 busy loop 問「好了沒」
+- `03` 用它等待 buffer 可讀或 event pending
+
+## VMA
+
+意思：
+
+- Virtual Memory Area，process 虛擬位址空間裡的一段 mapping 描述
+
+在 `03` 第一輪：
+
+- 你只需要知道 `mmap()` callback 會拿到 VMA
+- driver 會把受控的一頁 shared page 映射給 userspace
+
+## `mmap`
+
+意思：
+
+- 把某段 kernel/driver 管理的 memory 映射到 userspace 位址空間
+
+在 `03` 裡：
+
+- 它映射的是 driver 維護的一頁 shared snapshot page
+- 不是把任意 kernel memory 暴露出去
+
+## non-blocking / `-EAGAIN`
+
+意思：
+
+- non-blocking fd 沒資料時不睡眠等待，而是立刻回錯誤
+
+在 `03` 裡：
+
+- buffer 為空且 fd 是 non-blocking 時，`read()` 可回 `-EAGAIN`
+
+你現在先記：
+
+- `-EAGAIN` 的意思通常是「現在還沒有，稍後再試」

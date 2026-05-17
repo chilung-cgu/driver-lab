@@ -96,6 +96,13 @@ flowchart LR
 
 做完 `00` 要進 `01` 前，先讀 [`00-to-01-debugfs-bridge.md`](00-to-01-debugfs-bridge.md)。`01` 會第一次碰到 debugfs、VFS callback、`struct file`、`struct inode`、`struct seq_file` 和 dynamic debug；第一輪看不懂它們的完整定義是正常的。
 
+做完 `01` 要進 `02/03` 前，先讀：
+
+- [`lab-transition-map.md`](lab-transition-map.md)
+- [`01-to-03-user-kernel-abi-bridge.md`](01-to-03-user-kernel-abi-bridge.md)
+
+`02` 會第一次把入口換成 `/dev/driver_lab_char0`，`03` 會把 `read/write` 擴成 `ioctl/poll/mmap`。第一輪先學會把命令對到 callback，不要急著追完整 VFS、`poll_table` 或 memory management。
+
 ## 你會一直反覆看到的名詞
 
 ### `module_init()` / `module_exit()`

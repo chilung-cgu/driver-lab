@@ -40,9 +40,13 @@
 1. `00`：最小 build / load / unload / dmesg 閉環
 2. [`00 到 01：debugfs 過渡導讀`](00-to-01-debugfs-bridge.md)：先補 debugfs / VFS callback / dynamic debug 的最低心智模型
 3. `01`：debugfs 與 logging 觀測
-4. `02`：`/dev`、`read/write`、`file_operations`
+4. [`Lab 過渡地圖`](lab-transition-map.md)：確認每一關為什麼接下一關
+5. [`01 到 03：user-kernel ABI 過渡導讀`](01-to-03-user-kernel-abi-bridge.md)：先補 `/dev`、char device、`ioctl/poll/mmap` 的最低心智模型
+6. `02`：`/dev`、`read/write`、`file_operations`
 
 每一關都要回到 README 的「完成後你應該能回答」。如果只會照抄命令，但答不出入口、觀測點、cleanup 與失敗查證點，就先不要前進。
+
+`03` 開始不建議直接跳 source code。先讀 bridge，再回到 README 的 source reading order。
 
 ## 什麼時候才看 QEMU
 
