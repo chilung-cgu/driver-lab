@@ -10,6 +10,7 @@
 
 ## 先備條件
 
+- 你已經讀過 [`../../docs/onboarding/07-to-09-runtime-validation-bridge.md`](../../docs/onboarding/07-to-09-runtime-validation-bridge.md)
 - 前面至少已經有一個真正可用的 driver lab
 - 你知道正常路徑與 error path 是兩件不同的事
 
@@ -37,6 +38,28 @@
   - 針對 `03` 做 parallel access
 - `test.sh`
   - 先把上述兩支腳本串成最小 stress 套件
+
+## `test.sh` 與兩支 stress script 在做什麼
+
+`test.sh` 目前只負責串接：
+
+1. `stress-03-reload.sh`
+2. `stress-03-parallel.sh`
+
+`stress-03-reload.sh` 的重點：
+
+- build `03` module
+- 連續 load/unload 20 次
+- 如果 cleanup 不對稱，這類測試通常比單次 smoke test 更容易暴露問題
+
+`stress-03-parallel.sh` 的重點：
+
+- build `03` module 與 runtime CLI
+- 載入 `03` module
+- 啟動 4 個 worker 反覆做 `ioctl-write`、`status`、`read`、`trigger`
+- 提高 read/write/ioctl/poll 共享狀態被同時碰到的機率
+
+這些不是完整 fault injection。它們是第一批可重複的壓力驗證習慣。
 
 ## 現在 repo 還沒有的東西
 
@@ -84,6 +107,14 @@
 1. repeated load/unload 可以連跑 20 次
 2. parallel access 可以穩定重現與觀察結果
 3. 每次失敗時知道要回頭看哪一份 log
+
+## 如果你完全看不懂 scripts，先看這 5 個點
+
+1. `stress-03-reload.sh` 的 `while [ "$i" -lt 20 ]`：重複 load/unload。
+2. `stress-03-reload.sh` 的 `cleanup()`：失敗或中斷時仍嘗試卸載 module。
+3. `stress-03-parallel.sh` 的 `worker()`：每個 worker 都反覆打同一個 driver。
+4. `timeout 2s ... read || true`：parallel read 可能被別的 worker 先消費資料，所以避免永久卡住。
+5. `test.sh`：目前只是串接兩個 `03` stress scripts，不是 fault injection framework。
 
 ## 第一輪閱讀界線
 

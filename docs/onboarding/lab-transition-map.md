@@ -101,4 +101,4 @@
 - regression 是每次修改後固定重跑。
 - fault injection 是主動讓錯誤路徑發生。
 
-進 `08/09` 前，讀後續會補上的 `07-to-09-runtime-validation-bridge.md`。
+進 `08/09` 前，讀 [`07-to-09-runtime-validation-bridge.md`](07-to-09-runtime-validation-bridge.md)。

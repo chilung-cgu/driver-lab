@@ -64,8 +64,8 @@ userspace command -> /dev or debugfs -> driver callback -> kernel state -> dmesg
 
 | Lab | 必讀 | 成功訊號 | 可以前進前要會講 |
 |---|---|---|---|
-| `08-runtime-library` | [`../../runtime/README.md`](../../runtime/README.md)、[`../../labs/08-runtime-library/README.md`](../../labs/08-runtime-library/README.md) | `make -C runtime` 可建出 CLI | runtime 是 userspace 封裝層，不是 kernel driver |
-| `09-stress-and-fault-injection` | [`../../labs/09-stress-and-fault-injection/README.md`](../../labs/09-stress-and-fault-injection/README.md) | `03` repeated reload / parallel stress 可跑 | stress 是重複施壓，fault injection 是主動讓錯誤路徑發生 |
+| `08-runtime-library` | [`07-to-09-runtime-validation-bridge.md`](07-to-09-runtime-validation-bridge.md)、[`../../runtime/README.md`](../../runtime/README.md)、[`../../labs/08-runtime-library/README.md`](../../labs/08-runtime-library/README.md) | `make -C runtime` 可建出 CLI | runtime 是 userspace 封裝層，不是 kernel driver |
+| `09-stress-and-fault-injection` | [`07-to-09-runtime-validation-bridge.md`](07-to-09-runtime-validation-bridge.md)、[`../../labs/09-stress-and-fault-injection/README.md`](../../labs/09-stress-and-fault-injection/README.md) | `03` repeated reload / parallel stress 可跑 | stress 是重複施壓，fault injection 是主動讓錯誤路徑發生 |
 
 `09` 目前不是完整 fault injection framework。它的價值是先建立 repeated load/unload、parallel access、每次修改後固定重跑檢查的習慣。
 

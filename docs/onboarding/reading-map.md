@@ -78,6 +78,17 @@
 
 不要把 checklist 當教學主文件。
 
+## 什麼時候看 runtime 與 stress
+
+完成 `05-07` 或至少理解 `02/03` 的 ABI 後，再看：
+
+1. [`07 到 09：runtime 與驗證過渡導讀`](07-to-09-runtime-validation-bridge.md)
+2. [`../../runtime/README.md`](../../runtime/README.md)
+3. [`../../labs/08-runtime-library/README.md`](../../labs/08-runtime-library/README.md)
+4. [`../../labs/09-stress-and-fault-injection/README.md`](../../labs/09-stress-and-fault-injection/README.md)
+
+`08` 是 userspace 封裝層，不是新的 `.ko`。`09` 是驗證習慣，不代表 fault injection / KUnit / kselftest 都已完成。
+
 ## 哪些是學習主線，哪些只是 repo workflow
 
 ### 學習主線

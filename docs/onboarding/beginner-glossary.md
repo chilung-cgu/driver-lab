@@ -986,3 +986,98 @@ static int dl_status_show(struct seq_file *m, void *unused)
 在 EDU lab：
 
 - 使用 28-bit DMA mask，符合 QEMU EDU 的教學限制
+
+## runtime
+
+意思：
+
+- userspace library，包裝 driver ABI，讓 CLI/app 不用到處直接散寫 syscall
+
+在這個 repo 裡：
+
+- `runtime/` 目前主要包 `02/03` 用到的 `open/read/write/ioctl/poll/mmap`
+
+第一輪先記：
+
+- runtime 不是 kernel driver
+- 它不會產生 `.ko`
+
+## API vs ABI
+
+意思：
+
+- API 是程式碼呼叫介面
+- ABI 是 binary/interface 約定，userspace 和 kernel 都要照同一份格式互動
+
+在這個 repo 裡：
+
+- UAPI header 是 ABI 約定
+- runtime header 是 userspace API
+
+## smoke test
+
+意思：
+
+- 最小成功路徑測試
+
+你現在先記：
+
+- smoke test 通過代表基本路徑可跑
+- 不代表所有 race、error path、長時間壓力都驗過
+
+## stress test
+
+意思：
+
+- 重複或並行施壓，讓偶發問題更容易出現
+
+在 `09` 裡：
+
+- repeated load/unload 驗 cleanup 對稱性
+- parallel access 驗共享狀態壓力
+
+## regression
+
+意思：
+
+- 每次修改後固定重跑的檢查，避免舊功能被改壞
+
+第一輪先記：
+
+- regression 是紀律，不一定是一個特定工具
+
+## fault injection
+
+意思：
+
+- 主動讓錯誤路徑發生，確認 driver cleanup 與 error handling 正確
+
+例子：
+
+- allocation 失敗
+- page allocation 失敗
+- usercopy 失敗
+
+`09` 目前還沒有把這些做成完整自動化。
+
+## KUnit
+
+意思：
+
+- Linux kernel 的 unit testing framework
+
+第一輪先記：
+
+- 適合測 kernel 內可拆出來的 helper logic
+- 目前 repo 還沒把 driver logic 拆成需要 KUnit 的形狀
+
+## kselftest
+
+意思：
+
+- Linux kernel tree 裡的 selftest framework，常用 userspace 測已 boot kernel 的對外行為
+
+第一輪先記：
+
+- 它比較像 regression/integration 測試入口
+- 不是本 repo 目前 `09` 已完成的內容

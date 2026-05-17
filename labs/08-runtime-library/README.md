@@ -10,6 +10,7 @@
 
 ## 先備條件
 
+- 你已經讀過 [`../../docs/onboarding/07-to-09-runtime-validation-bridge.md`](../../docs/onboarding/07-to-09-runtime-validation-bridge.md)
 - 你已經看過 `runtime/README.md`
 - 你知道前面 labs 已開始出現 userspace CLI 與 driver ABI 的配合
 
@@ -73,6 +74,24 @@
 
 - [`../02-char-device/README.md`](../02-char-device/README.md)
 - [`../03-ioctl-poll-mmap/README.md`](../03-ioctl-poll-mmap/README.md)
+
+## `test.sh` 逐段在驗什麼
+
+1. 找到 repo root 與 `tests/driver_lab_char_cli` 的輸出位置。
+2. `make -C runtime` 建出 runtime 與 CLI。
+3. `test -x` 確認 CLI binary 真的存在且可執行。
+4. 故意不帶參數執行 CLI，確認它會印 usage 並回傳非 0。
+5. grep `Usage:`，確認最小 CLI 行為符合預期。
+
+這支 test 不載入 kernel module。真正 driver 行為仍由 `02/03` 的 Linux smoke test 驗證。
+
+## 如果你完全看不懂 source code，先看這 5 個點
+
+1. `runtime/include/driver_lab_runtime.h`：userspace 對外 API 長什麼樣子。
+2. `runtime/include/driver_lab_uapi.h`：kernel/userspace 共享的 ABI 常數與 struct。
+3. `driver_lab_open()` / `driver_lab_close()`：runtime 如何管理 fd。
+4. `driver_lab_ioctl_*()`：runtime 如何包 `03` 的 control path。
+5. `tests/driver_lab_char_cli.c`：CLI 如何呼叫 runtime，而不是到處直接散寫 syscall。
 
 ## 第一輪閱讀界線
 

@@ -103,6 +103,8 @@ flowchart LR
 
 `02` 會第一次把入口換成 `/dev/driver_lab_char0`，`03` 會把 `read/write` 擴成 `ioctl/poll/mmap`。第一輪先學會把命令對到 callback，不要急著追完整 VFS、`poll_table` 或 memory management。
 
+做到後面 `08/09` 時，先讀 [`07-to-09-runtime-validation-bridge.md`](07-to-09-runtime-validation-bridge.md)。`08` 是 userspace runtime，不是 kernel driver；`09` 是 stress/regression 習慣，不代表完整 fault injection framework 已經完成。
+
 ## 你會一直反覆看到的名詞
 
 ### `module_init()` / `module_exit()`
