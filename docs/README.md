@@ -25,6 +25,10 @@
 6. [`onboarding/check-kernel-env-explained.md`](onboarding/check-kernel-env-explained.md)
 7. 回到 repo 根目錄，開始做 `labs/00-hello-module`
 8. 完成 `00` 後，先讀 [`onboarding/00-to-01-debugfs-bridge.md`](onboarding/00-to-01-debugfs-bridge.md)，再進 `labs/01-debugfs-logging`
+9. 完成 `01` 後，讀 [`onboarding/lab-transition-map.md`](onboarding/lab-transition-map.md) 與 [`onboarding/01-to-03-user-kernel-abi-bridge.md`](onboarding/01-to-03-user-kernel-abi-bridge.md)，再進 `02/03`
+10. 進 `04/05` 前，讀 [`onboarding/03-to-05-concurrency-pci-bridge.md`](onboarding/03-to-05-concurrency-pci-bridge.md)
+11. 進 `06/07` 前，讀 [`onboarding/05-to-07-pci-irq-dma-bridge.md`](onboarding/05-to-07-pci-irq-dma-bridge.md)
+12. 進 `08/09` 前，讀 [`onboarding/07-to-09-runtime-validation-bridge.md`](onboarding/07-to-09-runtime-validation-bridge.md)
 
 ## QEMU 相關文件在哪裡
 
