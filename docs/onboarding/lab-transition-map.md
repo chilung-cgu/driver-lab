@@ -56,7 +56,7 @@
 - lost update 的核心是 read-modify-write 沒有被保護。
 - cleanup 也有 lifetime 問題：背景 thread 或等待者不能碰已釋放的資源。
 
-進 `04` 前，讀後續會補上的 `03-to-05-concurrency-pci-bridge.md` 併發段落。
+進 `04` 前，讀 [`03-to-05-concurrency-pci-bridge.md`](03-to-05-concurrency-pci-bridge.md) 的併發段落。
 
 ## `04 -> 05`：從軟體 device node 到 PCI device
 
@@ -70,7 +70,7 @@
 - BAR0 是 MMIO register window。
 - `ioread32()` / `iowrite32()` 是 CPU 透過 MMIO 讀寫裝置 register。
 
-進 `05` 前，讀後續會補上的 `03-to-05-concurrency-pci-bridge.md` PCI 段落。
+進 `05` 前，讀 [`03-to-05-concurrency-pci-bridge.md`](03-to-05-concurrency-pci-bridge.md) 的 PCI 段落。
 
 ## `05 -> 06 -> 07`：從 MMIO 到 IRQ，再到 DMA
 
@@ -86,7 +86,7 @@
 - `06` 驗證 handler 會讀 status、寫 acknowledge、喚醒 completion。
 - `07` 驗證 coherent DMA buffer 同時有 CPU pointer 與 device DMA address。
 
-進 `06/07` 前，讀後續會補上的 `05-to-07-pci-irq-dma-bridge.md`。
+進 `06/07` 前，讀 [`05-to-07-pci-irq-dma-bridge.md`](05-to-07-pci-irq-dma-bridge.md)。
 
 ## `07 -> 08 -> 09`：從 driver 到使用與驗證習慣
 

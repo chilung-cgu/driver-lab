@@ -9,6 +9,7 @@
 
 ## 開始前先看
 
+- [`../../docs/onboarding/03-to-05-concurrency-pci-bridge.md`](../../docs/onboarding/03-to-05-concurrency-pci-bridge.md)
 - [`../../docs/concepts/concurrency-primer.md`](../../docs/concepts/concurrency-primer.md)
 - [`../../docs/guides/lab-04-walkthrough.md`](../../docs/guides/lab-04-walkthrough.md)
 
@@ -56,6 +57,14 @@
 2. 用多執行緒 userspace 測試把它踩爆
 3. 再用 `mutex` 修到穩
 4. 最後才加更進階的 waitqueue / completion / worker
+
+## 如果你完全看不懂 source code，先看這 5 行/區塊
+
+1. `dl_counter`：這是被多條路徑共享的 counter。
+2. `dl_safe_mode`：這個開關決定目前示範 unsafe 還是 safe。
+3. `dl_race_increment_unlocked()`：故意不加鎖，讓 lost update 容易出現。
+4. `dl_race_increment_locked()`：用 `mutex` 保護同一段 increment。
+5. `driver_lab_race_exit()`：先停背景 worker，再清 device resource。
 
 ## 這一關現在已實作的介面
 
@@ -115,6 +124,19 @@ sudo insmod ./driver_lab_race.ko
 ../../tests/driver_lab_race_cli /dev/driver_lab_race0 race 8 50
 sudo rmmod driver_lab_race
 ```
+
+## `test.sh` 逐段在驗什麼
+
+1. 確認目前是 Linux，因為這關要載入 kernel module。
+2. `make` 建出 `driver_lab_race.ko`。
+3. 用 `cc -pthread` 建出 userspace race CLI。
+4. 如果前一次留下同名 module，先卸載，避免背景 worker 狀態混亂。
+5. 載入 module，先切到 `safe-mode 0`，reset 後跑 `race 8 50`。
+6. 再切到 `safe-mode 1`，reset 後跑同一組 `race 8 50`。
+7. 從兩份 log 抽出 `observed=`，確認 safe mode 不應比 unsafe 更差。
+8. 卸載 module、清 build artifact 與暫存 CLI。
+
+這支 test 不是要證明 mutex 讓數字永遠一模一樣，而是用同一組壓力條件對照 unsafe/safe 的差異。
 
 ## 你應該觀察到什麼
 

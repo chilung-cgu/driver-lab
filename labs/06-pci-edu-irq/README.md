@@ -10,6 +10,7 @@
 
 ## 開始前先看
 
+- [`../../docs/onboarding/05-to-07-pci-irq-dma-bridge.md`](../../docs/onboarding/05-to-07-pci-irq-dma-bridge.md)
 - [`../../docs/concepts/pcie-primer.md`](../../docs/concepts/pcie-primer.md)
 - [`../../docs/guides/qemu-edu-first-pass.md`](../../docs/guides/qemu-edu-first-pass.md)
 
@@ -93,6 +94,19 @@ cd labs/06-pci-edu-irq
 - `request_irq ok`
 - `irq status=...`
 - `irq self-test passed`
+
+`test.sh` 逐段在驗什麼：
+
+1. 確認目前是 Linux，並確認 guest 看得到 `1234:11e8`。
+2. `make` 建出 `driver_lab_edu_irq.ko`。
+3. 如果前一次留下同名 module，先卸載，避免 IRQ/vector 狀態混亂。
+4. 清本次 `dmesg` 後載入 module。
+5. grep `request_irq ok`，確認 IRQ handler registration 成功。
+6. grep `irq status=`，確認 handler 真的進來並讀到 status。
+7. grep `irq self-test passed`，確認 completion 等到 handler 結果。
+8. 卸載 module 並 `make clean`。
+
+第一輪不要只看「有沒有 log」。真正重點是 handler 有沒有 acknowledge，否則中斷可能一直重進。
 
 ## 第一輪閱讀界線
 

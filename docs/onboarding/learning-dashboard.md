@@ -46,7 +46,7 @@ userspace command -> /dev or debugfs -> driver callback -> kernel state -> dmesg
 | Lab | 必讀 | 成功訊號 | 可以前進前要會講 |
 |---|---|---|---|
 | `03-ioctl-poll-mmap` | [`01-to-03-user-kernel-abi-bridge.md`](01-to-03-user-kernel-abi-bridge.md)、[`../../labs/03-ioctl-poll-mmap/README.md`](../../labs/03-ioctl-poll-mmap/README.md) | `ioctl`、`read`、`mmap-read`、`poll` smoke test 都通過 | data path、control path、event path、shared memory path 差在哪 |
-| `04-locking-and-races` | [`../concepts/concurrency-primer.md`](../concepts/concurrency-primer.md)、[`../../labs/04-locking-and-races/README.md`](../../labs/04-locking-and-races/README.md) | unsafe / safe mode 有可觀察差異 | lost update 是什麼，為什麼 mutex 能保護共享 counter |
+| `04-locking-and-races` | [`03-to-05-concurrency-pci-bridge.md`](03-to-05-concurrency-pci-bridge.md)、[`../concepts/concurrency-primer.md`](../concepts/concurrency-primer.md)、[`../../labs/04-locking-and-races/README.md`](../../labs/04-locking-and-races/README.md) | unsafe / safe mode 有可觀察差異 | lost update 是什麼，為什麼 mutex 能保護共享 counter |
 
 完成這階段後，你應該先停一下整理筆記。若你還無法說明 cleanup path 或 lock 保護哪個 state，不要急著跳 PCIe。
 
@@ -54,9 +54,9 @@ userspace command -> /dev or debugfs -> driver callback -> kernel state -> dmesg
 
 | Lab | 必讀 | 成功訊號 | 可以前進前要會講 |
 |---|---|---|---|
-| `05-pci-edu-mmio` | [`../concepts/pcie-primer.md`](../concepts/pcie-primer.md)、[`../guides/qemu-edu-first-pass.md`](../guides/qemu-edu-first-pass.md) | `lspci` 看得到 `1234:11e8`，`liveness check passed` | PCI core match ID 後才呼叫 `probe()`，BAR0 是 MMIO register window |
-| `06-pci-edu-irq` | [`../../labs/06-pci-edu-irq/README.md`](../../labs/06-pci-edu-irq/README.md) | `request_irq ok`、`irq self-test passed` | handler 要讀 status、寫 acknowledge，不能只印 log |
-| `07-pci-edu-dma` | [`../../labs/07-pci-edu-dma/README.md`](../../labs/07-pci-edu-dma/README.md) | `round-trip compare passed` | coherent DMA buffer 同時有 CPU pointer 與 device DMA address |
+| `05-pci-edu-mmio` | [`03-to-05-concurrency-pci-bridge.md`](03-to-05-concurrency-pci-bridge.md)、[`../concepts/pcie-primer.md`](../concepts/pcie-primer.md)、[`../guides/qemu-edu-first-pass.md`](../guides/qemu-edu-first-pass.md) | `lspci` 看得到 `1234:11e8`，`liveness check passed` | PCI core match ID 後才呼叫 `probe()`，BAR0 是 MMIO register window |
+| `06-pci-edu-irq` | [`05-to-07-pci-irq-dma-bridge.md`](05-to-07-pci-irq-dma-bridge.md)、[`../../labs/06-pci-edu-irq/README.md`](../../labs/06-pci-edu-irq/README.md) | `request_irq ok`、`irq self-test passed` | handler 要讀 status、寫 acknowledge，不能只印 log |
+| `07-pci-edu-dma` | [`05-to-07-pci-irq-dma-bridge.md`](05-to-07-pci-irq-dma-bridge.md)、[`../../labs/07-pci-edu-dma/README.md`](../../labs/07-pci-edu-dma/README.md) | `round-trip compare passed` | coherent DMA buffer 同時有 CPU pointer 與 device DMA address |
 
 這階段的 driver build / load / smoke test 位置是 Linux guest 或可控制的 Linux 主機，不是 macOS。
 

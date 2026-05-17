@@ -28,6 +28,15 @@ flowchart LR
     I["(之後) IRQ path"] --> D
 ```
 
+> **逐步說明：**
+>
+> 1. **userspace thread A/B 同時進 driver**：不同 process 或 thread 可以同時呼叫同一個 device node 的 callback。
+> 2. **worker 也可能碰 state**：driver 內部的背景工作不一定等 userspace 做完才跑。
+> 3. **IRQ path 之後會加入**：`06/07` 開始，中斷 handler 也可能碰 driver state。
+> 4. **共同指向 shared state**：只要兩條以上路徑會讀寫同一份資料，就要設計同步與 lifetime。
+>
+> **白話總結**：shared state 像一張共用表單，多個人同時改就會亂；lock 的目的就是讓關鍵欄位一次只被一個人改。
+
 只要有兩條以上的路徑碰到同一份資料，就會開始出現：
 
 - race

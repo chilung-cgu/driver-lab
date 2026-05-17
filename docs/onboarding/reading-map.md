@@ -59,9 +59,11 @@
 建議順序：
 
 1. [`../concepts/pcie-primer.md`](../concepts/pcie-primer.md)
-2. [`../guides/qemu-edu-first-pass.md`](../guides/qemu-edu-first-pass.md)
-3. [`../../qemu/README.md`](../../qemu/README.md)
-4. [`../guides/linux-guest-05-to-07-walkthrough.md`](../guides/linux-guest-05-to-07-walkthrough.md)
+2. [`03 到 05：併發與 PCI 過渡導讀`](03-to-05-concurrency-pci-bridge.md)
+3. [`05 到 07：PCI、IRQ、DMA 過渡導讀`](05-to-07-pci-irq-dma-bridge.md)
+4. [`../guides/qemu-edu-first-pass.md`](../guides/qemu-edu-first-pass.md)
+5. [`../../qemu/README.md`](../../qemu/README.md)
+6. [`../guides/linux-guest-05-to-07-walkthrough.md`](../guides/linux-guest-05-to-07-walkthrough.md)
 
 ## Walkthrough 和 Checklist 差在哪裡
 

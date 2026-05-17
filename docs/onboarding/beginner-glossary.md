@@ -791,3 +791,198 @@ static int dl_status_show(struct seq_file *m, void *unused)
 你現在先記：
 
 - `-EAGAIN` 的意思通常是「現在還沒有，稍後再試」
+
+## `mutex`
+
+意思：
+
+- mutual exclusion，用來保護同一時間只能有一條路徑進入某段 critical section
+
+在 `04-locking-and-races` 裡：
+
+- safe mode 用 `mutex` 保護共享 counter 的 increment
+
+你現在先記：
+
+- 多條路徑會改同一份 state 時，先問這段有沒有被 lock 保護
+
+## race condition
+
+意思：
+
+- 結果取決於多條執行路徑的時間順序
+
+在 `04` 裡：
+
+- unsafe mode 故意讓多個 userspace thread 同時改 counter，觀察 lost update
+
+## lost update
+
+意思：
+
+- 多條路徑同時做 read-modify-write，最後有些更新被覆蓋掉
+
+白話：
+
+- 兩個人都看到 counter 是 0，各自加一後都寫回 1，結果少算一次
+
+## `kthread`
+
+意思：
+
+- kernel thread
+
+在 `04` 裡：
+
+- 背景 kthread 模擬 driver 內部也會同時碰共享 state
+
+## `completion`
+
+意思：
+
+- kernel 裡等待「某件事完成」的同步工具
+
+在 `06/07` 裡：
+
+- probe 或 DMA path 會等待 IRQ handler 呼叫 `complete()`，確認事件真的發生
+
+## PCI
+
+意思：
+
+- Peripheral Component Interconnect，在這個 repo 裡主要用來學 PCI/PCIe driver 的共通骨架
+
+你現在先記：
+
+- `05-07` 用 QEMU EDU device 模擬一顆 PCI device
+- PCI core match vendor/device ID 後才會呼叫 driver `probe()`
+
+## PCI ID
+
+意思：
+
+- PCI device 的 vendor ID 與 device ID
+
+在 QEMU EDU 裡：
+
+- ID 是 `1234:11e8`
+
+如果 `lspci -nn | grep 1234:11e8` 找不到它，`05-07` 的 driver 不會進 `probe()`。
+
+## `probe()` / `remove()`
+
+意思：
+
+- `probe()`：device match 後，kernel bus/core 交給 driver 接手時呼叫
+- `remove()`：device 被移除或 driver 卸載時呼叫，用來 cleanup
+
+在 `05-07` 裡：
+
+- `probe()` 負責 enable PCI device、map BAR、申請 IRQ 或 DMA resource
+- `remove()` 要反向釋放
+
+## BAR
+
+意思：
+
+- Base Address Register，PCI device 暴露給 host 的位址窗口
+
+在 EDU lab 裡：
+
+- BAR0 是 MMIO register window
+
+## MMIO
+
+意思：
+
+- Memory-Mapped I/O
+
+你現在先記：
+
+- 看起來像讀寫記憶體位址
+- 實際上是在讀寫裝置 register
+- 不是一般 RAM
+
+## `ioread32()` / `iowrite32()`
+
+意思：
+
+- kernel driver 用來讀寫 32-bit MMIO register 的 helper
+
+在 `05` 裡：
+
+- 用它們讀 EDU identification / liveness register
+
+## IRQ
+
+意思：
+
+- interrupt request，裝置通知 CPU/driver 有事件發生
+
+在 `06` 裡：
+
+- handler 會讀 status、寫 acknowledge、喚醒 completion
+
+## MSI
+
+意思：
+
+- Message Signaled Interrupt，PCI 裝置用 message 形式送出的 interrupt
+
+第一輪先記：
+
+- 它和 legacy INTx 是不同 delivery 方式
+- 本 repo 的 EDU IRQ lab 仍要求 handler 正確 acknowledge 裝置 status
+
+## bus mastering
+
+意思：
+
+- 讓 PCI device 能主動發起 bus transaction 的能力
+
+在 `06/07` 裡：
+
+- MSI 與 DMA 都可能需要 device 主動對 host memory 做動作，所以 driver 會呼叫 `pci_set_master()`
+
+## DMA
+
+意思：
+
+- Direct Memory Access，裝置直接搬資料到記憶體或從記憶體搬資料
+
+你現在先記：
+
+- CPU 仍負責設定 register 與驗證結果
+- 真正 payload 搬運由 device 做
+
+## coherent DMA buffer
+
+意思：
+
+- CPU 和 device 都能安全存取的一塊 DMA buffer
+
+在 `07` 裡：
+
+- CPU 用 kernel pointer 存取它
+- device 用 DMA address 存取它
+
+## `dma_addr_t`
+
+意思：
+
+- kernel 用來表示 device 看到的 DMA address 的型別
+
+第一輪先記：
+
+- 它不是一般 C pointer
+- 不要拿它直接解參考
+
+## DMA mask
+
+意思：
+
+- 裝置可定址的 DMA address 範圍限制
+
+在 EDU lab：
+
+- 使用 28-bit DMA mask，符合 QEMU EDU 的教學限制

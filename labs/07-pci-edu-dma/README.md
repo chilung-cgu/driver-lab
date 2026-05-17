@@ -10,6 +10,7 @@
 
 ## 開始前先看
 
+- [`../../docs/onboarding/05-to-07-pci-irq-dma-bridge.md`](../../docs/onboarding/05-to-07-pci-irq-dma-bridge.md)
 - [`../../docs/concepts/pcie-primer.md`](../../docs/concepts/pcie-primer.md)
 - [`../../docs/guides/qemu-edu-first-pass.md`](../../docs/guides/qemu-edu-first-pass.md)
 
@@ -100,6 +101,19 @@ cd labs/07-pci-edu-dma
 - `dma mask configured`
 - `coherent buffer allocated`
 - `round-trip compare passed`
+
+`test.sh` 逐段在驗什麼：
+
+1. 確認目前是 Linux，並確認 guest 看得到 `1234:11e8`。
+2. `make` 建出 `driver_lab_edu_dma.ko`。
+3. 如果前一次留下同名 module，先卸載，避免 DMA/IRQ resource 狀態混亂。
+4. 清本次 `dmesg` 後載入 module。
+5. grep `dma mask configured`，確認 device 可定址範圍已設定。
+6. grep `coherent buffer allocated`，確認 CPU/device 共享 buffer 配置成功。
+7. grep `round-trip compare passed`，確認 RAM -> EDU -> RAM 的資料一致。
+8. 卸載 module 並 `make clean`。
+
+第一輪卡住時，先把問題拆成三段：DMA mask、buffer allocation、round-trip compare，不要一次追完整 DMA subsystem。
 
 ## 第一輪閱讀界線
 

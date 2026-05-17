@@ -14,6 +14,8 @@
 
 ## 開始前先看
 
+- [`../../docs/onboarding/03-to-05-concurrency-pci-bridge.md`](../../docs/onboarding/03-to-05-concurrency-pci-bridge.md)
+- [`../../docs/onboarding/05-to-07-pci-irq-dma-bridge.md`](../../docs/onboarding/05-to-07-pci-irq-dma-bridge.md)
 - [`../../docs/concepts/pcie-primer.md`](../../docs/concepts/pcie-primer.md)
 - [`../../docs/guides/qemu-edu-first-pass.md`](../../docs/guides/qemu-edu-first-pass.md)
 - [`../../qemu/edu-bringup-checklist.md`](../../qemu/edu-bringup-checklist.md)
@@ -48,6 +50,15 @@ flowchart LR
     Q --> B["BAR0 map"]
     B --> M["read one register"]
 ```
+
+> **逐步說明：**
+>
+> 1. **kernel 掃 PCI bus**：guest 內必須先真的有 QEMU EDU device，PCI core 才有東西可 match。
+> 2. **ID match 後呼叫 `probe()`**：driver 宣告支援 `1234:11e8`，match 後 PCI core 呼叫 `dl_edu_mmio_probe()`。
+> 3. **driver map BAR0**：`pci_iomap()` 把 EDU 的 BAR0 變成 driver 可用的 MMIO window。
+> 4. **讀寫 register**：driver 用 `ioread32()` / `iowrite32()` 做 identification 與 liveness check。
+>
+> **白話總結**：`05` 像先確認你真的拿到裝置的控制面板，並能按下一個最小按鈕確認它有反應。
 
 這一關的最小目標不是寫完整卡 driver，而只是：
 
@@ -110,6 +121,19 @@ cd labs/05-pci-edu-mmio
 4. `insmod`
 5. 從 `dmesg` 檢查 `probe` / BAR map / liveness log
 6. `rmmod`
+
+`test.sh` 逐段在驗什麼：
+
+1. 確認目前是 Linux。
+2. 確認有 `lspci`；沒有就提示安裝 `pciutils`。
+3. 用 `lspci -nn | grep 1234:11e8` 確認 guest 看得到 EDU。
+4. `make` 建出 `driver_lab_edu_mmio.ko`。
+5. 如果前一次留下同名 module，先卸載，避免 bind 狀態混亂。
+6. 清本次 `dmesg` 後載入 module。
+7. 檢查 `probe start`、`BAR0 mapped`、`liveness check passed`。
+8. 卸載 module 並 `make clean`。
+
+第一輪最重要的是：看不到 `1234:11e8` 時，先修 QEMU/guest 環境，不要先怪 `probe()`。
 
 ## 第一輪閱讀界線
 

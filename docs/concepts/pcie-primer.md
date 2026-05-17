@@ -29,6 +29,16 @@ flowchart LR
     D --> B
 ```
 
+> **逐步說明：**
+>
+> 1. **CPU 讀寫 MMIO register**：driver 透過 BAR 映射出的 register window 控制裝置。
+> 2. **裝置也連到 register block**：register 是 host 和 device 溝通控制資訊的窗口，不是一般 RAM。
+> 3. **裝置用 interrupt 通知 host**：事件完成或錯誤發生時，裝置不必等 CPU 一直輪詢。
+> 4. **CPU 準備 DMA buffer**：driver 配置一塊 device 可以看到的 memory。
+> 5. **裝置搬 DMA buffer**：大量 payload 由裝置搬運，CPU 負責設定、等待與驗證。
+>
+> **白話總結**：MMIO 像控制面板，IRQ 像通知鈴，DMA buffer 像雙方都能取放資料的工作台。
+
 這張圖對應 3 個核心互動：
 
 1. CPU 透過 register 控制裝置
