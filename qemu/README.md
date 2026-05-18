@@ -26,6 +26,8 @@
 兩條路都可以拿來啟動 QEMU。
 真正的 driver build / load / smoke test 位置，仍然是 `Linux guest`。
 
+目前 repo 的 `05-07` 已在遠端 Linux host 啟動 QEMU EDU guest 實測通過；這代表流程可重複，但不代表 macOS 可以直接載入 Linux kernel module。換到你的機器時，仍要先確認 guest 內看得到 EDU device。
+
 ## 為什麼是 QEMU EDU
 
 QEMU 官方把 `edu` 定位成：

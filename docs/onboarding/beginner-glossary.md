@@ -6,6 +6,17 @@
 
 遇到看不懂的字時再回來查，夠了。
 
+這份檔案刻意保留成單一查詢表，避免你要在很多小檔案之間找名詞。大致分段如下：
+
+| 區段 | 內容 |
+|---|---|
+| 基礎 module | `.ko`、kbuild、`module_init()`、`insmod`、`dmesg` |
+| 觀測與 debugfs | `pr_info()`、`pr_debug()`、dynamic debug、debugfs、`seq_file` |
+| user-kernel 邊界 | `/dev`、VFS、`file_operations`、`copy_to_user()`、`ioctl`、`poll`、`mmap` |
+| 併發 | mutex、race、lost update、kthread、completion |
+| PCI / IRQ / DMA | PCI ID、`probe()`、BAR、MMIO、IRQ、MSI、DMA、coherent buffer |
+| runtime / 驗證 | runtime、ABI/API、smoke、stress、regression、fault injection、KUnit、kselftest |
+
 ## `kernel module`
 
 意思：

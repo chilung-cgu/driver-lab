@@ -2,6 +2,15 @@
 
 `docs/` 現在依用途分成五類，目的是讓新手先找到該看的文件，再決定要不要深入後面的材料。
 
+## 這份索引和其他入口差在哪
+
+| 文件 | 你什麼時候看 | 它回答什麼 |
+|---|---|---|
+| 這份 `docs/README.md` | 不知道文件放哪裡時 | `docs/` 目錄有哪些類別、各自放什麼 |
+| [`onboarding/reading-map.md`](onboarding/reading-map.md) | 準備開始讀 repo 時 | 今天到底先看哪幾份、什麼時候才看後面章節 |
+| [`onboarding/learning-dashboard.md`](onboarding/learning-dashboard.md) | 每完成一關要判斷能否前進時 | 每個階段要跑什麼、成功訊號是什麼、前進條件是什麼 |
+| [`onboarding/beginner-glossary.md`](onboarding/beginner-glossary.md) | 遇到陌生名詞時 | 單一查詢表，不需要從頭背完 |
+
 ## 目錄分類
 
 - [`onboarding/`](onboarding/)

@@ -42,9 +42,9 @@
 | `02-char-device` | 熟悉 user-kernel 邊界與 `read/write` | Linux host | 可直接練習 | [`labs/02-char-device/README.md`](labs/02-char-device/README.md) |
 | `03-ioctl-poll-mmap` | 練 `ioctl / poll / mmap` 與 shared buffer | Linux host | driver、runtime、CLI、smoke test 已落地 | [`labs/03-ioctl-poll-mmap/README.md`](labs/03-ioctl-poll-mmap/README.md) |
 | `04-locking-and-races` | 練 race 重現、對照與 cleanup 對稱性 | Linux host | driver、CLI、smoke test 已落地 | [`docs/concepts/concurrency-primer.md`](docs/concepts/concurrency-primer.md) |
-| `05-pci-edu-mmio` | 練 PCI `probe`、BAR map、基本 MMIO | Linux guest | 第一版 driver 與 smoke test 已落地；未在這台 macOS 主機實測 | [`docs/guides/qemu-edu-first-pass.md`](docs/guides/qemu-edu-first-pass.md) |
-| `06-pci-edu-irq` | 練 IRQ request、raise、acknowledge | Linux guest | 第一版 driver 與 smoke test 已落地；未在這台 macOS 主機實測 | [`docs/guides/linux-guest-05-to-07-walkthrough.md`](docs/guides/linux-guest-05-to-07-walkthrough.md) |
-| `07-pci-edu-dma` | 練 coherent DMA 與 round-trip 驗證 | Linux guest | 第一版 driver 與 smoke test 已落地；未在這台 macOS 主機實測 | [`docs/guides/linux-guest-05-to-07-walkthrough.md`](docs/guides/linux-guest-05-to-07-walkthrough.md) |
+| `05-pci-edu-mmio` | 練 PCI `probe`、BAR map、基本 MMIO | Linux guest | 已在遠端 Linux host 啟動 QEMU EDU guest 實測通過；macOS 不作 kernel module load 驗證 | [`docs/guides/qemu-edu-first-pass.md`](docs/guides/qemu-edu-first-pass.md) |
+| `06-pci-edu-irq` | 練 IRQ request、raise、acknowledge | Linux guest | 已在遠端 Linux host 啟動 QEMU EDU guest 實測通過；macOS 不作 kernel module load 驗證 | [`docs/guides/linux-guest-05-to-07-walkthrough.md`](docs/guides/linux-guest-05-to-07-walkthrough.md) |
+| `07-pci-edu-dma` | 練 coherent DMA 與 round-trip 驗證 | Linux guest | 已在遠端 Linux host 啟動 QEMU EDU guest 實測通過；macOS 不作 kernel module load 驗證 | [`docs/guides/linux-guest-05-to-07-walkthrough.md`](docs/guides/linux-guest-05-to-07-walkthrough.md) |
 | `08-runtime-library` | 把 `02/03` 的 ABI 封裝成 runtime | Linux host | `build` 與 `02/03` 對應封裝已驗證；不是產品級 runtime | [`labs/08-runtime-library/README.md`](labs/08-runtime-library/README.md) |
 | `09-stress-and-fault-injection` | 把「能跑」提升成「能重複驗證」 | Linux host | 已有 `03` 專用 stress 腳本；fault injection 尚未自動化 | [`labs/09-stress-and-fault-injection/README.md`](labs/09-stress-and-fault-injection/README.md) |
 
@@ -59,6 +59,14 @@
 - [Lab 檔案角色導讀](docs/onboarding/lab-file-roles.md)
 - [Linux Host 建置與風險檢查](docs/onboarding/linux-host-setup.md)
 - [第一次環境檢查輸出怎麼看](docs/onboarding/check-kernel-env-explained.md)
+
+### 章節過渡導讀
+
+- [00 到 01：debugfs 過渡導讀](docs/onboarding/00-to-01-debugfs-bridge.md)
+- [01 到 03：user-kernel ABI 過渡導讀](docs/onboarding/01-to-03-user-kernel-abi-bridge.md)
+- [03 到 05：併發與 PCI 過渡導讀](docs/onboarding/03-to-05-concurrency-pci-bridge.md)
+- [05 到 07：PCI、IRQ、DMA 過渡導讀](docs/onboarding/05-to-07-pci-irq-dma-bridge.md)
+- [07 到 09：runtime 與驗證過渡導讀](docs/onboarding/07-to-09-runtime-validation-bridge.md)
 
 ### 概念前導
 

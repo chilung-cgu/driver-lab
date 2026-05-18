@@ -96,7 +96,8 @@
 
 > [!NOTE]
 > 這三關現在都已有第一版 driver code 與 smoke test。
-> 但真正的 build / load / 驗證，仍然必須在 Linux guest 內完成。
+> 目前已在遠端 Linux host 啟動 QEMU EDU guest 實測通過。
+> 你自己的驗證仍然必須在 Linux guest 或可控制的 Linux 主機內完成；macOS 不作 kernel module load 驗證。
 
 ## 第 6 階段，第 13-14 週
 
