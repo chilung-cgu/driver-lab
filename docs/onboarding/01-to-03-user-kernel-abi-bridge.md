@@ -162,8 +162,10 @@ driver 內部會用 waitqueue 把等待者掛起來，等狀態改變時再喚�
 
 讀完 `01-03` 後，你至少要能回答：
 
-1. debugfs 和 `/dev` 都會進 driver callback，但用途有什麼不同？
-2. `/dev/driver_lab_char0` 的 `read/write` 分別接到哪個函式？
-3. `03` 為什麼要把 path 分成 data/control/event/shared memory？
-4. `ioctl`、`poll`、`mmap` 各自解決什麼問題？
-5. 失敗時第一個看 `dmesg`、CLI output，還是 device node 是否存在？
+| 問題 | 標準答案 |
+|---|---|
+| debugfs 和 `/dev` 都會進 driver callback，但用途有什麼不同？ | debugfs 是 debug 觀測/臨時控制入口，不是穩定產品 ABI；`/dev/...` char device 是 userspace 對 driver 做正式資料操作的入口。 |
+| `/dev/driver_lab_char0` 的 `read/write` 分別接到哪個函式？ | `dl_char_fops` 裡 `.read = dl_char_read`、`.write = dl_char_write`；VFS 會把 userspace 的 `read()` / `write()` 分派到這兩個 callback。 |
+| `03` 為什麼要把 path 分成 data/control/event/shared memory？ | 因為真實 driver 不只搬資料：data path 用 `read/write`，control path 用 `ioctl`，event path 用 `poll` 等事件，shared memory path 用 `mmap` 讓 userspace 讀 driver 維護的 shared page。 |
+| `ioctl`、`poll`、`mmap` 各自解決什麼問題？ | `ioctl` 解控制命令與狀態查詢；`poll` 解等待事件且避免 busy loop；`mmap` 解讓 userspace 看到受控 shared page。 |
+| 失敗時第一個看 `dmesg`、CLI output，還是 device node 是否存在？ | 先看失敗層次：`insmod`/callback 沒反應先看 `dmesg`；CLI command 失敗先看 CLI output；`/dev/...` 不存在先查 `insmod` 是否成功與 `ls -l /dev/...`。 |

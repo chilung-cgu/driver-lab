@@ -111,13 +111,11 @@ counter 增加流程被拆成：
 
 ## 第一次驗收時只問自己這三題
 
-1. 共享資料是誰？
-   - `dl_counter`
-2. 哪些路徑會碰到它？
-   - worker thread
-   - userspace `ioctl`
-3. race 是怎麼被修掉的？
-   - 在 safe 模式下用 `mutex` 序列化修改
+| 問題 | 標準答案 |
+|---|---|
+| 共享資料是誰？ | 第一輪先回答 `dl_counter`；延伸來看，`dl_safe_mode` 和 worker 狀態也是共享 state。 |
+| 哪些路徑會碰到它？ | 背景 worker thread 會碰，userspace 透過 `ioctl` 也會碰；`race <threads> <loops>` 會讓多個 userspace thread 同時施壓。 |
+| race 是怎麼被修掉的？ | safe mode 用 `mutex` 序列化 `dl_counter` 的 increment，避免多條路徑同時 read-modify-write。 |
 
 ## 常見誤解
 

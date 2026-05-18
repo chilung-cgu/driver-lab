@@ -95,11 +95,13 @@ round-trip 是：
 
 ## 進 `06/07` 前你要能回答
 
-1. `05` 裡 BAR0 是什麼？
-2. `probe()` 沒進來時第一個看哪裡？
-3. IRQ handler 為什麼要 acknowledge？
-4. completion 在 `06/07` 裡等待的是什麼？
-5. coherent DMA buffer 的 CPU pointer 和 DMA address 差在哪？
+| 問題 | 標準答案 |
+|---|---|
+| `05` 裡 BAR0 是什麼？ | BAR0 是 QEMU EDU 的 MMIO register window；driver 用 `pci_iomap()` map 後，再用 `ioread32()` / `iowrite32()` 讀寫 register。 |
+| `probe()` 沒進來時第一個看哪裡？ | 先在 guest 內跑 `lspci -nn | grep 1234:11e8`，確認 QEMU EDU device 真的存在。 |
+| IRQ handler 為什麼要 acknowledge？ | handler 讀 status 後要寫 acknowledge register 清掉裝置端 pending 狀態，否則同一個 interrupt 可能一直重進。 |
+| completion 在 `06/07` 裡等待的是什麼？ | 等 IRQ handler 確認事件發生並呼叫 `complete()`；`06` 等自我測試 interrupt，`07` 等 DMA transfer completion interrupt。 |
+| coherent DMA buffer 的 CPU pointer 和 DMA address 差在哪？ | CPU pointer 給 kernel code 讀寫 buffer；DMA address 給 device 寫進 register 用來搬資料。DMA address 不是一般 C pointer，不能直接解參考。 |
 
 ## 第一輪可以先略過
 

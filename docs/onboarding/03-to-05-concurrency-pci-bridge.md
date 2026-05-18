@@ -88,11 +88,13 @@ BAR 是 PCI device 暴露給 host 的 address window。
 
 ## 進 `05` 前你要能回答
 
-1. `04` 裡哪些 state 被多條路徑共享？
-2. unsafe mode 為什麼會 lost update？
-3. mutex 保護的是哪一段 read-modify-write？
-4. `probe()` 是誰呼叫的？
-5. `lspci -nn | grep 1234:11e8` 沒看到東西時，為什麼不能怪 driver code？
+| 問題 | 標準答案 |
+|---|---|
+| `04` 裡哪些 state 被多條路徑共享？ | 主要是 `dl_counter`、`dl_safe_mode`、`dl_worker_running`；userspace `ioctl` path 和背景 kthread 都可能碰到它們。 |
+| unsafe mode 為什麼會 lost update？ | `dl_race_increment_unlocked()` 把 read-modify-write 拆開且不加鎖；多個 thread 可能讀到同一個舊值，最後把彼此的更新覆蓋掉。 |
+| mutex 保護的是哪一段 read-modify-write？ | safe mode 走 `dl_race_increment_locked()`，用 `mutex` 保護 `dl_counter++`，讓同一時間只有一條路徑修改 counter。 |
+| `probe()` 是誰呼叫的？ | 不是 shell 直接呼叫；PCI core 掃到 device，且 ID table match `1234:11e8` 後，才呼叫 driver 的 `probe()`。 |
+| `lspci -nn | grep 1234:11e8` 沒看到東西時，為什麼不能怪 driver code？ | 因為 guest 裡根本沒有 EDU PCI device 時，PCI core 沒有可 match 的裝置，driver 的 `probe()` 不會被呼叫；第一個要修的是 QEMU/guest 環境。 |
 
 ## 第一輪可以先略過
 

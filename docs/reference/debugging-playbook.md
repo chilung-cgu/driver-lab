@@ -106,8 +106,10 @@ echo 'module your_module +p' | sudo tee /proc/dynamic_debug/control
 
 ## 每次 debug 要回答的問題
 
-1. 問題發生前，哪個 path 被走到？
-2. 你看到的是 control path 問題，還是 data path 問題？
-3. 有沒有 resource 沒清？
-4. 如果是 race，誰跟誰競爭？
-5. 如果是 userspace 問題，kernel ABI 是否講清楚了？
+| 問題 | 標準答案方向 |
+|---|---|
+| 問題發生前，哪個 path 被走到？ | 先把失敗歸到 init/exit、read/write、ioctl、poll、mmap、probe/remove、IRQ、DMA 其中一條路徑。 |
+| 你看到的是 control path 問題，還是 data path 問題？ | control path 通常是 `ioctl`/狀態命令；data path 通常是 `read/write` 或 DMA payload；先分清楚再追 log。 |
+| 有沒有 resource 沒清？ | 對照 init/probe 拿資源的順序，檢查 exit/remove 是否反向釋放；多跑 repeated load/unload 可以驗 cleanup。 |
+| 如果是 race，誰跟誰競爭？ | 明確指出競爭雙方，例如 userspace thread vs userspace thread、userspace callback vs kthread、IRQ handler vs process context。 |
+| 如果是 userspace 問題，kernel ABI 是否講清楚了？ | 檢查 UAPI header、README、runtime wrapper 和 CLI 行為是否一致；不要讓 userspace 猜 command、struct 或錯誤語意。 |

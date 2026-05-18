@@ -73,12 +73,14 @@ PCI probe -> BAR/MMIO -> IRQ -> DMA -> cleanup
 
 ## 進 `08/09` 前你要能回答
 
-1. runtime 為什麼不是 kernel driver？
-2. runtime 和 UAPI header 的關係是什麼？
-3. `08` 目前主要包哪幾個 lab 的 ABI？
-4. repeated load/unload 在驗什麼？
-5. parallel access 在驗什麼？
-6. fault injection 和 stress 差在哪？
+| 問題 | 標準答案 |
+|---|---|
+| runtime 為什麼不是 kernel driver？ | runtime 是 userspace library/CLI 輔助層，呼叫 `open/read/write/ioctl/poll/mmap`；它不會產生 `.ko`，也不會被 `insmod` 載入。 |
+| runtime 和 UAPI header 的關係是什麼？ | UAPI header 定義 kernel/userspace 都要同意的 ABI；runtime include 這份 header，將 raw syscall 包成較一致的 C API。 |
+| `08` 目前主要包哪幾個 lab 的 ABI？ | 目前主要包 `02-char-device` 的 `read/write`，以及 `03-ioctl-poll-mmap` 的 `ioctl/poll/mmap` 路徑。 |
+| repeated load/unload 在驗什麼？ | 主要驗 init/exit cleanup 是否對稱，避免多次載入卸載後才暴露 resource 洩漏或狀態殘留。 |
+| parallel access 在驗什麼？ | 主要驗多個 userspace client 同時打 read/write/ioctl/poll 時，共享狀態和等待路徑是否能承受壓力。 |
+| fault injection 和 stress 差在哪？ | stress 是重複或並行施壓；fault injection 是主動讓 allocation/usercopy 等錯誤發生，用來驗 error path 與 rollback。 |
 
 ## 第一輪可以先略過
 

@@ -129,10 +129,14 @@ flowchart LR
 
 ## 每做一關都要回答這 4 個問題
 
-1. 這一關的「入口」是什麼？
-2. 這一關的「觀測點」是什麼？
-3. 這一關有哪些 resource 需要 cleanup？
-4. 失敗時第一個該看的 log 是哪裡？
+| 問題 | 標準答案方向 |
+|---|---|
+| 這一關的「入口」是什麼？ | 指出第一個進 driver 的地方；例如 `module_init()`、debugfs `write` callback、`file_operations` callback，或 PCI `probe()`。 |
+| 這一關的「觀測點」是什麼？ | 指出你怎麼證明它真的發生；例如 `dmesg`、debugfs readback、`/dev` readback、CLI output、`lspci`、smoke test 成功訊號。 |
+| 這一關有哪些 resource 需要 cleanup？ | 指出 init/probe 拿到的資源；例如 debugfs entry、major/minor、`cdev`、class/device、page、kthread、BAR mapping、IRQ、DMA buffer。 |
+| 失敗時第一個該看的 log 是哪裡？ | kernel module 或 driver 行為先看 `sudo dmesg | tail -n 50`；userspace CLI 失敗再看 CLI stderr/stdout；QEMU EDU 不存在先看 `lspci -nn`。 |
+
+每個 lab README 的「完成後你應該能回答」會給更精確的標準答案。這裡先記住回答格式：入口、觀測點、resource、cleanup、第一查證點。
 
 ## 新手最容易犯的錯
 

@@ -143,10 +143,12 @@ flowchart LR
 
 ## 這一關真正要回答的問題
 
-1. 哪些資料是共享的？
-2. 哪些 path 會碰到它？
-3. 哪些 path 可以睡眠？哪些不行？
-4. cleanup 時，會不會還有人拿著舊指標？
+| 問題 | 標準答案 |
+|---|---|
+| 哪些資料是共享的？ | 在 `04` 裡先看 `dl_counter`、`dl_safe_mode`、`dl_worker_running`；它們會被 userspace `ioctl` path 與背景 kthread 讀寫。 |
+| 哪些 path 會碰到它？ | `dl_race_ioctl()` 會處理 userspace 命令，`dl_race_worker_fn()` 會在背景更新 counter，兩者都可能碰共享 state。 |
+| 哪些 path 可以睡眠？哪些不行？ | `04` 第一輪主要在 process/kthread context，可用 mutex；之後進 IRQ path 時，handler 不能隨便睡眠，不能把所有情境都套同一種 lock。 |
+| cleanup 時，會不會還有人拿著舊指標？ | 退出時要先停背景 worker，再移除 device/class/cdev/major-minor；核心檢查是不要讓背景路徑繼續碰已釋放資源。 |
 
 ## 新手最常犯的錯
 
