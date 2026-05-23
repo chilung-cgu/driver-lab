@@ -26,6 +26,10 @@ static void usage(const char *prog)
 	fprintf(stderr, "  %s <device> mmap-read\n", prog);
 }
 
+/*
+ * CLI 入口。
+ * 第一個參數固定是 /dev node，第二個參數決定要走哪一條 driver 介面路徑。
+ */
 int main(int argc, char **argv)
 {
 	struct dl_runtime_handle handle = { .fd = -1 };

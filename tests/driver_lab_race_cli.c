@@ -31,6 +31,10 @@ static void usage(const char *prog)
 	fprintf(stderr, "  %s <device> race <threads> <loops>\n", prog);
 }
 
+/*
+ * userspace worker。
+ * 每條 pthread 都反覆送同一個 ioctl，故意製造 shared counter 的競爭壓力。
+ */
 static void *worker_thread(void *opaque)
 {
 	struct worker_args *args = opaque;
@@ -47,6 +51,10 @@ static void *worker_thread(void *opaque)
 	return NULL;
 }
 
+/*
+ * CLI 入口。
+ * status/reset/safe-mode 是實驗控制；inc/race 是製造 counter 更新壓力。
+ */
 int main(int argc, char **argv)
 {
 	struct dl_race_status status;
