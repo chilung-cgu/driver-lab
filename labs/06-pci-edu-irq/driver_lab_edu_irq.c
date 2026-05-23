@@ -22,6 +22,10 @@
 #define DL_EDU_TEST_IRQ_MASK 0x00000001U
 #define DL_EDU_IRQ_TIMEOUT_MS 1000
 
+/*
+ * IRQ lab 的 per-device state。
+ * 除了 05 的 pdev/BAR0，這裡多了 IRQ vector 與 completion 來串起 handler。
+ */
 struct dl_edu_irq_dev {
 	struct pci_dev *pdev;
 	void __iomem *bar0;
@@ -35,6 +39,10 @@ struct dl_edu_irq_dev {
 	u32 irq_count;
 };
 
+/*
+ * IRQ top-half handler。
+ * 硬體/模擬裝置送 interrupt 後，Linux IRQ core 會呼叫這個 callback。
+ */
 static irqreturn_t dl_edu_irq_handler(int irq, void *opaque)
 {
 	struct dl_edu_irq_dev *dl = opaque;
@@ -59,6 +67,10 @@ static irqreturn_t dl_edu_irq_handler(int irq, void *opaque)
 	return IRQ_HANDLED;
 }
 
+/*
+ * PCI probe callback。
+ * 這一關在 05 的 PCI/MMIO bring-up 後，額外配置 IRQ 並跑一次 self-test。
+ */
 static int dl_edu_irq_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 {
 	struct dl_edu_irq_dev *dl;
@@ -163,6 +175,10 @@ err_disable_device:
 	return ret;
 }
 
+/*
+ * PCI remove callback。
+ * 先拆 IRQ，再拆 BAR/MMIO/PCI resource，避免 handler 使用已釋放的 MMIO。
+ */
 static void dl_edu_irq_remove(struct pci_dev *pdev)
 {
 	struct dl_edu_irq_dev *dl = pci_get_drvdata(pdev);

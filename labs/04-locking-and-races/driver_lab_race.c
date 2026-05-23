@@ -39,12 +39,14 @@ static unsigned int dl_counter;
 static bool dl_safe_mode;
 static bool dl_worker_running;
 
+/* safe mode 的核心：用外層 mutex 保護這個 counter increment。 */
 static void dl_race_increment_locked(void)
 {
 	/* 這是修正後的最小版本：一次只讓一條路徑修改 counter。 */
 	dl_counter++;
 }
 
+/* unsafe mode 的核心：故意不保護 read-modify-write，用來示範 lost update。 */
 static void dl_race_increment_unlocked(void)
 {
 	unsigned int snapshot;
@@ -58,6 +60,10 @@ static void dl_race_increment_unlocked(void)
 	dl_counter = snapshot + 1;
 }
 
+/*
+ * 共用 increment 入口。
+ * userspace ioctl 與背景 kthread 都走這裡，再依 safe_mode 切換安全/不安全路徑。
+ */
 static void dl_race_increment(void)
 {
 	/*
@@ -75,6 +81,10 @@ static void dl_race_increment(void)
 	dl_race_increment_unlocked();
 }
 
+/*
+ * 背景 kernel thread。
+ * 它模擬 driver 內部也會碰共享 state，因此 race 不只來自 userspace。
+ */
 static int dl_race_worker_fn(void *unused)
 {
 	/* 模擬「就算 userspace 沒下指令，driver 背後也可能有工作在跑」。 */
@@ -93,6 +103,7 @@ static int dl_race_worker_fn(void *unused)
 	return 0;
 }
 
+/* open/release 目前只作為 /dev/driver_lab_race0 被使用的觀測點。 */
 static int dl_race_open(struct inode *inode, struct file *file)
 {
 	pr_info("device opened\n");
@@ -105,6 +116,7 @@ static int dl_race_release(struct inode *inode, struct file *file)
 	return 0;
 }
 
+/* read path：輸出人類可讀的 counter/safe_mode/worker 狀態。 */
 static ssize_t dl_race_read(struct file *file, char __user *buf,
 							size_t count, loff_t *ppos)
 {
@@ -122,6 +134,10 @@ static ssize_t dl_race_read(struct file *file, char __user *buf,
 	return simple_read_from_buffer(buf, count, ppos, status, len);
 }
 
+/*
+ * control path：CLI 的 safe-mode/reset/inc/status 都會變成這裡的 ioctl command。
+ * 這裡故意保留 unsafe increment，讓測試能比較 race 修正前後。
+ */
 static long dl_race_ioctl(struct file *file, unsigned int cmd,
 						  unsigned long arg)
 {
@@ -182,6 +198,10 @@ static const struct file_operations dl_race_fops = {
 	.llseek = noop_llseek,
 };
 
+/*
+ * module 載入入口。
+ * 先建立 /dev 入口，再啟動背景 worker，讓 race lab 一載入就有內部競爭來源。
+ */
 static int __init driver_lab_race_init(void)
 {
 	int ret;
@@ -239,6 +259,7 @@ err_unregister_chrdev:
 	return ret;
 }
 
+/* module 卸載入口：先停 worker，再拆 /dev 資源，避免 lifetime race。 */
 static void __exit driver_lab_race_exit(void)
 {
 	/* 先停 worker，再拆裝置資源，避免背景 thread 繼續碰已釋放的物件。 */

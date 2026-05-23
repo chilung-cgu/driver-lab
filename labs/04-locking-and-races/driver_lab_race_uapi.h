@@ -8,6 +8,10 @@
 #include <sys/ioctl.h>
 #endif
 
+/*
+ * 這份 struct 是 userspace CLI 和 kernel driver 共同理解的 ABI。
+ * 欄位順序與型別改變會影響相容性；不要把 kernel private pointer 放進來。
+ */
 struct dl_race_status {
 	/* 目前共享 counter 的值。 */
 	unsigned int counter;

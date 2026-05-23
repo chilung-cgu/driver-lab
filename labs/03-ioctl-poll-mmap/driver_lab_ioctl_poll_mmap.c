@@ -43,6 +43,10 @@ static unsigned int dl_event_count;
 static bool dl_event_pending;
 static unsigned long dl_shared_page_addr;
 
+/*
+ * 把 driver 內部狀態同步到 mmap shared page。
+ * 呼叫者必須持有 dl_lock，避免 userspace 看到半更新的 snapshot。
+ */
 static void dl_sync_shared_page_locked(void)
 {
 	struct dl_shared_page *page;
@@ -61,6 +65,10 @@ static void dl_sync_shared_page_locked(void)
 	memcpy(page->buffer, dl_buffer, dl_buffer_len);
 }
 
+/*
+ * 統一更新 message 與 event state。
+ * write()、DL_IOC_SET_MESSAGE 這類入口都會集中到這裡，降低狀態分歧風險。
+ */
 static void dl_publish_message_locked(const char *src, size_t len)
 {
 	/*
@@ -76,6 +84,10 @@ static void dl_publish_message_locked(const char *src, size_t len)
 	dl_sync_shared_page_locked();
 }
 
+/*
+ * open/release 目前只當觀測點。
+ * 如果未來要做 per-open private data，會從這兩個 callback 開始擴充。
+ */
 static int dl_open(struct inode *inode, struct file *file)
 {
 	/* 這一關還沒有 per-open private state，先把 open 保持單純。 */
@@ -89,6 +101,10 @@ static int dl_release(struct inode *inode, struct file *file)
 	return 0;
 }
 
+/*
+ * data path 的 read 端。
+ * blocking fd 會等待資料；non-blocking fd 沒資料時回 -EAGAIN。
+ */
 static ssize_t dl_read(struct file *file, char __user *buf,
 					   size_t count, loff_t *ppos)
 {
@@ -121,6 +137,10 @@ static ssize_t dl_read(struct file *file, char __user *buf,
 	return ret;
 }
 
+/*
+ * data path 的 write 端。
+ * 寫入新 message 後會喚醒 read waitqueue 與 poll/event waitqueue。
+ */
 static ssize_t dl_write(struct file *file, const char __user *buf,
 						size_t count, loff_t *ppos)
 {
@@ -158,6 +178,10 @@ static ssize_t dl_write(struct file *file, const char __user *buf,
 	return ret;
 }
 
+/*
+ * event path。
+ * userspace poll() 會透過這裡等待「可讀資料」或「driver event pending」。
+ */
 static __poll_t dl_poll(struct file *file, poll_table *wait)
 {
 	__poll_t mask = 0;
@@ -179,6 +203,10 @@ static __poll_t dl_poll(struct file *file, poll_table *wait)
 	return mask;
 }
 
+/*
+ * control path。
+ * ioctl command 在這裡分派，所有 userspace pointer 都必須 copy_from/to_user。
+ */
 static long dl_unlocked_ioctl(struct file *file, unsigned int cmd,
 							  unsigned long arg)
 {
@@ -253,6 +281,10 @@ static long dl_unlocked_ioctl(struct file *file, unsigned int cmd,
 	return ret;
 }
 
+/*
+ * shared memory path。
+ * 只允許 userspace 映射 driver 預先配置的一頁 shared snapshot page。
+ */
 static int dl_mmap(struct file *file, struct vm_area_struct *vma)
 {
 	unsigned long size;
@@ -285,6 +317,10 @@ static const struct file_operations dl_fops = {
 	.llseek = noop_llseek,
 };
 
+/*
+ * module 載入入口。
+ * 先準備 shared page，再建立 char device；失敗時沿 label 逐層回收。
+ */
 static int __init driver_lab_ioctl_poll_mmap_init(void)
 {
 	int ret;
@@ -336,6 +372,7 @@ err_free_page:
 	return ret;
 }
 
+/* module 卸載入口：拆 /dev 資源並釋放 mmap shared page。 */
 static void __exit driver_lab_ioctl_poll_mmap_exit(void)
 {
 	device_destroy(dl_class, dl_devt);

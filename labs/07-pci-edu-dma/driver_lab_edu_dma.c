@@ -35,6 +35,10 @@
 #define DL_EDU_DMA_WAIT_TIMEOUT_MS 1000
 #define DL_EDU_DMA_BUFFER_BYTES 256
 
+/*
+ * DMA lab 的 per-device state。
+ * 這裡把 PCI/MMIO/IRQ 資源和 coherent DMA buffer 放在同一個生命週期裡。
+ */
 struct dl_edu_dma_dev {
 	struct pci_dev *pdev;
 	void __iomem *bar0;
@@ -51,6 +55,10 @@ struct dl_edu_dma_dev {
 	u8 *rx_buf;
 };
 
+/*
+ * DMA completion IRQ handler。
+ * 它只做必要工作：確認 status、ack 裝置、喚醒等待 self-test 的 probe path。
+ */
 static irqreturn_t dl_edu_dma_handler(int irq, void *opaque)
 {
 	struct dl_edu_dma_dev *dl = opaque;
@@ -70,6 +78,10 @@ static irqreturn_t dl_edu_dma_handler(int irq, void *opaque)
 	return IRQ_HANDLED;
 }
 
+/*
+ * 等待 DMA completion interrupt。
+ * phase 只用來讓錯誤 log 說清楚是 RAM->EDU 還是 EDU->RAM 失敗。
+ */
 static int dl_edu_dma_wait_for_irq(struct dl_edu_dma_dev *dl, const char *phase)
 {
 	unsigned long timeout_jiffies;
@@ -84,6 +96,10 @@ static int dl_edu_dma_wait_for_irq(struct dl_edu_dma_dev *dl, const char *phase)
 	return 0;
 }
 
+/*
+ * 等待 EDU command bit 清掉。
+ * IRQ 代表事件抵達；command bit 清掉則代表裝置端狀態也回到 idle。
+ */
 static int dl_edu_dma_wait_for_cmd_clear(struct dl_edu_dma_dev *dl, const char *phase)
 {
 	unsigned long deadline;
@@ -104,6 +120,10 @@ static int dl_edu_dma_wait_for_cmd_clear(struct dl_edu_dma_dev *dl, const char *
 	return -ETIMEDOUT;
 }
 
+/*
+ * 把 source/destination DMA address 寫進 EDU register。
+ * 這裡寫的是裝置視角的位址，不是 CPU 直接 dereference 的 kernel pointer。
+ */
 static void dl_edu_dma_program_addrs(struct dl_edu_dma_dev *dl,
 									 dma_addr_t src, dma_addr_t dst)
 {
@@ -115,6 +135,10 @@ static void dl_edu_dma_program_addrs(struct dl_edu_dma_dev *dl,
 	iowrite32(lower_32_bits(dst), dl->bar0 + DL_EDU_DMA_DST_REG);
 }
 
+/*
+ * 執行一次 DMA transaction。
+ * probe() 會呼叫兩次：第一次 RAM->EDU，第二次 EDU->RAM。
+ */
 static int dl_edu_dma_run_once(struct dl_edu_dma_dev *dl, dma_addr_t src,
 							   dma_addr_t dst, u32 cmd, const char *phase)
 {
@@ -141,6 +165,10 @@ static int dl_edu_dma_run_once(struct dl_edu_dma_dev *dl, dma_addr_t src,
 	return 0;
 }
 
+/*
+ * 準備可預測的測試資料。
+ * round-trip 後用 memcmp() 比對 tx/rx，驗證不是只有 IRQ 成功而已。
+ */
 static void dl_edu_dma_fill_pattern(struct dl_edu_dma_dev *dl)
 {
 	size_t i;
@@ -152,6 +180,10 @@ static void dl_edu_dma_fill_pattern(struct dl_edu_dma_dev *dl)
 	memset(dl->rx_buf, 0, DL_EDU_DMA_BUFFER_BYTES);
 }
 
+/*
+ * PCI probe callback。
+ * 完整建立 PCI/MMIO/IRQ/DMA path，最後用 round-trip self-test 當載入驗收。
+ */
 static int dl_edu_dma_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 {
 	struct dl_edu_dma_dev *dl;
@@ -281,6 +313,10 @@ err_disable_device:
 	return ret;
 }
 
+/*
+ * PCI remove callback。
+ * cleanup 順序要保守：先停止 IRQ path，再釋放 DMA buffer，最後拆 MMIO/PCI。
+ */
 static void dl_edu_dma_remove(struct pci_dev *pdev)
 {
 	struct dl_edu_dma_dev *dl = pci_get_drvdata(pdev);

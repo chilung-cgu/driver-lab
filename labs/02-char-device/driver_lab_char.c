@@ -31,6 +31,10 @@ static DEFINE_MUTEX(dl_char_lock);
 static char dl_char_buffer[DL_CHAR_BUFFER_SIZE];
 static size_t dl_char_buffer_len;
 
+/*
+ * open/release 是 VFS 在 userspace 開關 /dev node 時呼叫的生命週期 callback。
+ * 目前沒有 per-file state，所以只印 log 當觀測點。
+ */
 static int dl_char_open(struct inode *inode, struct file *file)
 {
 	/* 目前還沒有 per-open private state，這裡先當成觀測點。 */
@@ -44,6 +48,10 @@ static int dl_char_release(struct inode *inode, struct file *file)
 	return 0;
 }
 
+/*
+ * char device data path 的 read 端。
+ * userspace 的 read()/dd/cat 最後會來到這裡，把 kernel buffer 複製回去。
+ */
 static ssize_t dl_char_read(struct file *file, char __user *buf,
 							size_t count, loff_t *ppos)
 {
@@ -66,6 +74,10 @@ static ssize_t dl_char_read(struct file *file, char __user *buf,
 	return ret;
 }
 
+/*
+ * char device data path 的 write 端。
+ * 這個教學版每次 write 都覆蓋整個 buffer，讓 readback 容易預測。
+ */
 static ssize_t dl_char_write(struct file *file, const char __user *buf,
 							 size_t count, loff_t *ppos)
 {
@@ -114,6 +126,10 @@ static const struct file_operations dl_char_fops = {
 	.llseek = noop_llseek,
 };
 
+/*
+ * module 載入入口：註冊 major/minor、掛上 cdev，並建立 /dev/driver_lab_char0。
+ * 每一步失敗都跳到對應 cleanup label，練習「拿到什麼就反向釋放什麼」。
+ */
 static int __init driver_lab_char_init(void)
 {
 	int ret;
@@ -157,6 +173,7 @@ err_unregister_region:
 	return ret;
 }
 
+/* module 卸載入口：依 init 的反向順序拆掉 device/class/cdev/device number。 */
 static void __exit driver_lab_char_exit(void)
 {
 	/*

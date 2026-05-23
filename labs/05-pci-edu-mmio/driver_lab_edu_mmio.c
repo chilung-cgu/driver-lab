@@ -17,6 +17,10 @@
 #define DL_EDU_LIVENESS_REG 0x04
 #define DL_EDU_LIVENESS_PATTERN 0xa5a55a5aU
 
+/*
+ * 每顆 matched PCI device 都會有一份 private state。
+ * probe() 建好後用 pci_set_drvdata() 掛到 pdev，remove() 再取回來清理。
+ */
 struct dl_edu_mmio_dev {
 	struct pci_dev *pdev;
 	/* BAR0 map 之後得到的 MMIO base。 */
@@ -107,6 +111,10 @@ err_disable_device:
 	return ret;
 }
 
+/*
+ * PCI remove callback。
+ * module 卸載或裝置消失時由 PCI core 呼叫，負責反向釋放 probe() 拿到的資源。
+ */
 static void dl_edu_mmio_remove(struct pci_dev *pdev)
 {
 	struct dl_edu_mmio_dev *dl = pci_get_drvdata(pdev);

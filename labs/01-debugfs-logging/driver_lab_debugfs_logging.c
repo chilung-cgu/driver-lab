@@ -29,6 +29,10 @@ static u32 dl_trigger_count;
 static u32 dl_emit_debug = 1;
 static char dl_last_message[DL_LAST_MESSAGE_LEN] = "not-triggered-yet";
 
+/*
+ * status 檔案的內容產生器。
+ * VFS read path 會透過 seq_file 呼叫它，最後變成 `cat status` 看到的文字。
+ */
 static int dl_status_show(struct seq_file *m, void *unused)
 {
 	/* 把目前的 in-kernel state 轉成文字，方便直接觀測。 */
@@ -50,6 +54,11 @@ static int dl_status_open(struct inode *inode, struct file *file)
 	return single_open(file, dl_status_show, inode->i_private);
 }
 
+/*
+ * trigger 檔案的 write callback。
+ * userspace 寫入 payload 後，這裡更新 driver state，並留下 dmesg/dynamic debug
+ * 可觀測訊號。
+ */
 static ssize_t dl_trigger_write(struct file *file, const char __user *buf,
 								size_t count, loff_t *ppos)
 {
@@ -109,6 +118,10 @@ static const struct file_operations dl_trigger_fops = {
 	.llseek = noop_llseek,
 };
 
+/*
+ * module 載入入口。
+ * 這裡只負責建立 debugfs 目錄與檔案；真正的 read/write 行為在 fops callback。
+ */
 static int __init driver_lab_debugfs_logging_init(void)
 {
 	struct dentry *entry;
@@ -145,6 +158,7 @@ err_remove_debugfs:
 	return ret;
 }
 
+/* module 卸載入口：移除 debugfs 目錄樹，避免留下失效的 debug 入口。 */
 static void __exit driver_lab_debugfs_logging_exit(void)
 {
 	/* debugfs_remove() 會移除整個目錄樹；不用逐一 remove 每個檔案。 */
