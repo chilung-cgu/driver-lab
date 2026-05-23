@@ -35,6 +35,12 @@ debugfs 不是穩定產品 ABI。它適合教學、觀測、debug，不適合承
 
 ## `/dev/driver_lab_char0` 是怎麼來的？
 
+開始讀 `02` source 前，建議先讀：
+
+- [`kernel-api-parameter-roles.md`](kernel-api-parameter-roles.md)
+
+它會教你用「input / output / 前一步 resource / 數量 / 名字 / callback table」來讀 kernel API 參數。
+
 你可以先把 `02` 的 init path 想成 4 步：
 
 1. `alloc_chrdev_region()`：向 kernel 申請一組 major/minor device number。

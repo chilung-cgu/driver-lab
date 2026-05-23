@@ -100,8 +100,10 @@ flowchart LR
 
 - [`lab-transition-map.md`](lab-transition-map.md)
 - [`01-to-03-user-kernel-abi-bridge.md`](01-to-03-user-kernel-abi-bridge.md)
+- [`kernel-api-parameter-roles.md`](kernel-api-parameter-roles.md)
 
 `02` 會第一次把入口換成 `/dev/driver_lab_char0`，`03` 會把 `read/write` 擴成 `ioctl/poll/mmap`。第一輪先學會把命令對到 callback，不要急著追完整 VFS、`poll_table` 或 memory management。
+開始讀 `.c` 裡的 API 呼叫時，先問每個參數是 input、output、前一步 resource、數量、名字、callback table，還是 userspace pointer。
 
 做到後面 `08/09` 時，先讀 [`07-to-09-runtime-validation-bridge.md`](07-to-09-runtime-validation-bridge.md)。`08` 是 userspace runtime，不是 kernel driver；`09` 是 stress/regression 習慣，不代表完整 fault injection framework 已經完成。
 
@@ -134,6 +136,7 @@ flowchart LR
 | 這一關的「入口」是什麼？ | 指出第一個進 driver 的地方；例如 `module_init()`、debugfs `write` callback、`file_operations` callback，或 PCI `probe()`。 |
 | 這一關的「觀測點」是什麼？ | 指出你怎麼證明它真的發生；例如 `dmesg`、debugfs readback、`/dev` readback、CLI output、`lspci`、smoke test 成功訊號。 |
 | 這一關有哪些 resource 需要 cleanup？ | 指出 init/probe 拿到的資源；例如 debugfs entry、major/minor、`cdev`、class/device、page、kthread、BAR mapping、IRQ、DMA buffer。 |
+| 關鍵 API 參數各自扮演什麼角色？ | 指出哪些參數是 output、前一步拿到的 resource、數量、名字、callback table、userspace pointer，或 cleanup 對象。 |
 | 失敗時第一個該看的 log 是哪裡？ | kernel module 或 driver 行為先看 `sudo dmesg | tail -n 50`；userspace CLI 失敗再看 CLI stderr/stdout；QEMU EDU 不存在先看 `lspci -nn`。 |
 
 每個 lab README 的「完成後你應該能回答」會給更精確的標準答案。這裡先記住回答格式：入口、觀測點、resource、cleanup、第一查證點。

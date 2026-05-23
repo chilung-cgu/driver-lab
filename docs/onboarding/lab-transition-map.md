@@ -28,6 +28,7 @@
 - `/dev/driver_lab_char0` 是 userspace 對 driver 做 `read()` / `write()` 的主要入口。
 
 進 `02` 前，先讀 [`01-to-03-user-kernel-abi-bridge.md`](01-to-03-user-kernel-abi-bridge.md) 的前半段。
+開始讀 `02` source 前，再讀 [`kernel-api-parameter-roles.md`](kernel-api-parameter-roles.md)，先學會分辨 `dev_t`、`cdev`、`class`、`device` 這些 resource 在 API 參數中的角色。
 
 ## `02 -> 03`：從 `read/write` 到多條 ABI 路徑
 

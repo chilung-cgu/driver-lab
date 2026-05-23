@@ -499,6 +499,13 @@ driver module 載入後就是在這裡跑。
 - init path 先申請 device number
 - exit path 要用 `unregister_chrdev_region()` 釋放
 
+第一輪看參數：
+
+- `&dl_char_devt` 是 output，kernel 會把分配結果填進來
+- `0` 是起始 minor
+- `1` 是申請數量
+- `DL_CHAR_CLASS_NAME` 是註冊用名字
+
 ## `cdev`
 
 意思：
@@ -521,6 +528,12 @@ driver module 載入後就是在這裡跑。
 
 - `cdev_add()` 成功後，VFS 才能透過這個 char device 找到 driver callback
 
+第一輪看參數：
+
+- `cdev_init(&dl_char_cdev, &dl_char_fops)`：第一個參數是要初始化的 cdev，第二個參數是 callback table
+- `cdev_add(&dl_char_cdev, dl_char_devt, 1)`：把 cdev 掛到前面拿到的 `dev_t`，並管理 1 個 minor
+- `cdev_del(&dl_char_cdev)`：cleanup 前面成功加入 kernel 的 cdev
+
 ## `class_create()`
 
 意思：
@@ -533,6 +546,11 @@ driver module 載入後就是在這裡跑。
 
 不用急著理解完整 sysfs device model。
 
+第一輪看參數：
+
+- `DL_CHAR_CLASS_NAME` 是 class 名字
+- 回傳值是 `struct class *`，失敗時常用 `IS_ERR()` / `PTR_ERR()` 判斷
+
 ## `device_create()`
 
 意思：
@@ -543,6 +561,14 @@ driver module 載入後就是在這裡跑。
 
 - 它讓你最後看到 `/dev/driver_lab_char0`
 
+第一輪看參數：
+
+- `dl_char_class` 是前一步建立的 class
+- `NULL` parent 表示這個 lab 沒有上層硬體裝置
+- `dl_char_devt` 是前面拿到的 major/minor
+- `NULL` drvdata 表示這個 lab 沒放 private data
+- `DL_CHAR_DEVICE_NAME` 是 userspace 看到的 device 名字
+
 ## `device_destroy()` / `class_destroy()`
 
 意思：
@@ -552,6 +578,11 @@ driver module 載入後就是在這裡跑。
 你現在先記：
 
 - init 取得的 resource，要在 exit 大致反向釋放
+
+第一輪看參數：
+
+- `device_destroy(dl_char_class, dl_char_devt)`：用 class + dev_t 找回要移除的 device
+- `class_destroy(dl_char_class)`：釋放 `class_create()` 建立的 class
 
 ## `VFS`
 
@@ -669,6 +700,13 @@ static int dl_status_show(struct seq_file *m, void *unused)
 
 - 寫 `trigger` 時，payload 會從 userspace 複製到 kernel stack 上的 local buffer
 
+第一輪看參數：
+
+- destination 是 kernel buffer
+- source 是 userspace pointer
+- size 是要複製幾個 byte
+- 方向是 user -> kernel
+
 ## `copy_to_user()`
 
 意思：
@@ -683,6 +721,13 @@ static int dl_status_show(struct seq_file *m, void *unused)
 在 `02-char-device` 裡：
 
 - `read()` 會把 kernel buffer 的內容複製回 userspace
+
+第一輪看參數：
+
+- destination 是 userspace pointer
+- source 是 kernel buffer
+- size 是要複製幾個 byte
+- 方向是 kernel -> user
 
 ## `ABI`
 
@@ -733,6 +778,11 @@ static int dl_status_show(struct seq_file *m, void *unused)
 - `DL_IOC_TRIGGER_EVENT`
 - `DL_IOC_CLEAR_BUFFER`
 
+第一輪看參數：
+
+- `cmd` 是命令編號，driver 用它決定要做哪件事
+- `arg` 常是 userspace pointer 或整數值；若是 pointer，必須用 `copy_from_user()` / `copy_to_user()` 安全搬資料
+
 ## `_IOW` / `_IOR`
 
 意思：
@@ -755,6 +805,12 @@ static int dl_status_show(struct seq_file *m, void *unused)
 
 - `poll()` 會把等待者接到 waitqueue
 - driver 狀態改變時再喚醒它
+
+第一輪看參數：
+
+- `poll_wait(file, &wq, wait)` 把目前 fd 和 waitqueue 建立關聯
+- `file` 是 VFS 傳進來的 opened file context
+- `wait` 是 poll core 傳進來的等待註冊上下文
 
 ## `poll`
 
@@ -789,6 +845,11 @@ static int dl_status_show(struct seq_file *m, void *unused)
 - 它映射的是 driver 維護的一頁 shared snapshot page
 - 不是把任意 kernel memory 暴露出去
 
+第一輪看參數：
+
+- `struct vm_area_struct *vma` 描述 userspace 想建立的 mapping 範圍
+- `remap_pfn_range()` 的核心參數是 userspace 起始位址、kernel page frame number、大小、page protection
+
 ## non-blocking / `-EAGAIN`
 
 意思：
@@ -816,6 +877,12 @@ static int dl_status_show(struct seq_file *m, void *unused)
 你現在先記：
 
 - 多條路徑會改同一份 state 時，先問這段有沒有被 lock 保護
+
+第一輪看參數：
+
+- `mutex_lock_interruptible(&lock)` 的參數是要取得的 lock
+- 成功後才能安全操作受保護的共享 state
+- 返回非 0 代表等待期間被 signal 中斷，driver 要回錯誤
 
 ## race condition
 
@@ -847,6 +914,11 @@ static int dl_status_show(struct seq_file *m, void *unused)
 
 - 背景 kthread 模擬 driver 內部也會同時碰共享 state
 
+第一輪看參數：
+
+- `kthread_run(fn, data, name)`：`fn` 是 thread body，`data` 是傳給 thread 的 private data，`name` 是 kernel thread 名稱
+- 回傳值是 task pointer 或 error pointer，所以常用 `IS_ERR()` / `PTR_ERR()`
+
 ## `completion`
 
 意思：
@@ -856,6 +928,12 @@ static int dl_status_show(struct seq_file *m, void *unused)
 在 `06/07` 裡：
 
 - probe 或 DMA path 會等待 IRQ handler 呼叫 `complete()`，確認事件真的發生
+
+第一輪看參數：
+
+- `wait_for_completion_timeout(&done, timeout)` 等的是同一個 completion object
+- `timeout` 是最多等多久
+- IRQ handler 呼叫 `complete(&done)` 後，等待端才會醒來
 
 ## PCI
 
@@ -892,6 +970,12 @@ static int dl_status_show(struct seq_file *m, void *unused)
 - `probe()` 負責 enable PCI device、map BAR、申請 IRQ 或 DMA resource
 - `remove()` 要反向釋放
 
+第一輪看參數：
+
+- `struct pci_dev *pdev` 是 PCI core 交給 driver 的裝置物件
+- `const struct pci_device_id *id` 是 match 到的 ID table entry
+- driver 後續的 `pci_*()` API 幾乎都會拿 `pdev` 當主要參數
+
 ## BAR
 
 意思：
@@ -924,6 +1008,12 @@ static int dl_status_show(struct seq_file *m, void *unused)
 
 - 用它們讀 EDU identification / liveness register
 
+第一輪看參數：
+
+- `dl->bar0 + offset` 是 MMIO register 位址，不是一般 RAM
+- `ioread32()` 從 register 讀 32-bit 值
+- `iowrite32(value, addr)` 把 32-bit 值寫到 register
+
 ## IRQ
 
 意思：
@@ -933,6 +1023,12 @@ static int dl_status_show(struct seq_file *m, void *unused)
 在 `06` 裡：
 
 - handler 會讀 status、寫 acknowledge、喚醒 completion
+
+第一輪看參數：
+
+- `request_irq(vector, handler, flags, name, dev_id)` 把 IRQ vector 接到 handler
+- `handler` 是中斷進來時會被呼叫的 callback
+- `dev_id` 會原樣傳給 handler，常用來找回 per-device state
 
 ## MSI
 
@@ -955,6 +1051,10 @@ static int dl_status_show(struct seq_file *m, void *unused)
 
 - MSI 與 DMA 都可能需要 device 主動對 host memory 做動作，所以 driver 會呼叫 `pci_set_master()`
 
+第一輪看參數：
+
+- `pci_set_master(pdev)` 的 `pdev` 是要允許主動發起 bus transaction 的 PCI device
+
 ## DMA
 
 意思：
@@ -976,6 +1076,13 @@ static int dl_status_show(struct seq_file *m, void *unused)
 
 - CPU 用 kernel pointer 存取它
 - device 用 DMA address 存取它
+
+第一輪看參數：
+
+- `dma_alloc_coherent(dev, size, &dma_handle, gfp)` 的 `dev` 是裝置，`size` 是 byte 數
+- 回傳值是 CPU pointer
+- `&dma_handle` 是 output，kernel 會填入 device 要用的 DMA address
+- cleanup 要用同一組 `dev`、`size`、CPU pointer、DMA address 呼叫 `dma_free_coherent()`
 
 ## `dma_addr_t`
 

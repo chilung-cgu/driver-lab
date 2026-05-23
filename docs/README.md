@@ -10,6 +10,7 @@
 | [`onboarding/reading-map.md`](onboarding/reading-map.md) | 準備開始讀 repo 時 | 今天到底先看哪幾份、什麼時候才看後面章節 |
 | [`onboarding/learning-dashboard.md`](onboarding/learning-dashboard.md) | 每完成一關要判斷能否前進時 | 每個階段要跑什麼、成功訊號是什麼、前進條件是什麼 |
 | [`onboarding/beginner-glossary.md`](onboarding/beginner-glossary.md) | 遇到陌生名詞時 | 單一查詢表，不需要從頭背完 |
+| [`onboarding/kernel-api-parameter-roles.md`](onboarding/kernel-api-parameter-roles.md) | 開始讀 `.c` 裡的 kernel API 呼叫時 | 每個參數是 input、output、resource、數量、名字、callback，還是 cleanup 對象 |
 
 ## 目錄分類
 
@@ -34,10 +35,11 @@
 6. [`onboarding/check-kernel-env-explained.md`](onboarding/check-kernel-env-explained.md)
 7. 回到 repo 根目錄，開始做 `labs/00-hello-module`
 8. 完成 `00` 後，先讀 [`onboarding/00-to-01-debugfs-bridge.md`](onboarding/00-to-01-debugfs-bridge.md)，再進 `labs/01-debugfs-logging`
-9. 完成 `01` 後，讀 [`onboarding/lab-transition-map.md`](onboarding/lab-transition-map.md) 與 [`onboarding/01-to-03-user-kernel-abi-bridge.md`](onboarding/01-to-03-user-kernel-abi-bridge.md)，再進 `02/03`
-10. 進 `04/05` 前，讀 [`onboarding/03-to-05-concurrency-pci-bridge.md`](onboarding/03-to-05-concurrency-pci-bridge.md)
-11. 進 `06/07` 前，讀 [`onboarding/05-to-07-pci-irq-dma-bridge.md`](onboarding/05-to-07-pci-irq-dma-bridge.md)
-12. 進 `08/09` 前，讀 [`onboarding/07-to-09-runtime-validation-bridge.md`](onboarding/07-to-09-runtime-validation-bridge.md)
+9. 完成 `01` 後，讀 [`onboarding/lab-transition-map.md`](onboarding/lab-transition-map.md) 與 [`onboarding/01-to-03-user-kernel-abi-bridge.md`](onboarding/01-to-03-user-kernel-abi-bridge.md)
+10. 開始讀 `02` source 前，讀 [`onboarding/kernel-api-parameter-roles.md`](onboarding/kernel-api-parameter-roles.md)
+11. 進 `04/05` 前，讀 [`onboarding/03-to-05-concurrency-pci-bridge.md`](onboarding/03-to-05-concurrency-pci-bridge.md)
+12. 進 `06/07` 前，讀 [`onboarding/05-to-07-pci-irq-dma-bridge.md`](onboarding/05-to-07-pci-irq-dma-bridge.md)
+13. 進 `08/09` 前，讀 [`onboarding/07-to-09-runtime-validation-bridge.md`](onboarding/07-to-09-runtime-validation-bridge.md)
 
 ## QEMU 相關文件在哪裡
 
