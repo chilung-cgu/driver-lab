@@ -202,3 +202,13 @@ sudo rmmod driver_lab_ioctl_poll_mmap
 7. `driver_lab_ioctl_poll_mmap_exit()`：device node、cdev、class、page 如何被清掉
 
 讀這關時要一直問：這個 callback 是 control path、data path、event path，還是 shared memory path？
+
+遇到 kernel API 時，先套用「參數角色」模板，完整方法見 [`../../docs/onboarding/kernel-api-parameter-roles.md`](../../docs/onboarding/kernel-api-parameter-roles.md)。
+
+| API | 參數角色 | 第一輪理解 |
+|---|---|---|
+| `copy_from_user(&msg, (void __user *)arg, sizeof(msg))` | kernel destination、userspace source、size | `ioctl arg` 是 userspace pointer，必須安全複製進 kernel struct。 |
+| `copy_to_user((void __user *)arg, &status, sizeof(status))` | userspace destination、kernel source、size | 把 driver status struct 複製回 userspace。 |
+| `poll_wait(file, &dl_read_wq, wait)` | opened file、waitqueue、poll context | 把目前 fd 和 read waitqueue 接起來，之後狀態改變才能喚醒 poll。 |
+| `remap_pfn_range(vma, vma->vm_start, pfn, size, ...)` | VMA、userspace address、page frame、size、protection | 把 driver 控制的一頁 shared page 映射到 userspace。 |
+| `alloc_chrdev_region()` / `cdev_add()` / `device_create()` | char device resource pipeline | 和 `02` 同一套 `/dev` 建立流程，只是 callback 更多。 |

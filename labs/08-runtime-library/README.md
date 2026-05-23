@@ -89,9 +89,23 @@
 
 1. `runtime/include/driver_lab_runtime.h`：userspace 對外 API 長什麼樣子。
 2. `runtime/include/driver_lab_uapi.h`：kernel/userspace 共享的 ABI 常數與 struct。
-3. `driver_lab_open()` / `driver_lab_close()`：runtime 如何管理 fd。
-4. `driver_lab_ioctl_*()`：runtime 如何包 `03` 的 control path。
+3. `dl_runtime_open()` / `dl_runtime_close()`：runtime 如何管理 fd。
+4. `dl_runtime_ioctl_*()`：runtime 如何包 `03` 的 control path。
 5. `tests/driver_lab_char_cli.c`：CLI 如何呼叫 runtime，而不是到處直接散寫 syscall。
+
+## API 參數第一輪怎麼讀
+
+`08` 是 userspace runtime，不是 kernel driver。這一關仍然可以用「參數角色」讀 code，但不要把 runtime helper 誤認成 kernel API。
+
+完整模板見 [`../../docs/onboarding/kernel-api-parameter-roles.md`](../../docs/onboarding/kernel-api-parameter-roles.md)。
+
+| API | 參數角色 | 第一輪理解 |
+|---|---|---|
+| `dl_runtime_open_flags(handle, path, flags)` | output handle、device path、open flags | 成功後 `handle->fd` 保存 opened device fd。 |
+| `dl_runtime_write(handle, buf, count)` | handle、source buffer、byte count | userspace wrapper，最後呼叫 `write()` 進 driver `.write` callback。 |
+| `dl_runtime_read(handle, buf, count)` | handle、destination buffer、capacity | userspace wrapper，最後呼叫 `read()` 從 driver 讀資料。 |
+| `dl_runtime_ioctl_set_message(handle, message)` | handle、C string | runtime 把字串包成 UAPI struct，再送 `ioctl`。 |
+| `dl_runtime_poll_readable(handle, timeout_ms, &revents)` | handle、timeout、output events | 等 driver fd 可讀或有 event，並把結果填回 `revents`。 |
 
 ## 第一輪閱讀界線
 

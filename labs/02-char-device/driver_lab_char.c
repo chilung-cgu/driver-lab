@@ -134,25 +134,28 @@ static int __init driver_lab_char_init(void)
 {
 	int ret;
 
-	/* 為這個 char device 配一組 major/minor。 */
+	/* output=&dl_char_devt；input=起始 minor 0、數量 1、註冊名字。 */
 	ret = alloc_chrdev_region(&dl_char_devt, 0, 1, DL_CHAR_CLASS_NAME);
 	if (ret)
 		return ret;
 
+	/* input=&dl_char_fops；把 open/read/write callback table 接到 cdev。 */
 	cdev_init(&dl_char_cdev, &dl_char_fops);
 	dl_char_cdev.owner = THIS_MODULE;
 
+	/* input=已初始化 cdev + 前一步拿到的 dev_t；成功後 cdev 立即 live。 */
 	ret = cdev_add(&dl_char_cdev, dl_char_devt, 1);
 	if (ret)
 		goto err_unregister_region;
 
-	/* class/device 這一組會讓 udev 幫我們建立 /dev/driver_lab_char0。 */
+	/* output=struct class *；失敗時用 IS_ERR/PTR_ERR 讀 error pointer。 */
 	dl_char_class = class_create(DL_CHAR_CLASS_NAME);
 	if (IS_ERR(dl_char_class)) {
 		ret = PTR_ERR(dl_char_class);
 		goto err_del_cdev;
 	}
 
+	/* input=class + dev_t + device name；結果對應 /dev/driver_lab_char0。 */
 	dl_char_device = device_create(dl_char_class, NULL, dl_char_devt, NULL,
 								   DL_CHAR_DEVICE_NAME);
 	if (IS_ERR(dl_char_device)) {

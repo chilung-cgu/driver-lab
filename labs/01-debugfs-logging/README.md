@@ -198,6 +198,16 @@ fi
 4. `dl_status_fops` / `dl_trigger_fops`：debugfs 檔案如何接到 read/write callback
 5. `driver_lab_debugfs_logging_exit()`：卸載時 debugfs 目錄如何被移除
 
+遇到 kernel API 時，先套用「參數角色」模板，不要一開始追 debugfs / VFS 內部。完整方法見 [`../../docs/onboarding/kernel-api-parameter-roles.md`](../../docs/onboarding/kernel-api-parameter-roles.md)。
+
+| API | 參數角色 | 第一輪理解 |
+|---|---|---|
+| `debugfs_create_dir("driver_lab_debugfs", NULL)` | 名字、parent | 建立 debugfs 目錄；`NULL` parent 表示掛在 debugfs root。 |
+| `debugfs_create_file("status", 0444, dl_root, NULL, &dl_status_fops)` | 檔名、權限、父目錄、private data、callback table | `cat status` 會依 `dl_status_fops` 走到 `single_open()` / `dl_status_show()`。 |
+| `debugfs_create_u32("emit_debug", 0644, dl_root, &dl_emit_debug)` | 檔名、權限、父目錄、value pointer | debugfs 直接讀寫 `dl_emit_debug` 這個 kernel 變數。 |
+| `copy_from_user(local, buf, copy_len)` | destination、source、size | 把 userspace 寫入 `trigger` 的 payload 複製到 kernel stack buffer。 |
+| `single_open(file, dl_status_show, inode->i_private)` | opened file、show callback、private data | 把 `cat status` 的輸出接到 `dl_status_show()`。 |
+
 這一關的重點不是 debugfs API 背誦，而是建立「driver 要有可觀測狀態」的習慣。
 
 ## 注意

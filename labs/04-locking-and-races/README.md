@@ -212,4 +212,14 @@ expected_at_least=400 observed=412 safe_mode=1
 5. `dl_race_worker_fn()`：背景 kthread 如何模擬 driver 內部也會同時改 state
 6. `driver_lab_race_exit()`：卸載時為什麼要先停 worker，再清 device 資源
 
+遇到 kernel API 時，先套用「參數角色」模板，完整方法見 [`../../docs/onboarding/kernel-api-parameter-roles.md`](../../docs/onboarding/kernel-api-parameter-roles.md)。
+
+| API | 參數角色 | 第一輪理解 |
+|---|---|---|
+| `mutex_lock_interruptible(&dl_race_lock)` | lock pointer | 取得保護共享 counter 的 lock；若被 signal 中斷會回錯誤。 |
+| `kthread_run(dl_race_worker_fn, NULL, "driver_lab_race_worker")` | thread function、private data、名稱 | 建一條背景 kernel thread；`NULL` 表示本 lab 沒傳 private data。 |
+| `copy_from_user(&safe_mode, (void __user *)arg, sizeof(safe_mode))` | kernel destination、userspace source、size | 從 ioctl arg 讀回 userspace 想設定的 safe mode。 |
+| `copy_to_user((void __user *)arg, &status, sizeof(status))` | userspace destination、kernel source、size | 把 counter/safe_mode/worker 狀態回傳給 CLI。 |
+| `struct dl_race_status` | UAPI struct | userspace CLI 和 kernel driver 都要同意欄位順序與型別。 |
+
 你不需要在第一輪就理解所有 kernel concurrency primitive。先把 `mutex` 解決 lost update 的原因講清楚。

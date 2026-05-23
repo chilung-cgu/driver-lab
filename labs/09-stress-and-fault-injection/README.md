@@ -116,6 +116,20 @@
 4. `timeout 2s ... read || true`：parallel read 可能被別的 worker 先消費資料，所以避免永久卡住。
 5. `test.sh`：目前只是串接兩個 `03` stress scripts，不是 fault injection framework。
 
+## script 參數第一輪怎麼讀
+
+`09` 主要是 shell stress scripts，不是新的 kernel API。這一關仍然沿用「參數角色」方法：看清楚哪些值控制次數、平行度、timeout、cleanup。
+
+完整模板見 [`../../docs/onboarding/kernel-api-parameter-roles.md`](../../docs/onboarding/kernel-api-parameter-roles.md)。
+
+| 位置 | 參數角色 | 第一輪理解 |
+|---|---|---|
+| `stress-03-reload.sh` 的迴圈次數 | stress count | 控制 load/unload 重複幾次，用來驗 cleanup 對稱性。 |
+| `stress-03-parallel.sh` 的 worker 數 | parallelism | 控制同時有幾條 userspace 路徑打同一個 driver。 |
+| `timeout 2s` | timeout guard | 避免某條 userspace 操作永久卡住，讓測試能失敗收斂。 |
+| `cleanup()` | cleanup hook | script 中斷或失敗時仍嘗試卸載 module、清 build artifact。 |
+| CLI device path | resource input | 指向要施壓的 `/dev/driver_lab_ctl0`。 |
+
 ## 第一輪閱讀界線
 
 | 分類 | 內容 |

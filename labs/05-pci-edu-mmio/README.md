@@ -182,6 +182,16 @@ cd labs/05-pci-edu-mmio
 4. `ioread32()` / `iowrite32()`：CPU 如何透過 MMIO 讀寫 QEMU EDU register
 5. `dl_edu_mmio_remove()`：裝置移除或 module 卸載時，如何反向釋放 BAR 與 disable device
 
+遇到 kernel API 時，先套用「參數角色」模板，完整方法見 [`../../docs/onboarding/kernel-api-parameter-roles.md`](../../docs/onboarding/kernel-api-parameter-roles.md)。
+
+| API | 參數角色 | 第一輪理解 |
+|---|---|---|
+| `pci_enable_device(pdev)` | PCI device | 啟用 PCI device；失敗時不能繼續碰 BAR/MMIO。 |
+| `pci_request_region(pdev, DL_EDU_BAR_INDEX, KBUILD_MODNAME)` | device、BAR index、owner name | 宣告這個 driver 要使用 BAR0 resource。 |
+| `pci_resource_len(pdev, DL_EDU_BAR_INDEX)` | device、BAR index | 查 BAR0 長度，供 log 與 sanity check。 |
+| `pci_iomap(pdev, DL_EDU_BAR_INDEX, 0)` | device、BAR index、max length | 把 BAR0 map 成 driver 可用的 MMIO window；`0` 表示 map 整個 BAR。 |
+| `ioread32(dl->bar0 + offset)` / `iowrite32(value, dl->bar0 + offset)` | MMIO address、value | 讀寫 EDU register，不是一般 RAM。 |
+
 這一關的重點是「先安全拿到 BAR0 並做一個最小 register round-trip」，不是設計完整 PCIe accelerator。
 
 ## 第一次卡住先看哪裡

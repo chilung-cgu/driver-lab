@@ -64,6 +64,106 @@ sequenceDiagram
 /dev/driver_lab_char0
 ```
 
+## Kernel API 參數第一輪怎麼讀
+
+讀這一關的 source code 前，先看：
+
+- [`../../docs/onboarding/kernel-api-parameter-roles.md`](../../docs/onboarding/kernel-api-parameter-roles.md)
+
+第一輪不要背 API，而是問：
+
+```text
+這個 API 產生什麼 resource？
+哪些參數是 input？
+哪些參數是 output？
+成功後下一步誰會用？
+失敗時要釋放什麼？
+```
+
+### 四個核心 resource
+
+| 變數 | 第一輪理解 | 白話記法 |
+|---|---|---|
+| `dl_char_devt` | device number，包含 major/minor | 門牌號碼 |
+| `dl_char_cdev` | char device object，接上 `file_operations` | 櫃台本體 |
+| `dl_char_class` | device model class，給 `device_create()` 使用 | 分類資料夾 |
+| `dl_char_device` | 實際 device object，對應 `/dev/driver_lab_char0` | userspace 看得到的入口 |
+
+### init 是一條 resource pipeline
+
+```text
+alloc_chrdev_region()
+    產生 dl_char_devt
+          ↓
+cdev_init()
+    把 dl_char_cdev 和 dl_char_fops 接起來
+          ↓
+cdev_add()
+    把 cdev 註冊到 dl_char_devt
+          ↓
+class_create()
+    產生 dl_char_class
+          ↓
+device_create()
+    用 class + dev_t + name 建出 /dev/driver_lab_char0
+```
+
+### 參數角色表
+
+| API | 主要參數 | 角色 | 本 lab 的值 | 成功後誰會用 |
+|---|---|---|---|---|
+| `alloc_chrdev_region()` | `&dl_char_devt` | output，kernel 填入 major/minor | global `dev_t` | `cdev_add()`、`device_create()` |
+| `alloc_chrdev_region()` | `0` | input，起始 minor | minor 0 | 這關只有一個 device |
+| `alloc_chrdev_region()` | `1` | input，申請數量 | 1 個 device number | `cdev_add(..., 1)` |
+| `alloc_chrdev_region()` | `DL_CHAR_CLASS_NAME` | input，註冊名字 | `driver_lab_char` | log / `/proc/devices` 輔助辨識 |
+| `cdev_init()` | `&dl_char_cdev` | 要初始化的 cdev object | global `struct cdev` | `cdev_add()` |
+| `cdev_init()` | `&dl_char_fops` | callback table | `.open/.read/.write/.release` | VFS 分派 callback |
+| `cdev_add()` | `dl_char_devt` | 前一步拿到的 major/minor | `dl_char_devt` | VFS 用它找到 cdev |
+| `class_create()` | `DL_CHAR_CLASS_NAME` | class 名字 | `driver_lab_char` | `device_create()` |
+| `device_create()` | `dl_char_class` | 前一步建立的 class | `dl_char_class` | 決定 device 掛在哪個 class |
+| `device_create()` | `NULL` parent | parent device | 這關沒有上層硬體 | 可先略過 |
+| `device_create()` | `dl_char_devt` | device number | major/minor | `/dev` node 對應的編號 |
+| `device_create()` | `NULL` drvdata | driver private data | 這關沒用 | 進階 driver 才常用 |
+| `device_create()` | `DL_CHAR_DEVICE_NAME` | device 名字 | `driver_lab_char0` | `/dev/driver_lab_char0` |
+
+### read/write 的方向
+
+| API | 方向 | 第一輪記法 |
+|---|---|---|
+| `simple_write_to_buffer(dl_char_buffer, ..., buf, count)` | user -> kernel | userspace `buf` 是來源，kernel `dl_char_buffer` 是目的地。 |
+| `simple_read_from_buffer(buf, count, ..., dl_char_buffer, ...)` | kernel -> user | kernel `dl_char_buffer` 是來源，userspace `buf` 是目的地。 |
+
+這兩個 helper 讓本 lab 不用直接手寫完整 `copy_from_user()` / `copy_to_user()` 流程，但你仍要理解方向：
+
+```text
+write: user buffer -> kernel buffer
+read:  kernel buffer -> user buffer
+```
+
+### 回傳值怎麼看
+
+| API 類型 | 例子 | 判斷方式 |
+|---|---|---|
+| 回傳 `int` | `alloc_chrdev_region()`、`cdev_add()` | `0` 成功，負 errno 失敗，所以 code 用 `if (ret)`。 |
+| 回傳 pointer 或 error pointer | `class_create()`、`device_create()` | 用 `IS_ERR()` 判斷失敗，用 `PTR_ERR()` 取出錯誤碼。 |
+| 回傳 byte count | `simple_read_from_buffer()`、`simple_write_to_buffer()` | 正數代表處理幾個 byte，負數代表錯誤。 |
+
+### cleanup 配對
+
+| init 拿到 | exit / error path 釋放 |
+|---|---|
+| `alloc_chrdev_region()` | `unregister_chrdev_region()` |
+| `cdev_add()` | `cdev_del()` |
+| `class_create()` | `class_destroy()` |
+| `device_create()` | `device_destroy()` |
+
+第一輪請把 error label 唸成：
+
+```text
+目前已經成功拿到哪些 resource？
+從最後拿到的開始反向釋放。
+```
+
 ## 手動操作
 
 ```sh
@@ -161,6 +261,8 @@ make
 4. `dl_char_read()`：資料怎麼從 kernel buffer 複製回 userspace
 5. `dl_char_lock`：為什麼 read/write 共享同一份 buffer 時需要 lock
 6. `driver_lab_char_exit()`：cleanup 是否跟 init 拿資源的順序相反
+
+遇到 kernel API 時，先套用「參數角色」模板：input、output、前一步 resource、數量、名字、callback table、userspace pointer、cleanup 對象。第一輪不用追 API 內部。
 
 先不要追 `struct inode` 或 `struct file` 的完整定義。你只需要知道它們是 VFS 傳進 callback 的上下文。
 

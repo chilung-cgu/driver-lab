@@ -152,6 +152,16 @@ DMA 這關容易一次看到太多名詞。第一次先抓「buffer 是誰看得
 6. `dl_edu_dma_handler()`：DMA 完成中斷如何 acknowledge 並喚醒等待路徑
 7. `dl_edu_dma_remove()`：卸載時如何 free IRQ、釋放 coherent buffer、unmap BAR
 
+遇到 kernel API 時，先套用「參數角色」模板，完整方法見 [`../../docs/onboarding/kernel-api-parameter-roles.md`](../../docs/onboarding/kernel-api-parameter-roles.md)。
+
+| API | 參數角色 | 第一輪理解 |
+|---|---|---|
+| `dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(28))` | device、可定址範圍 | 告訴 DMA API 這顆 EDU 可用的 DMA address 範圍。 |
+| `dma_alloc_coherent(&pdev->dev, size, &dl->dma_handle, GFP_KERNEL)` | device、size、DMA address output、allocation flag | 回傳 CPU pointer，並把 device 要用的 DMA address 填進 `dma_handle`。 |
+| `dl_edu_dma_program_addrs(dl, src, dst)` | per-device state、source DMA address、destination DMA address | 寫進 EDU DMA source/destination register；這些是 device 視角的位址。 |
+| `dl_edu_dma_run_once(dl, src, dst, cmd, phase)` | device state、位址、命令、log 名稱 | 設定一次 DMA transfer，等 IRQ 與 command bit 完成。 |
+| `dma_free_coherent(&pdev->dev, size, dl->dma_buf, dl->dma_handle)` | device、size、CPU pointer、DMA address | 釋放前面 coherent allocation 拿到的兩種位址。 |
+
 先不要把 DMA 想成 `memcpy()`。這裡的核心是「裝置拿到一個它能用的位址，自己去搬資料」。
 
 ## 第一次卡住先看哪裡

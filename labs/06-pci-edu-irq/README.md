@@ -145,6 +145,16 @@ cd labs/06-pci-edu-irq
 5. `complete()` / `wait_for_completion_timeout()`：probe 如何等待 handler 確認中斷真的發生
 6. `dl_edu_irq_remove()`：卸載時先停 IRQ，再釋放 PCI resource
 
+遇到 kernel API 時，先套用「參數角色」模板，完整方法見 [`../../docs/onboarding/kernel-api-parameter-roles.md`](../../docs/onboarding/kernel-api-parameter-roles.md)。
+
+| API | 參數角色 | 第一輪理解 |
+|---|---|---|
+| `pci_set_master(pdev)` | PCI device | 允許裝置主動發起 bus transaction；MSI/某些主動通知路徑需要它。 |
+| `pci_alloc_irq_vectors(pdev, 1, 1, PCI_IRQ_ALL_TYPES)` | device、最少/最多 vector、IRQ 類型 | 向 PCI core 要 1 條 IRQ vector，允許 MSI/MSI-X/INTx。 |
+| `pci_irq_vector(pdev, 0)` | device、vector index | 取回第 0 條 IRQ vector number。 |
+| `request_irq(dl->irq_vector, dl_edu_irq_handler, flags, name, dl)` | vector、handler、flags、名字、dev_id | 把 IRQ 接到 handler；`dl` 會傳回 handler 當 per-device state。 |
+| `wait_for_completion_timeout(&dl->irq_done, timeout)` | completion、timeout | probe 等 handler 呼叫 `complete()`，確認 IRQ 真的抵達。 |
+
 第一輪先記住：handler 裡不能只印 log，還必須把裝置端的中斷狀態清掉，否則可能一直重進。
 
 ## 第一次卡住先看哪裡

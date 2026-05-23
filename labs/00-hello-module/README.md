@@ -140,6 +140,21 @@ sudo rmmod driver_lab_hello
 - `driver_lab_hello_exit()`：模組卸載時做什麼
 - `module_param()`：參數是怎麼進來的
 
+## Kernel API 參數第一輪怎麼讀
+
+`00` 的 API 還不多，但已經可以練「參數角色」：
+
+| API / 符號 | 參數角色 | 第一輪理解 |
+|---|---|---|
+| `module_param(who, charp, 0444)` | 名字、型別、權限 | `who` 是可由 `insmod who=...` 傳入的參數；`charp` 是字串；`0444` 表示載入後可讀。 |
+| `module_param(repeat, int, 0444)` | 名字、型別、權限 | `repeat` 是整數參數；`driver_lab_hello_init()` 會檢查它是否合法。 |
+| `MODULE_PARM_DESC(who, "...")` | metadata | 給 `modinfo` 與閱讀者看的參數說明，不負責驗證值。 |
+| `return -EINVAL` | 錯誤碼 | 代表參數不合法，會讓 `insmod` 失敗。 |
+| `module_init(driver_lab_hello_init)` | callback registration | 告訴 kernel 載入 module 時呼叫哪個函式。 |
+| `module_exit(driver_lab_hello_exit)` | callback registration | 告訴 kernel 卸載 module 時呼叫哪個函式。 |
+
+更完整的參數角色讀法見 [`../../docs/onboarding/kernel-api-parameter-roles.md`](../../docs/onboarding/kernel-api-parameter-roles.md)。
+
 ## Chapter 0 符號速查
 
 | 符號 | 現在先怎麼理解 | Chapter 0 需要深入嗎 |
