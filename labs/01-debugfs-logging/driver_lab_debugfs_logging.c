@@ -50,6 +50,8 @@ static int dl_status_open(struct inode *inode, struct file *file)
 	/*
 	 * single_open() 是 seq_file 的簡化用法。
 	 * 新手先記：cat status 時，最後會呼叫 dl_status_show() 產生文字內容。
+	 * 參數角色：file 是這次 open 的檔案，dl_status_show 是輸出 callback，
+	 * inode->i_private 是 debugfs_create_file() 傳進來的 private data。
 	 */
 	return single_open(file, dl_status_show, inode->i_private);
 }
@@ -72,6 +74,7 @@ static ssize_t dl_trigger_write(struct file *file, const char __user *buf,
 
 	copy_len = min(count, sizeof(local) - 1);
 
+	/* 參數角色：local 是 kernel destination，buf 是 userspace source。 */
 	if (copy_from_user(local, buf, copy_len))
 		return -EFAULT;
 
@@ -127,25 +130,34 @@ static int __init driver_lab_debugfs_logging_init(void)
 	struct dentry *entry;
 	int ret;
 
-	/* 這個 lab 匯出的所有 debugfs 檔案都放在同一個目錄下。 */
+	/* 參數角色：第一個參數是目錄名，NULL parent 表示放在 debugfs root。 */
 	dl_root = debugfs_create_dir(DL_DEBUGFS_DIR_NAME, NULL);
 	if (IS_ERR(dl_root))
 		return PTR_ERR(dl_root);
 	if (!dl_root)
 		return -ENODEV;
 
+	/*
+	 * 參數角色：name/mode/parent/private-data/fops。
+	 * status 是唯讀檔，透過 dl_status_fops 接到 seq_file read path。
+	 */
 	entry = debugfs_create_file("status", 0444, dl_root, NULL, &dl_status_fops);
 	if (IS_ERR_OR_NULL(entry)) {
 		ret = entry ? PTR_ERR(entry) : -ENOMEM;
 		goto err_remove_debugfs;
 	}
 
+	/*
+	 * trigger 是 write-only 檔；最後一個參數是 callback table，
+	 * 會把 userspace write 接到 dl_trigger_write()。
+	 */
 	entry = debugfs_create_file("trigger", 0200, dl_root, NULL, &dl_trigger_fops);
 	if (IS_ERR_OR_NULL(entry)) {
 		ret = entry ? PTR_ERR(entry) : -ENOMEM;
 		goto err_remove_debugfs;
 	}
 
+	/* 參數角色：最後一個參數是要直接導出的 u32 kernel 變數位址。 */
 	debugfs_create_u32("trigger_count", 0444, dl_root, &dl_trigger_count);
 	debugfs_create_u32("emit_debug", 0644, dl_root, &dl_emit_debug);
 

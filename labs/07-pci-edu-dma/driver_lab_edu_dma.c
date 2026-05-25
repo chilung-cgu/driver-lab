@@ -87,6 +87,7 @@ static int dl_edu_dma_wait_for_irq(struct dl_edu_dma_dev *dl, const char *phase)
 	unsigned long timeout_jiffies;
 
 	timeout_jiffies = msecs_to_jiffies(DL_EDU_DMA_WAIT_TIMEOUT_MS);
+	/* 參數角色：等待 IRQ handler complete 同一個 completion object。 */
 	if (!wait_for_completion_timeout(&dl->irq_done, timeout_jiffies)) {
 		dev_err(&dl->pdev->dev, "%s timed out after %u ms\n",
 				phase, DL_EDU_DMA_WAIT_TIMEOUT_MS);
@@ -201,6 +202,7 @@ static int dl_edu_dma_probe(struct pci_dev *pdev, const struct pci_device_id *id
 	init_completion(&dl->irq_done);
 	pci_set_drvdata(pdev, dl);
 
+	/* 參數角色：pdev 是 PCI core 交給 probe() 的 EDU device。 */
 	ret = pci_enable_device(pdev);
 	if (ret) {
 		dev_err(&pdev->dev, "pci_enable_device failed: %d\n", ret);
@@ -210,6 +212,7 @@ static int dl_edu_dma_probe(struct pci_dev *pdev, const struct pci_device_id *id
 	/* DMA 裝置要先成為 bus master，才能主動對主記憶體發 DMA。 */
 	pci_set_master(pdev);
 
+	/* 參數角色：pdev + BAR index + owner name；宣告這個 driver 使用 BAR0。 */
 	ret = pci_request_region(pdev, DL_EDU_BAR_INDEX, KBUILD_MODNAME);
 	if (ret) {
 		dev_err(&pdev->dev, "pci_request_region BAR%d failed: %d\n",
@@ -217,6 +220,7 @@ static int dl_edu_dma_probe(struct pci_dev *pdev, const struct pci_device_id *id
 		goto err_disable_device;
 	}
 
+	/* 參數角色：pdev + BAR index + max length；0 表示 map 整個 BAR。 */
 	dl->bar0 = pci_iomap(pdev, DL_EDU_BAR_INDEX, 0);
 	if (!dl->bar0) {
 		dev_err(&pdev->dev, "pci_iomap BAR%d failed\n", DL_EDU_BAR_INDEX);
@@ -224,6 +228,7 @@ static int dl_edu_dma_probe(struct pci_dev *pdev, const struct pci_device_id *id
 		goto err_release_region;
 	}
 
+	/* 參數角色：device + DMA address mask；EDU lab 使用 28-bit 限制。 */
 	ret = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(28));
 	if (ret) {
 		dev_err(&pdev->dev, "dma_set_mask_and_coherent(28) failed: %d\n", ret);
@@ -234,6 +239,7 @@ static int dl_edu_dma_probe(struct pci_dev *pdev, const struct pci_device_id *id
 	/*
 	 * 第一版先用 coherent buffer，避免一開始就把 sync 細節混進來。
 	 * dma_handle 是給裝置看的 DMA address，dma_buf 是 CPU 在 kernel 裡用的指標。
+	 * 參數角色：device、size、DMA address output、allocation flag。
 	 */
 	dl->dma_buf = dma_alloc_coherent(&pdev->dev,
 									 DL_EDU_DMA_BUFFER_BYTES * 2,
@@ -252,15 +258,21 @@ static int dl_edu_dma_probe(struct pci_dev *pdev, const struct pci_device_id *id
 	dev_info(&pdev->dev, "coherent buffer allocated: cpu=%p dma=%pad bytes=%u\n",
 			 dl->dma_buf, &dl->dma_handle, DL_EDU_DMA_BUFFER_BYTES * 2);
 
+	/* 參數角色：pdev、最少 1 條、最多 1 條、允許的 IRQ 類型。 */
 	ret = pci_alloc_irq_vectors(pdev, 1, 1, PCI_IRQ_ALL_TYPES);
 	if (ret < 0) {
 		dev_err(&pdev->dev, "pci_alloc_irq_vectors failed: %d\n", ret);
 		goto err_free_dma;
 	}
 
+	/* 參數角色：取第 0 條已分配 IRQ vector。 */
 	dl->irq_vector = pci_irq_vector(pdev, 0);
 	dl->irq_flags = (pdev->msi_enabled || pdev->msix_enabled) ? 0 : IRQF_SHARED;
 
+	/*
+	 * 參數角色：vector、handler、flags、名稱、dev_id。
+	 * dev_id 會傳回 dl_edu_dma_handler()，用來找回 DMA lab state。
+	 */
 	ret = request_irq(dl->irq_vector, dl_edu_dma_handler, dl->irq_flags,
 					  KBUILD_MODNAME, dl);
 	if (ret) {

@@ -87,7 +87,7 @@ static int dl_edu_irq_probe(struct pci_dev *pdev, const struct pci_device_id *id
 	init_completion(&dl->irq_done);
 	pci_set_drvdata(pdev, dl);
 
-	/* 先把最基本的 PCI enable / BAR map 做好，IRQ 才有地方可操作。 */
+	/* 參數角色：pdev 是 PCI core 交給 probe() 的那顆 EDU device。 */
 	ret = pci_enable_device(pdev);
 	if (ret) {
 		dev_err(&pdev->dev, "pci_enable_device failed: %d\n", ret);
@@ -98,8 +98,10 @@ static int dl_edu_irq_probe(struct pci_dev *pdev, const struct pci_device_id *id
 	 * MSI 是裝置主動送出的 memory write；如果 PCI core 配到 MSI，
 	 * 需要先開 bus mastering，EDU 才能把 MSI 送出去。
 	 */
+	/* 參數角色：pdev 是要允許主動發起 bus transaction 的 PCI device。 */
 	pci_set_master(pdev);
 
+	/* 參數角色：pdev + BAR index + owner name；宣告這個 driver 使用 BAR0。 */
 	ret = pci_request_region(pdev, DL_EDU_BAR_INDEX, KBUILD_MODNAME);
 	if (ret) {
 		dev_err(&pdev->dev, "pci_request_region BAR%d failed: %d\n",
@@ -108,6 +110,7 @@ static int dl_edu_irq_probe(struct pci_dev *pdev, const struct pci_device_id *id
 	}
 
 	dl->bar0_len = pci_resource_len(pdev, DL_EDU_BAR_INDEX);
+	/* 參數角色：pdev + BAR index + max length；0 表示 map 整個 BAR。 */
 	dl->bar0 = pci_iomap(pdev, DL_EDU_BAR_INDEX, 0);
 	if (!dl->bar0) {
 		dev_err(&pdev->dev, "pci_iomap BAR%d failed\n", DL_EDU_BAR_INDEX);
@@ -119,15 +122,21 @@ static int dl_edu_irq_probe(struct pci_dev *pdev, const struct pci_device_id *id
 	 * 先向 PCI core 要 1 條向量。
 	 * 若平台支援 MSI，通常會先拿到 MSI；否則退回 legacy INTx。
 	 */
+	/* 參數角色：pdev、最少 1 條、最多 1 條、允許的 IRQ 類型。 */
 	ret = pci_alloc_irq_vectors(pdev, 1, 1, PCI_IRQ_ALL_TYPES);
 	if (ret < 0) {
 		dev_err(&pdev->dev, "pci_alloc_irq_vectors failed: %d\n", ret);
 		goto err_iounmap;
 	}
 
+	/* 參數角色：取第 0 條已分配 IRQ vector。 */
 	dl->irq_vector = pci_irq_vector(pdev, 0);
 	dl->irq_flags = (pdev->msi_enabled || pdev->msix_enabled) ? 0 : IRQF_SHARED;
 
+	/*
+	 * 參數角色：vector、handler、flags、名稱、dev_id。
+	 * dev_id 會原樣傳回 handler，讓 handler 找回 dl_edu_irq_dev。
+	 */
 	ret = request_irq(dl->irq_vector, dl_edu_irq_handler, dl->irq_flags,
 					  KBUILD_MODNAME, dl);
 	if (ret) {
@@ -146,6 +155,7 @@ static int dl_edu_irq_probe(struct pci_dev *pdev, const struct pci_device_id *id
 	iowrite32(DL_EDU_TEST_IRQ_MASK, dl->bar0 + DL_EDU_IRQ_RAISE_REG);
 
 	timeout_jiffies = msecs_to_jiffies(DL_EDU_IRQ_TIMEOUT_MS);
+	/* 參數角色：等待同一個 completion，最多等 timeout_jiffies。 */
 	if (!wait_for_completion_timeout(&dl->irq_done, timeout_jiffies)) {
 		dev_err(&pdev->dev, "interrupt self-test timed out after %u ms\n",
 				DL_EDU_IRQ_TIMEOUT_MS);

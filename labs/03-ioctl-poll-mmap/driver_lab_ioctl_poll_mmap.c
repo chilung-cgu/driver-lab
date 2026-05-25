@@ -124,6 +124,10 @@ static ssize_t dl_read(struct file *file, char __user *buf,
 	if (mutex_lock_interruptible(&dl_lock))
 		return -ERESTARTSYS;
 
+	/*
+	 * 參數角色：buf/count/ppos 描述 userspace read 目標與 offset；
+	 * dl_buffer/dl_buffer_len 是 kernel source。
+	 */
 	ret = simple_read_from_buffer(buf, count, ppos, dl_buffer, dl_buffer_len);
 	if (ret > 0 && *ppos >= dl_buffer_len) {
 		memset(dl_buffer, 0, sizeof(dl_buffer));
@@ -161,6 +165,10 @@ static ssize_t dl_write(struct file *file, const char __user *buf,
 	 * 這個 lab 刻意把 write 的語意做成「整塊訊息覆蓋」，
 	 * 讓使用者能清楚觀察每次 write 都如何改變 kernel state。
 	 */
+	/*
+	 * 參數角色：local 是 kernel destination，buf/count 是 userspace source，
+	 * pos 讓 helper 知道這次從 destination 的哪個 offset 開始寫。
+	 */
 	ret = simple_write_to_buffer(local, sizeof(local) - 1, &pos, buf, count);
 	if (ret >= 0) {
 		local[ret] = '\0';
@@ -190,6 +198,7 @@ static __poll_t dl_poll(struct file *file, poll_table *wait)
 	 * poll_wait() 不是立刻睡著；它是把目前 fd 與 waitqueue 關聯起來，
 	 * 讓 userspace poll() 能在事件發生時被喚醒。
 	 */
+	/* 參數角色：file 是 fd context，waitqueue 是等待點，wait 是 poll context。 */
 	poll_wait(file, &dl_read_wq, wait);
 	poll_wait(file, &dl_event_wq, wait);
 
@@ -218,7 +227,10 @@ static long dl_unlocked_ioctl(struct file *file, unsigned int cmd,
 	case DL_IOC_SET_MESSAGE:
 		size_t len;
 
-		/* arg 是 userspace 傳進來的指標，所以必須 copy_from_user()。 */
+		/*
+		 * arg 是 userspace 傳進來的指標。
+		 * 參數角色：&msg 是 kernel destination，arg 是 userspace source。
+		 */
 		if (copy_from_user(&msg, (void __user *)arg, sizeof(msg)))
 			return -EFAULT;
 
@@ -245,7 +257,10 @@ static long dl_unlocked_ioctl(struct file *file, unsigned int cmd,
 		status.mmap_size = DL_MMAP_BYTES;
 		mutex_unlock(&dl_lock);
 
-		/* 把 kernel 端整理好的 status 結構安全複製回 userspace。 */
+		/*
+		 * 把 kernel 端整理好的 status 結構安全複製回 userspace。
+		 * 參數角色：arg 是 userspace destination，&status 是 kernel source。
+		 */
 		if (copy_to_user((void __user *)arg, &status, sizeof(status)))
 			return -EFAULT;
 		break;
@@ -301,6 +316,10 @@ static int dl_mmap(struct file *file, struct vm_area_struct *vma)
 		return -EINVAL;
 
 	pfn = virt_to_phys((void *)dl_shared_page_addr) >> PAGE_SHIFT;
+	/*
+	 * 參數角色：vma->vm_start 是 userspace 目標位址，pfn 是 kernel page
+	 * frame，size 是 mapping 長度，vm_page_prot 是這段 mapping 的權限屬性。
+	 */
 	return remap_pfn_range(vma, vma->vm_start, pfn, size, vma->vm_page_prot);
 }
 
@@ -337,13 +356,16 @@ static int __init driver_lab_ioctl_poll_mmap_init(void)
 	if (ret)
 		goto err_free_page;
 
+	/* 和 02 相同：把 /dev node 的 callback table 接到 cdev。 */
 	cdev_init(&dl_cdev, &dl_fops);
 	dl_cdev.owner = THIS_MODULE;
 
+	/* 和 02 相同：把 cdev 掛到前一步拿到的 dev_t。 */
 	ret = cdev_add(&dl_cdev, dl_devt, 1);
 	if (ret)
 		goto err_unregister_chrdev;
 
+	/* class/device 參數角色同 02，只是這裡建立的是 /dev/driver_lab_ctl0。 */
 	dl_class = class_create(DL_IOCTL_CLASS_NAME);
 	if (IS_ERR(dl_class)) {
 		ret = PTR_ERR(dl_class);

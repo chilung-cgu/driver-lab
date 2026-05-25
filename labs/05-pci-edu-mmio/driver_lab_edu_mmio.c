@@ -51,14 +51,14 @@ static int dl_edu_mmio_probe(struct pci_dev *pdev, const struct pci_device_id *i
 	dl->pdev = pdev;
 	pci_set_drvdata(pdev, dl);
 
-	/* 第一步先讓 PCI core 幫你把裝置 enable 起來。 */
+	/* 參數角色：pdev 是 PCI core 交給 probe() 的那顆 EDU device。 */
 	ret = pci_enable_device(pdev);
 	if (ret) {
 		dev_err(&pdev->dev, "pci_enable_device failed: %d\n", ret);
 		return ret;
 	}
 
-	/* 這一關只碰 BAR0，所以只 request 第 0 個 resource。 */
+	/* 參數角色：pdev + BAR index + owner name；這關只 request BAR0。 */
 	ret = pci_request_region(pdev, DL_EDU_BAR_INDEX, KBUILD_MODNAME);
 	if (ret) {
 		dev_err(&pdev->dev, "pci_request_region BAR%d failed: %d\n",
@@ -68,6 +68,7 @@ static int dl_edu_mmio_probe(struct pci_dev *pdev, const struct pci_device_id *i
 
 	/* MMIO map 成功後，後面所有 register access 都從這裡出發。 */
 	dl->bar0_len = pci_resource_len(pdev, DL_EDU_BAR_INDEX);
+	/* 參數角色：pdev + BAR index + max length；0 表示 map 整個 BAR。 */
 	dl->bar0 = pci_iomap(pdev, DL_EDU_BAR_INDEX, 0);
 	if (!dl->bar0) {
 		dev_err(&pdev->dev, "pci_iomap BAR%d failed\n", DL_EDU_BAR_INDEX);
@@ -78,7 +79,7 @@ static int dl_edu_mmio_probe(struct pci_dev *pdev, const struct pci_device_id *i
 	dev_info(&pdev->dev, "BAR0 mapped, len=%llu bytes\n",
 			 (unsigned long long)dl->bar0_len);
 
-	/* 先做最單純的 read-only register 讀取。 */
+	/* 參數角色：dl->bar0 是 MMIO base，offset 選出要讀的 EDU register。 */
 	dl->ident = ioread32(dl->bar0 + DL_EDU_IDENT_REG);
 	dev_info(&pdev->dev, "ident=0x%08x\n", dl->ident);
 
@@ -87,6 +88,7 @@ static int dl_edu_mmio_probe(struct pci_dev *pdev, const struct pci_device_id *i
 	 * 這是第一個最小可驗證的 MMIO read/write 自我測試。
 	 */
 	dl->liveness_pattern = DL_EDU_LIVENESS_PATTERN;
+	/* 參數角色：value 是要寫的測試 pattern，address 是 liveness register。 */
 	iowrite32(dl->liveness_pattern, dl->bar0 + DL_EDU_LIVENESS_REG);
 	dl->liveness_result = ioread32(dl->bar0 + DL_EDU_LIVENESS_REG);
 	expected = ~dl->liveness_pattern;

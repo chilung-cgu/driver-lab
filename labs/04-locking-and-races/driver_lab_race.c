@@ -146,10 +146,14 @@ static long dl_race_ioctl(struct file *file, unsigned int cmd,
 
 	switch (cmd) {
 	case DL_RACE_IOC_SET_SAFE_MODE:
-		/* 讓 userspace 可以切換「故意示範 race」與「用 mutex 修正」兩種模式。 */
+		/*
+		 * 讓 userspace 可以切換「故意示範 race」與「用 mutex 修正」兩種模式。
+		 * 參數角色：&safe_mode 是 kernel destination，arg 是 userspace source。
+		 */
 		if (copy_from_user(&safe_mode, (void __user *)arg, sizeof(safe_mode)))
 			return -EFAULT;
 
+		/* 參數角色：&dl_race_lock 是保護共享 state 的 mutex。 */
 		mutex_lock(&dl_race_lock);
 		WRITE_ONCE(dl_safe_mode, safe_mode ? true : false);
 		mutex_unlock(&dl_race_lock);
@@ -166,6 +170,7 @@ static long dl_race_ioctl(struct file *file, unsigned int cmd,
 		status.worker_running = dl_worker_running ? 1U : 0U;
 		mutex_unlock(&dl_race_lock);
 
+		/* 參數角色：arg 是 userspace destination，&status 是 kernel source。 */
 		if (copy_to_user((void __user *)arg, &status, sizeof(status)))
 			return -EFAULT;
 		break;
@@ -206,11 +211,12 @@ static int __init driver_lab_race_init(void)
 {
 	int ret;
 
-	/* 先註冊字元裝置號，後面才能建立 /dev 節點。 */
+	/* 參數角色同 02：&dl_race_devt 是 output，後面 cdev/device 會使用。 */
 	ret = alloc_chrdev_region(&dl_race_devt, 0, 1, DL_RACE_CLASS_NAME);
 	if (ret)
 		return ret;
 
+	/* 參數角色：把 read/ioctl callback table 接到 race cdev。 */
 	cdev_init(&dl_race_cdev, &dl_race_fops);
 	dl_race_cdev.owner = THIS_MODULE;
 
@@ -231,7 +237,10 @@ static int __init driver_lab_race_init(void)
 		goto err_destroy_class;
 	}
 
-	/* 啟動背景 worker，讓 race 不只來自 userspace，也來自 driver 內部工作。 */
+	/*
+	 * 啟動背景 worker，讓 race 不只來自 userspace，也來自 driver 內部工作。
+	 * 參數角色：function、private data(NULL)、thread name。
+	 */
 	dl_race_worker = kthread_run(dl_race_worker_fn, NULL, "dl_race_worker");
 	if (IS_ERR(dl_race_worker)) {
 		ret = PTR_ERR(dl_race_worker);
