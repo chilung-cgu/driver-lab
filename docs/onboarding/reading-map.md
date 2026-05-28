@@ -44,8 +44,9 @@
 3. `01`：debugfs 與 logging 觀測
 4. [`Lab 過渡地圖`](lab-transition-map.md)：確認每一關為什麼接下一關
 5. [`01 到 03：user-kernel ABI 過渡導讀`](01-to-03-user-kernel-abi-bridge.md)：先補 `/dev`、char device、`ioctl/poll/mmap` 的最低心智模型
-6. [`Kernel API 參數角色導讀`](kernel-api-parameter-roles.md)：開始讀 `02` source 前，先學會分辨 input、output、resource、數量、名字、callback table
-7. `02`：`/dev`、`read/write`、`file_operations`
+6. [`Kernel filesystem 入口導讀`](kernel-filesystem-surfaces.md)：先分清 `/dev`、`/sys`、`/proc`、debugfs 各自代表什麼
+7. [`Kernel API 參數角色導讀`](kernel-api-parameter-roles.md)：開始讀 `02` source 前，先學會分辨 input、output、resource、數量、名字、callback table
+8. `02`：`/dev`、`read/write`、`file_operations`
 
 每一關都要回到 README 的「完成後你應該能回答」。如果只會照抄命令，但答不出入口、觀測點、API 參數角色、cleanup 與失敗查證點，就先不要前進。
 

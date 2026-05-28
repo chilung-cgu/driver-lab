@@ -23,6 +23,8 @@
 - `copy_to_user()` 底層怎麼處理 page fault
 - PCI core、IRQ core、DMA API 的完整內部實作
 
+如果你卡住的是「這些 API 為什麼讓 `/dev`、`/sys/class`、`/proc/devices` 出現」，先看 [`kernel-filesystem-surfaces.md`](kernel-filesystem-surfaces.md)。那份解釋 filesystem 入口；這份只解釋 API 參數角色。
+
 ## 三輪閱讀深度
 
 | 輪次 | 目標 | 問題 |

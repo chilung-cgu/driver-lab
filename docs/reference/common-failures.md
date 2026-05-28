@@ -88,12 +88,17 @@
 意思通常是：
 
 - char device module 沒有成功建立 device node
+- 或 sysfs device 已建立，但 devtmpfs/udev 沒有把 `/dev` node 準備好
 
 先檢查：
 
 1. `insmod` 是否成功
 2. `dmesg` 裡有沒有印 major/minor
-3. `udev` 是否有正常建立 `/dev` 節點
+3. `/sys/class/driver_lab_char/driver_lab_char0` 是否存在
+4. `cat /sys/class/driver_lab_char/driver_lab_char0/dev` 是否能看到 `major:minor`
+5. devtmpfs / udev 是否有正常建立或調整 `/dev` 節點
+
+如果 `/sys/class/...` 不存在，先追 driver init path；如果 `/sys/class/...` 存在但 `/dev/...` 不存在，才往 devtmpfs / udev 層追。
 
 ## `lspci` 看不到 `1234:11e8`
 

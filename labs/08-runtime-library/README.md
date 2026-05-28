@@ -37,6 +37,19 @@
 - `tests/driver_lab_char_cli.c` 可連同 runtime 一起編譯
 - runtime 目前已封裝 `02` 與 `03` 真正有用到的介面
 
+## 這一關會出現哪些 filesystem 入口
+
+`08` 是 userspace runtime，不會建立新的 kernel filesystem 入口。
+
+| 入口 / artifact | 第一輪用途 |
+|---|---|
+| `runtime/include/driver_lab_runtime.h` | userspace runtime 對外 API。 |
+| `runtime/include/driver_lab_uapi.h` | kernel/userspace 共享 ABI 定義。 |
+| `tests/driver_lab_char_cli` | build 出來的 CLI binary。 |
+| `/dev/driver_lab_char0`、`/dev/driver_lab_ctl0` | 只有在回頭操作 `02/03` driver 時才會用到。 |
+
+所以這關 build 成功不代表 kernel driver 已載入；真正 driver 行為仍要回 `02/03` 的 smoke test 驗。
+
 ## 目前還沒驗證到哪裡
 
 - 還沒證明它已具備產品級 timeout / retry policy

@@ -9,6 +9,9 @@
 ```sh
 lsmod | grep '^driver_lab_char'
 ls -l /dev/driver_lab_char0
+ls -l /sys/class/driver_lab_char/driver_lab_char0
+cat /sys/class/driver_lab_char/driver_lab_char0/dev
+grep driver_lab_char /proc/devices
 sudo dmesg | tail -n 50
 ```
 
@@ -17,6 +20,12 @@ sudo dmesg | tail -n 50
 - `insmod` 失敗
 - `class_create()` 或 `device_create()` 失敗
 - udev/devtmpfs 沒有建立 device node
+
+判斷方式：
+
+- `/sys/class/driver_lab_char/driver_lab_char0` 不存在：先追 driver init path。
+- `/sys/class/driver_lab_char/driver_lab_char0` 存在但 `/dev/driver_lab_char0` 不存在：再追 devtmpfs / udev。
+- `cat .../dev` 有 `major:minor`：表示 device model 已經有對應的 device number。
 
 ## 症狀：write 或 read 失敗
 

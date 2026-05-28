@@ -39,6 +39,19 @@
 - `test.sh`
   - 先把上述兩支腳本串成最小 stress 套件
 
+## 這一關會使用哪些 filesystem 入口
+
+`09` 目前不是新的 driver。它主要反覆操作 `03` 的入口：
+
+| 入口 | 第一輪用途 |
+|---|---|
+| `/dev/driver_lab_ctl0` | parallel stress workers 反覆做 `ioctl-write/status/read/trigger` 的 device node。 |
+| `/sys/class/driver_lab_ctl/driver_lab_ctl0` | 可用來確認 repeated load/unload 後 device model entry 是否正常消失又重建。 |
+| `dmesg` | 失敗時第一個看 kernel log，尤其是 cleanup、warning、oops。 |
+| script stdout/stderr | 觀察 `stress-03-reload passed.`、`stress-03-parallel passed.`。 |
+
+未來加入 failslab、fail_page_alloc、fail_usercopy 時，才會更大量使用 debugfs 裡的 fault injection controls。
+
 ## `test.sh` 與兩支 stress script 在做什麼
 
 `test.sh` 目前只負責串接：

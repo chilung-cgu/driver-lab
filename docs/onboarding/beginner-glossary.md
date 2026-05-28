@@ -12,7 +12,8 @@
 |---|---|
 | 基礎 module | `.ko`、kbuild、`module_init()`、`insmod`、`dmesg` |
 | 觀測與 debugfs | `pr_info()`、`pr_debug()`、dynamic debug、debugfs、`seq_file` |
-| user-kernel 邊界 | `/dev`、VFS、`file_operations`、`copy_to_user()`、`ioctl`、`poll`、`mmap` |
+| filesystem 入口 | `/dev`、`/sys`、`/proc`、debugfs、devtmpfs、udev |
+| user-kernel 邊界 | VFS、`file_operations`、`copy_to_user()`、`ioctl`、`poll`、`mmap` |
 | 併發 | mutex、race、lost update、kthread、completion |
 | PCI / IRQ / DMA | PCI ID、`probe()`、BAR、MMIO、IRQ、MSI、DMA、coherent buffer |
 | runtime / 驗證 | runtime、ABI/API、smoke、stress、regression、fault injection、KUnit、kselftest |
@@ -464,6 +465,103 @@ driver module 載入後就是在這裡跑。
 
 - 它看起來像檔案
 - 但你對它做的 `read()` / `write()`，最後可能會進到 driver callback
+- 它不是 `/sys` 的同義詞；`/dev` 是操作入口，`/sys` 是 device model 觀測入口
+
+## `sysfs` / `/sys`
+
+意思：
+
+- Linux 用來把 kernel object、device、bus、class 關係導出給 userspace 看的 filesystem
+
+你現在先記：
+
+- `/sys/class/...` 是依功能分類看 device
+- `/sys/devices/...` 是依 device tree 層級看 device
+- `/sys/class/...` 裡的 device entry 常常是指向 `/sys/devices/...` 的 symlink
+
+在 `02-char-device` 裡：
+
+- `class_create("driver_lab_char")` 會讓你通常能看到 `/sys/class/driver_lab_char`
+- `device_create(..., "driver_lab_char0")` 會讓你通常能看到 `/sys/class/driver_lab_char/driver_lab_char0`
+
+## `/sys/class`
+
+意思：
+
+- sysfs 裡依 device class 分類的視角
+
+第一輪看法：
+
+- `driver_lab_char` 是 class 名字
+- `driver_lab_char0` 是這個 class 底下的 device 名字
+- 這裡主要拿來查「driver 是否把 device model entry 建出來」，不是主要資料通道
+
+## `/sys/devices`
+
+意思：
+
+- sysfs 裡依 kernel device tree 呈現的視角
+
+在沒有真實 parent hardware 的教學 char device 裡，device 常見位置會是：
+
+```text
+/sys/devices/virtual/<class>/<device>
+```
+
+所以你可能看到：
+
+```text
+/sys/class/driver_lab_char/driver_lab_char0 -> ../../devices/virtual/driver_lab_char/driver_lab_char0
+```
+
+這是正常現象。
+
+## `devtmpfs`
+
+意思：
+
+- kernel 提供的 `/dev` filesystem，常用來自動建立基本 device node
+
+第一輪先記：
+
+- `device_create()` 建立 device object 後，現代 Linux 常由 devtmpfs 讓 `/dev/driver_lab_char0` 出現
+- 這代表 `/dev` node 不一定是你手動 `mknod` 出來的
+
+## `udev`
+
+意思：
+
+- userspace 的 device manager，會根據 kernel device event 套用規則
+
+第一輪先記：
+
+- udev 可能調整 `/dev/...` 的 owner、group、permission 或額外 symlink
+- 不要把所有 `/dev` node 都簡化成「udev 建的」；很多系統會先由 devtmpfs 建，再由 udev 調整
+
+## `uevent`
+
+意思：
+
+- kernel 通知 userspace「device 新增、移除或狀態改變」的事件
+
+第一輪先記：
+
+- `device_create()` 這類 device model 操作會讓 userspace 有機會知道新 device 出現
+- udev 就是依這類事件套用規則
+
+## `/proc/devices`
+
+意思：
+
+- 顯示目前 kernel 註冊的 char/block device major number 名稱
+
+在 `02-char-device` 裡可用來輔助確認：
+
+```sh
+grep driver_lab_char /proc/devices
+```
+
+它不是操作入口；操作入口仍是 `/dev/driver_lab_char0`。
 
 ## `dev_t`
 
@@ -542,7 +640,8 @@ driver module 載入後就是在這裡跑。
 
 在教學第一輪，你可以先把它當成：
 
-- 建立 `/dev/...` 節點前需要的一層分類資訊
+- 建立 device class；通常會在 `/sys/class/<class name>` 看到分類入口
+- 後面的 `device_create()` 會用這個 class 建立實際 device
 
 不用急著理解完整 sysfs device model。
 
@@ -555,11 +654,12 @@ driver module 載入後就是在這裡跑。
 
 意思：
 
-- 建立一個 device 物件，通常會讓系統建立對應 `/dev/...` 節點
+- 建立一個 device 物件，並把它註冊進 device model / sysfs
 
 在 `02-char-device` 裡：
 
-- 它讓你最後看到 `/dev/driver_lab_char0`
+- sysfs 通常會出現 `/sys/class/driver_lab_char/driver_lab_char0`
+- 現代 Linux 通常再透過 devtmpfs / udev 讓你看到 `/dev/driver_lab_char0`
 
 第一輪看參數：
 

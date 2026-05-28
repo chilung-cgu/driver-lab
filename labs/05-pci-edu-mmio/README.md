@@ -66,6 +66,19 @@ flowchart LR
 - BAR 有沒有 map 成功
 - 你能不能讀到第一個 register
 
+## 這一關會出現哪些 filesystem 入口
+
+`05` 不會建立 `/dev/driver_lab_*`。它是 PCI driver，所以第一個入口是 PCI bus 與 sysfs：
+
+| 入口 | 第一輪用途 |
+|---|---|
+| `lspci -nn | grep 1234:11e8` | 確認 QEMU EDU device 真的在 guest PCI bus 上。 |
+| `/sys/bus/pci/devices/...` | 觀察 PCI device 是否存在，以及 driver bind 後的 sysfs 狀態。 |
+| `/sys/bus/pci/drivers/driver_lab_edu_mmio` | 觀察本 lab PCI driver 是否註冊到 PCI bus。 |
+| `dmesg` | 觀察 `probe start`、`BAR0 mapped`、`liveness check passed`。 |
+
+如果 `lspci` 看不到 `1234:11e8`，先修 QEMU/guest 環境；不要先追 driver code。
+
 ## 第一次實作順序
 
 1. 先在 guest 內確認 `lspci -nn | grep 1234:11e8`

@@ -356,7 +356,7 @@ static int __init driver_lab_ioctl_poll_mmap_init(void)
 	if (ret)
 		goto err_free_page;
 
-	/* 和 02 相同：把 /dev node 的 callback table 接到 cdev。 */
+	/* 和 02 相同：把 userspace device entry 的 callback table 接到 cdev。 */
 	cdev_init(&dl_cdev, &dl_fops);
 	dl_cdev.owner = THIS_MODULE;
 
@@ -365,13 +365,14 @@ static int __init driver_lab_ioctl_poll_mmap_init(void)
 	if (ret)
 		goto err_unregister_chrdev;
 
-	/* class/device 參數角色同 02，只是這裡建立的是 /dev/driver_lab_ctl0。 */
+	/* class 會對應 /sys/class/driver_lab_ctl；device_create() 會建立 ctl0 entry。 */
 	dl_class = class_create(DL_IOCTL_CLASS_NAME);
 	if (IS_ERR(dl_class)) {
 		ret = PTR_ERR(dl_class);
 		goto err_del_cdev;
 	}
 
+	/* /dev/driver_lab_ctl0 通常由 devtmpfs 建立，udev 可能再調整權限。 */
 	dl_device = device_create(dl_class, NULL, dl_devt, NULL,
 							  DL_IOCTL_DEVICE_NAME);
 	if (IS_ERR(dl_device)) {

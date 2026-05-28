@@ -64,6 +64,33 @@ sequenceDiagram
 /dev/driver_lab_char0
 ```
 
+## 這一關會出現哪些 filesystem 入口
+
+讀這關前建議先看：
+
+- [`../../docs/onboarding/kernel-filesystem-surfaces.md`](../../docs/onboarding/kernel-filesystem-surfaces.md)
+
+第一輪要分清楚這幾個路徑不是同一件事：
+
+| 路徑 | 誰讓它出現 | 第一輪用途 |
+|---|---|---|
+| `/dev/driver_lab_char0` | `device_create()` 建立 device object 後，通常由 devtmpfs 建立，udev 可能再調整 | userspace 對 driver 做 `read/write` 的操作入口 |
+| `/sys/class/driver_lab_char` | `class_create(DL_CHAR_CLASS_NAME)` | 觀察 device class 是否建立成功 |
+| `/sys/class/driver_lab_char/driver_lab_char0` | `device_create(..., DL_CHAR_DEVICE_NAME)` | 觀察 device object 是否掛到 class 底下 |
+| `/sys/devices/virtual/driver_lab_char/driver_lab_char0` | kernel device model | 很多系統上 `/sys/class/.../driver_lab_char0` 會指到這裡 |
+| `/proc/devices` | `alloc_chrdev_region()` 註冊 major/minor 名稱 | 輔助確認 `driver_lab_char` 的 device number 註冊 |
+
+你可以這樣驗證：
+
+```sh
+ls -l /dev/driver_lab_char0
+ls -l /sys/class/driver_lab_char/driver_lab_char0
+cat /sys/class/driver_lab_char/driver_lab_char0/dev
+grep driver_lab_char /proc/devices
+```
+
+如果 `/sys/class/driver_lab_char/driver_lab_char0` 顯示成 symlink，不是錯誤。`/sys/class` 是 class 視角，實際 device 常在 `/sys/devices/virtual/...`。
+
 ## Kernel API 參數第一輪怎麼讀
 
 讀這一關的 source code 前，先看：
@@ -105,7 +132,10 @@ class_create()
     產生 dl_char_class
           ↓
 device_create()
-    用 class + dev_t + name 建出 /dev/driver_lab_char0
+    用 class + dev_t + name 建出 sysfs device entry
+          ↓
+devtmpfs / udev
+    讓 /dev/driver_lab_char0 出現或調整權限
 ```
 
 ### 參數角色表
@@ -124,7 +154,7 @@ device_create()
 | `device_create()` | `NULL` parent | parent device | 這關沒有上層硬體 | 可先略過 |
 | `device_create()` | `dl_char_devt` | device number | major/minor | `/dev` node 對應的編號 |
 | `device_create()` | `NULL` drvdata | driver private data | 這關沒用 | 進階 driver 才常用 |
-| `device_create()` | `DL_CHAR_DEVICE_NAME` | device 名字 | `driver_lab_char0` | `/dev/driver_lab_char0` |
+| `device_create()` | `DL_CHAR_DEVICE_NAME` | device 名字 | `driver_lab_char0` | sysfs device entry 與 `/dev/driver_lab_char0` 的名字 |
 
 ### read/write 的方向
 
@@ -241,9 +271,9 @@ make
 | userspace 的入口在哪裡？ | `/dev/driver_lab_char0`；對它做 `read()` / `write()` 會經過 VFS 轉到 driver 的 `file_operations` callback。 |
 | `.read` / `.write` 分別接到哪裡？ | `.read` 接到 `dl_char_read()`，`.write` 接到 `dl_char_write()`。 |
 | 第一個觀測點是什麼？ | 寫入 `/dev/driver_lab_char0` 後讀回資料，並用 `dmesg` 觀察 `driver_lab_char` log。 |
-| 這一關主要拿到什麼 resource？ | major/minor device number、`cdev`、`class`、`device`，最後由 udev 建立 `/dev/driver_lab_char0`。 |
+| 這一關主要拿到什麼 resource？ | major/minor device number、`cdev`、`class`、`device`；`device_create()` 後會有 sysfs entry，`/dev/driver_lab_char0` 通常由 devtmpfs 建立並可能由 udev 調整。 |
 | cleanup 要釋放哪些東西？ | `device_destroy()`、`class_destroy()`、`cdev_del()`、`unregister_chrdev_region()`，順序要大致反向於 init 拿資源的順序。 |
-| `/dev/driver_lab_char0` 沒出現時第一個看哪裡？ | 先看 `sudo dmesg | tail -n 50`，再查 `lsmod` 與 `ls -l /dev/driver_lab_char0`。 |
+| `/dev/driver_lab_char0` 沒出現時第一個看哪裡？ | 先看 `sudo dmesg | tail -n 50`，再查 `lsmod`、`ls -l /sys/class/driver_lab_char/driver_lab_char0` 與 `ls -l /dev/driver_lab_char0`。 |
 
 ## 目前這支 driver 的刻意簡化
 

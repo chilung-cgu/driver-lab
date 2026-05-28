@@ -205,7 +205,7 @@ static const struct file_operations dl_race_fops = {
 
 /*
  * module 載入入口。
- * 先建立 /dev 入口，再啟動背景 worker，讓 race lab 一載入就有內部競爭來源。
+ * 先建立 char device 入口，再啟動背景 worker，讓 race lab 一載入就有內部競爭來源。
  */
 static int __init driver_lab_race_init(void)
 {
@@ -230,6 +230,7 @@ static int __init driver_lab_race_init(void)
 		goto err_del_cdev;
 	}
 
+	/* 建立 sysfs device entry；/dev/driver_lab_race0 通常由 devtmpfs 補出。 */
 	dl_race_device = device_create(dl_race_class, NULL, dl_race_devt, NULL,
 								   DL_RACE_DEVICE_NAME);
 	if (IS_ERR(dl_race_device)) {

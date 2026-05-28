@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * 這一關是第一個真正建立 /dev node 的 lab。
+ * 這一關是第一個真正建立 char device userspace 入口的 lab。
  * userspace 對 /dev/driver_lab_char0 做 read/write 時，VFS 會轉呼叫本檔案的
  * file_operations callback。
  */
@@ -127,7 +127,7 @@ static const struct file_operations dl_char_fops = {
 };
 
 /*
- * module 載入入口：註冊 major/minor、掛上 cdev，並建立 /dev/driver_lab_char0。
+ * module 載入入口：註冊 major/minor、掛上 cdev，並建立 sysfs/device entry。
  * 每一步失敗都跳到對應 cleanup label，練習「拿到什麼就反向釋放什麼」。
  */
 static int __init driver_lab_char_init(void)
@@ -148,14 +148,17 @@ static int __init driver_lab_char_init(void)
 	if (ret)
 		goto err_unregister_region;
 
-	/* output=struct class *；失敗時用 IS_ERR/PTR_ERR 讀 error pointer。 */
+	/* output=struct class *；通常會對應 /sys/class/driver_lab_char。 */
 	dl_char_class = class_create(DL_CHAR_CLASS_NAME);
 	if (IS_ERR(dl_char_class)) {
 		ret = PTR_ERR(dl_char_class);
 		goto err_del_cdev;
 	}
 
-	/* input=class + dev_t + device name；結果對應 /dev/driver_lab_char0。 */
+	/*
+	 * input=class + dev_t + device name；先建立 sysfs device entry。
+	 * /dev/driver_lab_char0 通常由 devtmpfs 建立，udev 可能再調整權限。
+	 */
 	dl_char_device = device_create(dl_char_class, NULL, dl_char_devt, NULL,
 								   DL_CHAR_DEVICE_NAME);
 	if (IS_ERR(dl_char_device)) {
@@ -181,7 +184,7 @@ static void __exit driver_lab_char_exit(void)
 {
 	/*
 	 * cleanup 順序要跟 init 拿資源的順序相反：
-	 * 先移除 /dev node，再 class，再 cdev，最後釋放 major/minor。
+	 * 先移除 device entry，再 class，再 cdev，最後釋放 major/minor。
 	 */
 	device_destroy(dl_char_class, dl_char_devt);
 	class_destroy(dl_char_class);

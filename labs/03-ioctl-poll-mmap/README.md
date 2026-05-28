@@ -33,6 +33,19 @@ module 載入後會建立：
 /dev/driver_lab_ctl0
 ```
 
+## 這一關會出現哪些 filesystem 入口
+
+`03` 沿用 `02` 的 char device 建立流程，只是 callback 變多。若你忘了 `/dev`、`/sys/class`、devtmpfs/udev 的分工，先回頭看 [`../../docs/onboarding/kernel-filesystem-surfaces.md`](../../docs/onboarding/kernel-filesystem-surfaces.md)。
+
+| 路徑 | 第一輪用途 |
+|---|---|
+| `/dev/driver_lab_ctl0` | userspace 對 `read/write/ioctl/poll/mmap` 的主要操作入口。 |
+| `/sys/class/driver_lab_ctl/driver_lab_ctl0` | 確認 `class_create()` / `device_create()` 已建立 device model entry。 |
+| `/sys/devices/virtual/driver_lab_ctl/driver_lab_ctl0` | 很多系統上 `/sys/class/...` 會指向的實際 virtual device 位置。 |
+| `/proc/devices` | 輔助確認 `driver_lab_ctl` 的 major number 已註冊。 |
+
+`mmap()` 不是建立一個新的檔案路徑；它是把 driver 維護的一頁 memory 映射進目前 process 的 address space。
+
 這個 device node 目前支援：
 
 - `read/write`

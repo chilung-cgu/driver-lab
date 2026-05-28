@@ -74,6 +74,19 @@ module 載入後會建立：
 /dev/driver_lab_race0
 ```
 
+## 這一關會出現哪些 filesystem 入口
+
+`04` 的重點是 race，不是新 device model；filesystem 入口仍沿用 `02` 的 char device 模型。
+
+| 路徑 | 第一輪用途 |
+|---|---|
+| `/dev/driver_lab_race0` | CLI 對 driver 做 `status/reset/safe-mode/inc/race` 的操作入口。 |
+| `/sys/class/driver_lab_race/driver_lab_race0` | 確認 race device 的 class/device entry 已建立。 |
+| `/sys/devices/virtual/driver_lab_race/driver_lab_race0` | 常見的 virtual device 實際 sysfs 位置。 |
+| `/proc/devices` | 輔助確認 `driver_lab_race` 的 major number 已註冊。 |
+
+如果 `/dev/driver_lab_race0` 沒出現，先看 `dmesg`；再查 `/sys/class/driver_lab_race/` 是否存在，用來分辨是 driver init 失敗，還是 `/dev` node 層問題。
+
 搭配的 userspace 工具：
 
 - [`../../tests/driver_lab_race_cli.c`](../../tests/driver_lab_race_cli.c)

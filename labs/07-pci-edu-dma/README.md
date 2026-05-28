@@ -70,6 +70,20 @@
 - DMA 完成後資料一致
 - timeout / error path 能清乾淨
 
+## 這一關會出現哪些 filesystem 入口
+
+`07` 仍是 PCI driver，不會把 coherent DMA buffer 變成一個 `/dev` 或 `/sys` 裡的普通檔案。
+
+| 入口 | 第一輪用途 |
+|---|---|
+| `lspci -nn | grep 1234:11e8` | 確認 EDU device 存在。 |
+| `/sys/bus/pci/devices/...` | 觀察 PCI device / driver bind 狀態。 |
+| `/sys/bus/pci/drivers/driver_lab_edu_dma` | 觀察 DMA lab 的 PCI driver 是否註冊。 |
+| `/proc/interrupts` | 輔助觀察 DMA completion IRQ。 |
+| `dmesg` | 主要驗收：`dma mask configured`、`coherent buffer allocated`、`round-trip compare passed`。 |
+
+第一輪請記住：DMA buffer 有 CPU pointer 和 device DMA address 兩種視角，但它不是給你 `cat /sys/...` 讀的普通檔案。
+
 ## 第一次理想上要看到的輸出
 
 `dmesg` 裡第一版通常至少要看到：

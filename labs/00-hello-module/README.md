@@ -117,6 +117,17 @@ sudo rmmod driver_lab_hello
 - `rmmod` 成功
 - `make clean` 成功
 
+## 這一關會出現哪些 filesystem 入口
+
+`00` 不會建立 `/dev`、`/sys/class` 或 debugfs entry。你主要會碰到：
+
+| 入口 | 第一輪用途 |
+|---|---|
+| `driver_lab_hello.ko` | build 出來、可被 `insmod` 載入的 kernel module 檔案。 |
+| `dmesg` | 觀察 `module_init()` / `module_exit()` 是否真的被呼叫。 |
+
+如果你想先理解後面章節為什麼會開始出現 `/dev`、`/sys`、`/proc`，之後讀 [`../../docs/onboarding/kernel-filesystem-surfaces.md`](../../docs/onboarding/kernel-filesystem-surfaces.md)。
+
 ## 完成後你應該能回答
 
 | 問題 | 標準答案 |

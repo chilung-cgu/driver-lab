@@ -35,7 +35,7 @@
 |---|---|---|---|
 | `00-hello-module` | [`../../labs/00-hello-module/README.md`](../../labs/00-hello-module/README.md) | module 可 build / load / unload，`dmesg` 有 log | module 沒有 `main()`，入口由 `module_init()` 指定 |
 | `01-debugfs-logging` | [`00-to-01-debugfs-bridge.md`](00-to-01-debugfs-bridge.md)、[`../../labs/01-debugfs-logging/README.md`](../../labs/01-debugfs-logging/README.md) | debugfs 檔案可讀寫，counter 會變 | debugfs 是 debug 觀測入口；寫 `trigger` 會進 `dl_trigger_write()`；dynamic debug 是選擇性開 `pr_debug()` |
-| `02-char-device` | [`lab-transition-map.md`](lab-transition-map.md)、[`01-to-03-user-kernel-abi-bridge.md`](01-to-03-user-kernel-abi-bridge.md)、[`kernel-api-parameter-roles.md`](kernel-api-parameter-roles.md)、[`../../labs/02-char-device/README.md`](../../labs/02-char-device/README.md) | `/dev/driver_lab_char0` 可 write/read | userspace 的 `read/write` 會走到 driver 的 `file_operations` callback；`dev_t/cdev/class/device` 的參數角色是什麼 |
+| `02-char-device` | [`lab-transition-map.md`](lab-transition-map.md)、[`01-to-03-user-kernel-abi-bridge.md`](01-to-03-user-kernel-abi-bridge.md)、[`kernel-filesystem-surfaces.md`](kernel-filesystem-surfaces.md)、[`kernel-api-parameter-roles.md`](kernel-api-parameter-roles.md)、[`../../labs/02-char-device/README.md`](../../labs/02-char-device/README.md) | `/dev/driver_lab_char0` 可 write/read | userspace 的 `read/write` 會走到 driver 的 `file_operations` callback；能分清 `/dev`、`/sys/class`、devtmpfs/udev、`dev_t/cdev/class/device` 的角色 |
 
 完成這階段後，你應該能畫出：
 
@@ -81,6 +81,7 @@ userspace command -> /dev or debugfs -> driver callback -> kernel state -> dmesg
 - 觀測點在哪裡
 - 主要 resource 是什麼
 - 關鍵 API 參數是 input、output、前一步 resource、數量、名字，還是 callback table
+- 這一關建立或使用了哪些 filesystem 入口，例如 `/dev`、`/sys`、`/proc`、debugfs
 - cleanup 怎麼反向釋放
 - 失敗時第一個查證點是哪裡
 

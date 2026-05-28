@@ -66,6 +66,20 @@ flowchart LR
   emit_debug
 ```
 
+## 這一關會出現哪些 filesystem 入口
+
+`01` 還不是正式 `/dev` char device。它使用的是 debugfs 和 procfs：
+
+| 路徑 | 第一輪用途 |
+|---|---|
+| `/sys/kernel/debug/driver_lab_debugfs/status` | 讀 driver 目前狀態。 |
+| `/sys/kernel/debug/driver_lab_debugfs/trigger` | 寫入後觸發 `dl_trigger_write()`。 |
+| `/sys/kernel/debug/driver_lab_debugfs/trigger_count` | 觀察 trigger 次數。 |
+| `/sys/kernel/debug/driver_lab_debugfs/emit_debug` | 控制是否呼叫 `pr_debug()`。 |
+| `/proc/dynamic_debug/control` | 如果 kernel 支援 dynamic debug，用來選擇性打開這個 module 的 `pr_debug()`。 |
+
+更多 `/dev`、`/sys`、`/proc`、debugfs 的分工見 [`../../docs/onboarding/kernel-filesystem-surfaces.md`](../../docs/onboarding/kernel-filesystem-surfaces.md)。
+
 ## 使用方式
 
 ```sh

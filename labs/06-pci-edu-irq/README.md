@@ -67,6 +67,20 @@
 - handler 有 log
 - 同一個中斷不會無限重進
 
+## 這一關會出現哪些 filesystem 入口
+
+`06` 沿用 `05` 的 PCI sysfs 入口，另外多一個常用 IRQ 觀測點：
+
+| 入口 | 第一輪用途 |
+|---|---|
+| `lspci -nn | grep 1234:11e8` | 確認 EDU device 仍在 guest PCI bus。 |
+| `/sys/bus/pci/devices/...` | 觀察 PCI device / driver bind 狀態。 |
+| `/sys/bus/pci/drivers/driver_lab_edu_irq` | 觀察 IRQ lab 的 PCI driver 是否註冊。 |
+| `/proc/interrupts` | 輔助觀察 IRQ 計數是否有變化。 |
+| `dmesg` | 第一輪最重要，確認 `request_irq ok`、`irq status=`、`irq self-test passed`。 |
+
+`/proc/interrupts` 是輔助，不是唯一驗收。這關真正要看的是 handler 有沒有讀 status、寫 acknowledge、喚醒 completion。
+
 ## 第一次理想上要看到的輸出
 
 `dmesg` 裡第一版通常至少要看到：
