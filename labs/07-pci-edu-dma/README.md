@@ -122,10 +122,11 @@ cd labs/07-pci-edu-dma
 2. `make` 建出 `driver_lab_edu_dma.ko`。
 3. 如果前一次留下同名 module，先卸載，避免 DMA/IRQ resource 狀態混亂。
 4. 清本次 `dmesg` 後載入 module。
-5. grep `dma mask configured`，確認 device 可定址範圍已設定。
-6. grep `coherent buffer allocated`，確認 CPU/device 共享 buffer 配置成功。
-7. grep `round-trip compare passed`，確認 RAM -> EDU -> RAM 的資料一致。
-8. 卸載 module 並 `make clean`。
+5. 檢查 PCI driver sysfs directory、bind 狀態，以及 `/proc/interrupts` 是否列出 `driver_lab_edu_dma`。
+6. grep `dma mask configured`，確認 device 可定址範圍已設定。
+7. grep `coherent buffer allocated`，確認 CPU/device 共享 buffer 配置成功。
+8. grep `round-trip compare passed`，確認 RAM -> EDU -> RAM 的資料一致。
+9. 卸載 module，確認 PCI driver sysfs directory 消失，並 `make clean`。
 
 第一輪卡住時，先把問題拆成三段：DMA mask、buffer allocation、round-trip compare，不要一次追完整 DMA subsystem。
 

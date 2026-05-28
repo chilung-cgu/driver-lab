@@ -225,11 +225,12 @@ make clean
 1. 確認目前是 Linux，因為 macOS 不能載入 Linux kernel module。
 2. `make` 建出 `driver_lab_char.ko`。
 3. 如果前一次測試留下同名 module，先 `rmmod` 清掉。
-4. `insmod` 載入 module，讓 `/dev/driver_lab_char0` 出現。
-5. 用 `tee` 寫入固定字串，再用 `dd` 讀回同樣長度。
-6. 用 `diff -u` 比對 expected/readback，確認 data path 沒跑偏。
-7. 用 `dmesg | grep driver_lab_char` 確認 kernel log 有本 lab 訊息。
-8. `rmmod` 與 `make clean` 收尾。
+4. `insmod` 載入 module。
+5. 檢查 `/dev/driver_lab_char0` 是 char device、`/sys/class/driver_lab_char/driver_lab_char0` 存在、`/proc/devices` 列出 `driver_lab_char`。
+6. 用 `tee` 寫入固定字串，再用 `dd` 讀回同樣長度。
+7. 用 `diff -u` 比對 expected/readback，確認 data path 沒跑偏。
+8. 用 `dmesg | grep driver_lab_char` 確認 kernel log 有本 lab 訊息。
+9. `rmmod` 後確認 sysfs class device 消失，再 `make clean` 收尾。
 
 第一輪看不懂 shell 細節沒關係，先抓住它在驗「write 進 driver，再 read 回來」。
 

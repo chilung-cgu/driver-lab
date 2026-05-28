@@ -117,6 +117,7 @@ sudo rmmod driver_lab_debugfs_logging
 | `make` | 建出 `driver_lab_debugfs_logging.ko`。 |
 | `lsmod ... rmmod` | 如果前一次測試留下同名 module，先卸載，避免 `insmod` 卡住。 |
 | `insmod` | 載入 module，讓 `driver_lab_debugfs_logging_init()` 建立 debugfs 檔案。 |
+| filesystem surface checks | 確認 `status`、`trigger`、`trigger_count`、`emit_debug` 這些 debugfs entries 真的出現。 |
 | `cat .../status` | 讀取 driver 導出的狀態文字。 |
 | `tee .../trigger` | 寫入 debugfs 檔案，觸發 `dl_trigger_write()`。 |
 | `cat .../trigger_count` | 確認 trigger counter 有被更新。 |

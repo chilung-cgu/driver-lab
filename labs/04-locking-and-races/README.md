@@ -144,10 +144,11 @@ sudo rmmod driver_lab_race
 2. `make` 建出 `driver_lab_race.ko`。
 3. 用 `cc -pthread` 建出 userspace race CLI。
 4. 如果前一次留下同名 module，先卸載，避免背景 worker 狀態混亂。
-5. 載入 module，先切到 `safe-mode 0`，reset 後跑 `race 8 50`。
-6. 再切到 `safe-mode 1`，reset 後跑同一組 `race 8 50`。
-7. 從兩份 log 抽出 `observed=`，確認 safe mode 不應比 unsafe 更差。
-8. 卸載 module、清 build artifact 與暫存 CLI。
+5. 載入 module，檢查 `/dev/driver_lab_race0`、`/sys/class/driver_lab_race/driver_lab_race0`、`/proc/devices`。
+6. 先切到 `safe-mode 0`，reset 後跑 `race 8 50`。
+7. 再切到 `safe-mode 1`，reset 後跑同一組 `race 8 50`。
+8. 從兩份 log 抽出 `observed=`，確認 safe mode 不應比 unsafe 更差。
+9. 卸載 module，確認 sysfs class device 消失，清 build artifact 與暫存 CLI。
 
 這支 test 不是要證明 mutex 讓數字永遠一模一樣，而是用同一組壓力條件對照 unsafe/safe 的差異。
 

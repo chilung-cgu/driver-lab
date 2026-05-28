@@ -18,6 +18,8 @@ i=0
 if [ "$(id -u)" -ne 0 ]; then
     SUDO=sudo
 fi
+FS_SUDO=$SUDO
+. "$ROOT_DIR/scripts/fs-surface-checks.sh"
 
 cleanup() {
 	if lsmod | grep -q "^${MODULE_NAME} "; then
@@ -37,7 +39,11 @@ while [ "$i" -lt 20 ]; do
     fi
 
     $SUDO insmod "$LAB_DIR/${MODULE_NAME}.ko"
+    fs_expect_char_device /dev/driver_lab_ctl0 \
+        /sys/class/driver_lab_ctl/driver_lab_ctl0 \
+        driver_lab_ctl
     $SUDO rmmod "$MODULE_NAME"
+    fs_expect_absent /sys/class/driver_lab_ctl/driver_lab_ctl0 "sysfs class device"
     i=$((i + 1))
 done
 

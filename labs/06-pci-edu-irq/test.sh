@@ -9,6 +9,7 @@ if [ "$(uname -s)" != "Linux" ]; then
 fi
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
+ROOT_DIR=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
 MODULE_NAME=driver_lab_edu_irq
 DMESG_LOG=$(mktemp)
 SUDO=
@@ -25,6 +26,8 @@ trap cleanup EXIT INT TERM
 if [ "$(id -u)" -ne 0 ]; then
     SUDO=sudo
 fi
+FS_SUDO=$SUDO
+. "$ROOT_DIR/scripts/fs-surface-checks.sh"
 
 if ! command -v lspci >/dev/null 2>&1; then
     printf 'ERROR: 找不到 lspci。請先安裝 pciutils。\n' >&2
@@ -35,6 +38,7 @@ if ! lspci -nn | grep -q '1234:11e8'; then
     printf 'ERROR: guest 內看不到 QEMU edu (1234:11e8)。\n' >&2
     exit 1
 fi
+fs_expect_pci_device_id 0x1234 0x11e8
 
 cd "$SCRIPT_DIR"
 make
@@ -47,6 +51,8 @@ fi
 # 清 dmesg 只是為了讓本次測試的成功訊號比較容易 grep。
 $SUDO dmesg -C || true
 $SUDO insmod "./${MODULE_NAME}.ko"
+fs_expect_pci_driver_bound "$MODULE_NAME" 0x1234 0x11e8
+fs_expect_proc_interrupt "$MODULE_NAME"
 $SUDO dmesg | tee "$DMESG_LOG"
 
 grep -q 'request_irq ok' "$DMESG_LOG"
@@ -54,6 +60,7 @@ grep -q 'irq status=' "$DMESG_LOG"
 grep -q 'irq self-test passed' "$DMESG_LOG"
 
 $SUDO rmmod "$MODULE_NAME"
+fs_expect_absent "/sys/bus/pci/drivers/$MODULE_NAME" "PCI driver sysfs directory"
 make clean
 
 printf '06-pci-edu-irq smoke test passed.\n'

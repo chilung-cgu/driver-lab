@@ -27,6 +27,8 @@ trap cleanup EXIT INT TERM
 if [ "$(id -u)" -ne 0 ]; then
     SUDO=sudo
 fi
+FS_SUDO=$SUDO
+. "$ROOT_DIR/scripts/fs-surface-checks.sh"
 
 cd "$SCRIPT_DIR"
 make
@@ -39,6 +41,9 @@ if lsmod | grep -q "^${MODULE_NAME} "; then
 fi
 
 $SUDO insmod "./${MODULE_NAME}.ko"
+fs_expect_char_device /dev/driver_lab_race0 \
+	/sys/class/driver_lab_race/driver_lab_race0 \
+	driver_lab_race
 
 $SUDO "$CLI" /dev/driver_lab_race0 safe-mode 0
 $SUDO "$CLI" /dev/driver_lab_race0 reset
@@ -62,6 +67,7 @@ if [ "$safe_observed" -lt "$unsafe_observed" ]; then
 fi
 
 $SUDO rmmod "$MODULE_NAME"
+fs_expect_absent /sys/class/driver_lab_race/driver_lab_race0 "sysfs class device"
 make clean
 
 printf '04-locking-and-races smoke test passed.\n'

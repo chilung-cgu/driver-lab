@@ -8,6 +8,7 @@ if [ "$(uname -s)" != "Linux" ]; then
 fi
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
+ROOT_DIR=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
 cd "$SCRIPT_DIR"
 
 MODULE_NAME=driver_lab_char
@@ -29,6 +30,8 @@ trap cleanup EXIT INT TERM
 if [ "$(id -u)" -ne 0 ]; then
     SUDO=sudo
 fi
+FS_SUDO=$SUDO
+. "$ROOT_DIR/scripts/fs-surface-checks.sh"
 
 make
 
@@ -39,12 +42,16 @@ fi
 
 # 寫入固定訊息，再讀回檔案，比對 read/write 路徑是否一致。
 $SUDO insmod ./driver_lab_char.ko
+fs_expect_char_device /dev/driver_lab_char0 \
+	/sys/class/driver_lab_char/driver_lab_char0 \
+	driver_lab_char
 printf '%s' "$MESSAGE" | $SUDO tee /dev/driver_lab_char0 >/dev/null
 $SUDO dd if=/dev/driver_lab_char0 of="$READBACK_FILE" bs=1 count=${#MESSAGE} status=none
 printf '%s' "$MESSAGE" >"$EXPECTED_FILE"
 diff -u "$EXPECTED_FILE" "$READBACK_FILE"
 $SUDO dmesg | tail -n 50 | grep 'driver_lab_char'
 $SUDO rmmod "$MODULE_NAME"
+fs_expect_absent /sys/class/driver_lab_char/driver_lab_char0 "sysfs class device"
 make clean
 
 printf '02-char-device smoke test passed.\n'

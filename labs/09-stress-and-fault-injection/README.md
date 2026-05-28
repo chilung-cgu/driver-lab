@@ -63,12 +63,15 @@
 
 - build `03` module
 - 連續 load/unload 20 次
+- 每次 load 後檢查 `/dev`、`/sys/class`、`/proc/devices`
+- 每次 unload 後檢查 sysfs class device 已移除
 - 如果 cleanup 不對稱，這類測試通常比單次 smoke test 更容易暴露問題
 
 `stress-03-parallel.sh` 的重點：
 
 - build `03` module 與 runtime CLI
 - 載入 `03` module
+- 先確認 filesystem surface 已出現，再啟動 parallel workers
 - 啟動 4 個 worker 反覆做 `ioctl-write`、`status`、`read`、`trigger`
 - 提高 read/write/ioctl/poll 共享狀態被同時碰到的機率
 

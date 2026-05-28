@@ -166,12 +166,13 @@ sudo rmmod driver_lab_ioctl_poll_mmap
 2. `make` 建 module，`make -C ../../runtime` 建 userspace runtime 與 CLI。
 3. 若前一次留下 module，先卸載，避免 device node 狀態混亂。
 4. `insmod` 載入 `driver_lab_ioctl_poll_mmap.ko`。
-5. `ioctl-write hello-ioctl` 驗 control path 可以設定訊息。
-6. `status` 驗 `DL_IOC_GET_STATUS` 能回報 driver 狀態。
-7. `read` 驗 data path 能讀回剛設定的訊息。
-8. `mmap-read` 驗 shared page 可被 userspace 讀到。
-9. 背景啟動 `poll 3000`，主流程再 `trigger`，確認 waitqueue event path 真的會醒。
-10. `clear`、`rmmod`、`make clean` 收尾。
+5. 檢查 `/dev/driver_lab_ctl0`、`/sys/class/driver_lab_ctl/driver_lab_ctl0`、`/proc/devices`。
+6. `ioctl-write hello-ioctl` 驗 control path 可以設定訊息。
+7. `status` 驗 `DL_IOC_GET_STATUS` 能回報 driver 狀態。
+8. `read` 驗 data path 能讀回剛設定的訊息。
+9. `mmap-read` 驗 shared page 可被 userspace 讀到。
+10. 背景啟動 `poll 3000`，主流程再 `trigger`，確認 waitqueue event path 真的會醒。
+11. `clear`、`rmmod`，確認 sysfs class device 消失，再 `make clean` 收尾。
 
 第一輪重點不是 shell 技巧，而是確認四條 ABI 路徑都有被跑到。
 

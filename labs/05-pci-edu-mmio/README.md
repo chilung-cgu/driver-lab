@@ -139,12 +139,13 @@ cd labs/05-pci-edu-mmio
 
 1. 確認目前是 Linux。
 2. 確認有 `lspci`；沒有就提示安裝 `pciutils`。
-3. 用 `lspci -nn | grep 1234:11e8` 確認 guest 看得到 EDU。
+3. 用 `lspci -nn | grep 1234:11e8` 與 `/sys/bus/pci/devices/*/{vendor,device}` 確認 guest 看得到 EDU。
 4. `make` 建出 `driver_lab_edu_mmio.ko`。
 5. 如果前一次留下同名 module，先卸載，避免 bind 狀態混亂。
 6. 清本次 `dmesg` 後載入 module。
-7. 檢查 `probe start`、`BAR0 mapped`、`liveness check passed`。
-8. 卸載 module 並 `make clean`。
+7. 檢查 `/sys/bus/pci/drivers/driver_lab_edu_mmio` 存在，且 driver 已 bind 到 `1234:11e8`。
+8. 檢查 `probe start`、`BAR0 mapped`、`liveness check passed`。
+9. 卸載 module，確認 PCI driver sysfs directory 消失，並 `make clean`。
 
 第一輪最重要的是：看不到 `1234:11e8` 時，先修 QEMU/guest 環境，不要先怪 `probe()`。
 

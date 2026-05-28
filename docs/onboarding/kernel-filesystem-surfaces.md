@@ -75,6 +75,8 @@ cat /sys/class/driver_lab_char/driver_lab_char0/dev
 grep driver_lab_char /proc/devices
 ```
 
+這些檢查也已放進對應 lab 的 `test.sh`。也就是說，smoke test 不只驗 driver 行為，也會順便驗證教學中說過的 filesystem surface 是否真的出現。
+
 如果 `/dev/driver_lab_char0` 沒出現，第一個還是先看：
 
 ```sh

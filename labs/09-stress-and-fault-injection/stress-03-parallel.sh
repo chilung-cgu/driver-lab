@@ -18,6 +18,8 @@ SUDO=
 if [ "$(id -u)" -ne 0 ]; then
     SUDO=sudo
 fi
+FS_SUDO=$SUDO
+. "$ROOT_DIR/scripts/fs-surface-checks.sh"
 
 cleanup() {
 	if lsmod | grep -q "^${MODULE_NAME} "; then
@@ -36,6 +38,9 @@ if lsmod | grep -q "^${MODULE_NAME} "; then
 fi
 
 $SUDO insmod "$LAB_DIR/${MODULE_NAME}.ko"
+fs_expect_char_device /dev/driver_lab_ctl0 \
+	/sys/class/driver_lab_ctl/driver_lab_ctl0 \
+	driver_lab_ctl
 
 # 每個 worker 反覆呼叫同一個 CLI，模擬多個 userspace client 同時打 driver。
 worker() {
@@ -64,4 +69,5 @@ pid3=$!
 wait "$pid0" "$pid1" "$pid2" "$pid3"
 
 $SUDO rmmod "$MODULE_NAME"
+fs_expect_absent /sys/class/driver_lab_ctl/driver_lab_ctl0 "sysfs class device"
 printf 'stress-03-parallel passed.\n'

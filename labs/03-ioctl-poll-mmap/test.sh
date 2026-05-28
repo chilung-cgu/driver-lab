@@ -30,6 +30,8 @@ trap cleanup EXIT INT TERM
 if [ "$(id -u)" -ne 0 ]; then
     SUDO=sudo
 fi
+FS_SUDO=$SUDO
+. "$ROOT_DIR/scripts/fs-surface-checks.sh"
 
 cd "$SCRIPT_DIR"
 make
@@ -41,6 +43,9 @@ if lsmod | grep -q "^${MODULE_NAME} "; then
 fi
 
 $SUDO insmod "./${MODULE_NAME}.ko"
+fs_expect_char_device /dev/driver_lab_ctl0 \
+	/sys/class/driver_lab_ctl/driver_lab_ctl0 \
+	driver_lab_ctl
 
 # CLI 透過 runtime 呼叫 driver，這裡逐一驗證 control/data/shared/event path。
 $SUDO "$ROOT_DIR/tests/driver_lab_char_cli" /dev/driver_lab_ctl0 ioctl-write hello-ioctl
@@ -59,6 +64,7 @@ grep 'poll ret=1' "$POLL_LOG"
 
 $SUDO "$ROOT_DIR/tests/driver_lab_char_cli" /dev/driver_lab_ctl0 clear
 $SUDO rmmod "$MODULE_NAME"
+fs_expect_absent /sys/class/driver_lab_ctl/driver_lab_ctl0 "sysfs class device"
 make clean
 
 printf '03-ioctl-poll-mmap smoke test passed.\n'
