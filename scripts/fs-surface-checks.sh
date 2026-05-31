@@ -44,7 +44,8 @@ fs_ok() {
 #   - 這是最基本的檢查，先回答「文件說會出現的東西，有沒有真的出現」。
 #   - 成功時只證明路徑存在，還不保證它是正確型別，所以某些情況會再搭配
 #     `test -c`、`cat .../dev`、`/proc/devices` 等第二層檢查。
-#   - 失敗時會直接印錯誤並 return 1，讓 test.sh fail-fast。
+#   - 失敗時會直接印錯誤並 return 1；呼叫端若在 function 裡包多個檢查，
+#     也要用 `|| return 1` 把失敗明確往外傳，不要只依賴外層 `set -e`。
 fs_expect_path() {
 	path=$1
 	description=$2
@@ -93,19 +94,24 @@ fs_expect_char_device() {
 	sysfs_device=$2
 	proc_name=$3
 
-	fs_expect_path "$dev_node" "device node"
+	fs_expect_path "$dev_node" "device node" || return 1
 	if ! fs_sudo test -c "$dev_node"; then
 		printf 'ERROR: path exists but is not a char device: %s\n' "$dev_node" >&2
 		return 1
 	fi
 	fs_ok "device node is a char device: $dev_node"
 
-	fs_expect_path "$sysfs_device" "sysfs class device"
-	fs_expect_path "$sysfs_device/dev" "sysfs major:minor file"
-	fs_sudo cat "$sysfs_device/dev" | grep '^[0-9][0-9]*:[0-9][0-9]*$' >/dev/null
+	fs_expect_path "$sysfs_device" "sysfs class device" || return 1
+	fs_expect_path "$sysfs_device/dev" "sysfs major:minor file" || return 1
+	if ! fs_sudo cat "$sysfs_device/dev" | grep '^[0-9][0-9]*:[0-9][0-9]*$' >/dev/null; then
+		printf 'ERROR: sysfs dev file does not contain major:minor: %s\n' \
+			"$sysfs_device/dev" >&2
+		return 1
+	fi
 	fs_ok "sysfs dev file exposes major:minor: $sysfs_device/dev"
 
-	if ! grep -q "$proc_name" /proc/devices; then
+	if ! awk -v name="$proc_name" '$2 == name { found = 1 } END { exit !found }' \
+		/proc/devices; then
 		printf 'ERROR: /proc/devices does not list %s\n' "$proc_name" >&2
 		return 1
 	fi
@@ -120,7 +126,7 @@ fs_expect_char_device() {
 #   - 這裡不特別檢查檔案內容，因為不同狀態下內容可能會變；先確認 surface 存在最重要。
 fs_expect_debugfs_file() {
 	path=$1
-	fs_expect_path "$path" "debugfs entry"
+	fs_expect_path "$path" "debugfs entry" || return 1
 }
 
 # fs_note_optional_path: 記錄「可選」路徑是否存在。
@@ -184,7 +190,7 @@ fs_expect_pci_driver_bound() {
 	device=$3
 	driver_dir=/sys/bus/pci/drivers/$driver
 
-	fs_expect_path "$driver_dir" "PCI driver sysfs directory"
+	fs_expect_path "$driver_dir" "PCI driver sysfs directory" || return 1
 
 	for pci_dev in "$driver_dir"/*; do
 		[ -r "$pci_dev/vendor" ] || continue
