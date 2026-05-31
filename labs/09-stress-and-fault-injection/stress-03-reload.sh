@@ -43,6 +43,7 @@ while [ "$i" -lt 20 ]; do
         /sys/class/driver_lab_ctl/driver_lab_ctl0 \
         driver_lab_ctl
     $SUDO rmmod "$MODULE_NAME"
+    fs_expect_absent /dev/driver_lab_ctl0 "device node"
     fs_expect_absent /sys/class/driver_lab_ctl/driver_lab_ctl0 "sysfs class device"
     i=$((i + 1))
 done

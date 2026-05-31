@@ -67,6 +67,7 @@ if [ "$safe_observed" -lt "$unsafe_observed" ]; then
 fi
 
 $SUDO rmmod "$MODULE_NAME"
+fs_expect_absent /dev/driver_lab_race0 "device node"
 fs_expect_absent /sys/class/driver_lab_race/driver_lab_race0 "sysfs class device"
 make clean
 

@@ -69,5 +69,6 @@ pid3=$!
 wait "$pid0" "$pid1" "$pid2" "$pid3"
 
 $SUDO rmmod "$MODULE_NAME"
+fs_expect_absent /dev/driver_lab_ctl0 "device node"
 fs_expect_absent /sys/class/driver_lab_ctl/driver_lab_ctl0 "sysfs class device"
 printf 'stress-03-parallel passed.\n'

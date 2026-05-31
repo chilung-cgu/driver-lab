@@ -64,6 +64,7 @@ grep 'poll ret=1' "$POLL_LOG"
 
 $SUDO "$ROOT_DIR/tests/driver_lab_char_cli" /dev/driver_lab_ctl0 clear
 $SUDO rmmod "$MODULE_NAME"
+fs_expect_absent /dev/driver_lab_ctl0 "device node"
 fs_expect_absent /sys/class/driver_lab_ctl/driver_lab_ctl0 "sysfs class device"
 make clean
 

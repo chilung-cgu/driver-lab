@@ -51,6 +51,7 @@ printf '%s' "$MESSAGE" >"$EXPECTED_FILE"
 diff -u "$EXPECTED_FILE" "$READBACK_FILE"
 $SUDO dmesg | tail -n 50 | grep 'driver_lab_char'
 $SUDO rmmod "$MODULE_NAME"
+fs_expect_absent /dev/driver_lab_char0 "device node"
 fs_expect_absent /sys/class/driver_lab_char/driver_lab_char0 "sysfs class device"
 make clean
 
