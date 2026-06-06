@@ -8,6 +8,16 @@
 2. 開始看 source 時，打開同目錄的 `<source-file>.md`。
 3. 如果讀到 runtime、UAPI、CLI 或 test 依賴，就沿 companion doc 裡的相對連結跳過去。
 
+分段導入計畫見 [`companion-docs-rollout-plan.md`](companion-docs-rollout-plan.md)。
+
+## Lab00 主線依賴
+
+| Source | Companion doc | 角色 |
+|---|---|---|
+| [`../../labs/00-hello-module/driver_lab_hello.c`](../../labs/00-hello-module/driver_lab_hello.c) | [`../../labs/00-hello-module/driver_lab_hello.c.md`](../../labs/00-hello-module/driver_lab_hello.c.md) | 最小 kernel module 本體 |
+| [`../../labs/00-hello-module/Makefile`](../../labs/00-hello-module/Makefile) | [`../../labs/00-hello-module/Makefile.md`](../../labs/00-hello-module/Makefile.md) | Lab00 kbuild 入口 |
+| [`../../labs/00-hello-module/test.sh`](../../labs/00-hello-module/test.sh) | [`../../labs/00-hello-module/test.sh.md`](../../labs/00-hello-module/test.sh.md) | Lab00 smoke test |
+
 ## Lab03 主線依賴
 
 | Source | Companion doc | 角色 |
@@ -22,4 +32,4 @@
 
 ## 目前範圍
 
-目前只覆蓋 Lab03 主線依賴。`quality.sh`、共用 filesystem helper、其他 labs 尚未加入長篇 companion docs；它們仍可從既有 README、debug checklist 和 source 註解閱讀。
+目前覆蓋 Lab00 與 Lab03 主線依賴。`quality.sh`、共用 filesystem helper、其他 labs 尚未加入長篇 companion docs；它們仍可從既有 README、debug checklist 和 source 註解閱讀。

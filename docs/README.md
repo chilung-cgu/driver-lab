@@ -13,6 +13,7 @@
 | [`onboarding/kernel-filesystem-surfaces.md`](onboarding/kernel-filesystem-surfaces.md) | 開始分不清 `/dev`、`/sys`、`/proc`、debugfs 時 | driver 建立或暴露的 filesystem 入口各自代表什麼 |
 | [`onboarding/kernel-api-parameter-roles.md`](onboarding/kernel-api-parameter-roles.md) | 開始讀 `.c` 裡的 kernel API 呼叫時 | 每個參數是 input、output、resource、數量、名字、callback，還是 cleanup 對象 |
 | [`reference/companion-docs-index.md`](reference/companion-docs-index.md) | 正在 trace 某份 source 時 | 哪些 source 檔旁邊有可直接閱讀的 companion doc |
+| [`reference/companion-docs-rollout-plan.md`](reference/companion-docs-rollout-plan.md) | 想知道 companion docs 會怎麼分段補齊時 | 哪些檔案需要長篇旁讀、哪些先不需要 |
 
 ## 目錄分類
 

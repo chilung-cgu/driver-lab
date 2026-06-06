@@ -56,6 +56,14 @@
 - `test.sh`
 - `quality.sh`
 
+如果你正在 trace source，優先打開原檔旁邊的 companion doc：
+
+| Source | 旁讀文件 |
+|---|---|
+| [`driver_lab_hello.c`](driver_lab_hello.c) | [`driver_lab_hello.c.md`](driver_lab_hello.c.md) |
+| [`Makefile`](Makefile) | [`Makefile.md`](Makefile.md) |
+| [`test.sh`](test.sh) | [`test.sh.md`](test.sh.md) |
+
 ## 使用方式
 
 ```sh
