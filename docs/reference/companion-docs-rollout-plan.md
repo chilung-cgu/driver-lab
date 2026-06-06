@@ -30,7 +30,7 @@
 | 4 | Lab04 locking/race 與 race CLI/UAPI | 補 concurrency、race reproduction、safe mode | Done |
 | 5 | Lab05-07 QEMU EDU PCI/MMIO/IRQ/DMA | 難度最高，需要更深圖解、resource lifecycle、QEMU/PCI 背景 | Done |
 | 6 | Lab08-09 runtime/stress | 補驗證策略、stress scripts、runtime-library lab intent | Done |
-| 7 | repo-level scripts and qemu helpers | 補環境檢查、filesystem helper、QEMU launch flow | Pending |
+| 7 | repo-level scripts and qemu helpers | 補環境檢查、filesystem helper、QEMU launch flow | Done |
 
 ## 驗證規則
 

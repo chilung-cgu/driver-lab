@@ -100,6 +100,32 @@
 | [`../../labs/09-stress-and-fault-injection/stress-03-parallel.sh`](../../labs/09-stress-and-fault-injection/stress-03-parallel.sh) | [`../../labs/09-stress-and-fault-injection/stress-03-parallel.sh.md`](../../labs/09-stress-and-fault-injection/stress-03-parallel.sh.md) | Lab03 parallel userspace access stress |
 | [`../../labs/09-stress-and-fault-injection/Makefile`](../../labs/09-stress-and-fault-injection/Makefile) | [`../../labs/09-stress-and-fault-injection/Makefile.md`](../../labs/09-stress-and-fault-injection/Makefile.md) | Lab09 scaffold Makefile |
 
+## Runtime / CLI 共用層
+
+| Source | Companion doc | 角色 |
+|---|---|---|
+| [`../../runtime/Makefile`](../../runtime/Makefile) | [`../../runtime/Makefile.md`](../../runtime/Makefile.md) | userspace runtime/CLI build glue |
+| [`../../runtime/src/driver_lab_runtime.c`](../../runtime/src/driver_lab_runtime.c) | [`../../runtime/src/driver_lab_runtime.c.md`](../../runtime/src/driver_lab_runtime.c.md) | userspace runtime 實作 |
+| [`../../runtime/include/driver_lab_runtime.h`](../../runtime/include/driver_lab_runtime.h) | [`../../runtime/include/driver_lab_runtime.h.md`](../../runtime/include/driver_lab_runtime.h.md) | userspace runtime public API |
+| [`../../runtime/include/driver_lab_uapi.h`](../../runtime/include/driver_lab_uapi.h) | [`../../runtime/include/driver_lab_uapi.h.md`](../../runtime/include/driver_lab_uapi.h.md) | kernel/userspace 共用 ABI |
+| [`../../tests/driver_lab_char_cli.c`](../../tests/driver_lab_char_cli.c) | [`../../tests/driver_lab_char_cli.c.md`](../../tests/driver_lab_char_cli.c.md) | runtime CLI |
+
+## Repo-level scripts
+
+| Source | Companion doc | 角色 |
+|---|---|---|
+| [`../../scripts/check-kernel-env.sh`](../../scripts/check-kernel-env.sh) | [`../../scripts/check-kernel-env.sh.md`](../../scripts/check-kernel-env.sh.md) | Linux kernel module 開發環境健檢 |
+| [`../../scripts/fs-surface-checks.sh`](../../scripts/fs-surface-checks.sh) | [`../../scripts/fs-surface-checks.sh.md`](../../scripts/fs-surface-checks.sh.md) | lab smoke tests 共用 filesystem surface 檢查 helper |
+| [`../../scripts/quality.sh`](../../scripts/quality.sh) | [`../../scripts/quality.sh.md`](../../scripts/quality.sh.md) | repo shell、Markdown、checkpatch 品質檢查入口 |
+| [`../../scripts/mount-debugfs.sh`](../../scripts/mount-debugfs.sh) | [`../../scripts/mount-debugfs.sh.md`](../../scripts/mount-debugfs.sh.md) | debugfs 掛載 helper |
+| [`../../scripts/install-git-hooks.sh`](../../scripts/install-git-hooks.sh) | [`../../scripts/install-git-hooks.sh.md`](../../scripts/install-git-hooks.sh.md) | repo Git hooks 安裝 helper |
+
+## QEMU helpers
+
+| Source | Companion doc | 角色 |
+|---|---|---|
+| [`../../qemu/launch-edu-vm.sh`](../../qemu/launch-edu-vm.sh) | [`../../qemu/launch-edu-vm.sh.md`](../../qemu/launch-edu-vm.sh.md) | host 端 QEMU EDU guest 啟動腳本 |
+
 ## 目前範圍
 
-目前覆蓋 Lab00、Lab01、Lab02、Lab03、Lab04、Lab05、Lab06、Lab07、Lab08 與 Lab09 主線依賴。`quality.sh`、共用 filesystem helper、repo-level scripts 尚未加入長篇 companion docs；它們仍可從既有 README、debug checklist 和 source 註解閱讀。
+目前覆蓋 Lab00、Lab01、Lab02、Lab03、Lab04、Lab05、Lab06、Lab07、Lab08、Lab09 主線依賴，以及 repo-level scripts / QEMU EDU launch helper。重複性很高的 lab-local `quality.sh` wrapper、純 README/checklist、空 notes 模板不列入長篇 companion doc。
