@@ -184,6 +184,22 @@ sudo rmmod driver_lab_ioctl_poll_mmap
 | 可以先略過 | `_IOW/_IOR` macro 的所有位元編碼細節；`poll_table` 內部；page fault 與 VMA 的完整 memory-management 流程。 |
 | 之後再回來補 | ABI versioning、blocking/non-blocking 的完整錯誤語意、runtime 如何把 ioctl/poll/mmap 包成穩定 API。 |
 
+## Source companion docs
+
+如果你正在 trace 某一份 source，優先打開原檔旁邊的 companion doc，不需要先回到 `docs/` 裡找對應解釋：
+
+| Source | 旁讀文件 |
+|---|---|
+| [`driver_lab_ioctl_poll_mmap.c`](driver_lab_ioctl_poll_mmap.c) | [`driver_lab_ioctl_poll_mmap.c.md`](driver_lab_ioctl_poll_mmap.c.md) |
+| [`test.sh`](test.sh) | [`test.sh.md`](test.sh.md) |
+| [`Makefile`](Makefile) | [`Makefile.md`](Makefile.md) |
+| [`../../runtime/src/driver_lab_runtime.c`](../../runtime/src/driver_lab_runtime.c) | [`../../runtime/src/driver_lab_runtime.c.md`](../../runtime/src/driver_lab_runtime.c.md) |
+| [`../../runtime/include/driver_lab_runtime.h`](../../runtime/include/driver_lab_runtime.h) | [`../../runtime/include/driver_lab_runtime.h.md`](../../runtime/include/driver_lab_runtime.h.md) |
+| [`../../runtime/include/driver_lab_uapi.h`](../../runtime/include/driver_lab_uapi.h) | [`../../runtime/include/driver_lab_uapi.h.md`](../../runtime/include/driver_lab_uapi.h.md) |
+| [`../../tests/driver_lab_char_cli.c`](../../tests/driver_lab_char_cli.c) | [`../../tests/driver_lab_char_cli.c.md`](../../tests/driver_lab_char_cli.c.md) |
+
+完整清單見 [`../../docs/reference/companion-docs-index.md`](../../docs/reference/companion-docs-index.md)。
+
 ## 完成後你應該能回答
 
 | 問題 | 標準答案 |

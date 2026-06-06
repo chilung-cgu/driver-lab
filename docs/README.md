@@ -12,6 +12,7 @@
 | [`onboarding/beginner-glossary.md`](onboarding/beginner-glossary.md) | 遇到陌生名詞時 | 單一查詢表，不需要從頭背完 |
 | [`onboarding/kernel-filesystem-surfaces.md`](onboarding/kernel-filesystem-surfaces.md) | 開始分不清 `/dev`、`/sys`、`/proc`、debugfs 時 | driver 建立或暴露的 filesystem 入口各自代表什麼 |
 | [`onboarding/kernel-api-parameter-roles.md`](onboarding/kernel-api-parameter-roles.md) | 開始讀 `.c` 裡的 kernel API 呼叫時 | 每個參數是 input、output、resource、數量、名字、callback，還是 cleanup 對象 |
+| [`reference/companion-docs-index.md`](reference/companion-docs-index.md) | 正在 trace 某份 source 時 | 哪些 source 檔旁邊有可直接閱讀的 companion doc |
 
 ## 目錄分類
 
@@ -22,7 +23,7 @@
 - [`guides/`](guides/)
   - 操作 runbook、學習路線、walkthrough、checklist
 - [`reference/`](reference/)
-  - 除錯圖鑑、閱讀索引、playbook、參考資料
+  - 除錯圖鑑、閱讀索引、companion docs index、playbook、參考資料
 - [`workflow/`](workflow/)
   - agent / Git workflow 規範，不是 driver 學習主線
 

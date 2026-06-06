@@ -85,6 +85,7 @@
 
 ### 除錯與參考
 
+- [Source companion docs 索引](docs/reference/companion-docs-index.md)
 - [常見失敗圖鑑](docs/reference/common-failures.md)
 - [官方來源索引](docs/reference/source-index.md)
 - [程式閱讀指南](docs/reference/code-reading-guide.md)
