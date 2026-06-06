@@ -101,6 +101,16 @@ flowchart LR
 - [`driver_lab_edu_mmio.c`](driver_lab_edu_mmio.c)
 - [`test.sh`](test.sh)
 
+## Source 旁讀文件
+
+讀 source 時可以直接打開同目錄的 companion doc，不需要回到 `docs/` 裡找對應解釋：
+
+| Source | 旁讀文件 | 建議用途 |
+|---|---|---|
+| [`driver_lab_edu_mmio.c`](driver_lab_edu_mmio.c) | [`driver_lab_edu_mmio.c.md`](driver_lab_edu_mmio.c.md) | 逐段理解 PCI ID match、`probe/remove`、BAR0 request/map、MMIO liveness check 與 cleanup。 |
+| [`Makefile`](Makefile) | [`Makefile.md`](Makefile.md) | 理解 Lab05 external module kbuild 與 guest 驗證分工。 |
+| [`test.sh`](test.sh) | [`test.sh.md`](test.sh.md) | 理解 smoke test 如何確認 EDU device、driver bind、dmesg gate 與 teardown。 |
+
 ## 第一次理想上要看到的輸出
 
 ```text
@@ -111,10 +121,10 @@ $ lspci -nn | grep 1234:11e8
 `dmesg` 裡第一版通常至少要看到：
 
 ```text
-driver_lab_edu: probe start
-driver_lab_edu: BAR0 mapped
-driver_lab_edu: ident=0x....
-driver_lab_edu: liveness check passed
+driver_lab_edu_mmio: probe start
+driver_lab_edu_mmio: BAR0 mapped
+driver_lab_edu_mmio: ident=0x....
+driver_lab_edu_mmio: liveness check passed
 ```
 
 上面是教學示意，不是要求逐字完全相同。

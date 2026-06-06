@@ -56,6 +56,14 @@
 | [`../../labs/04-locking-and-races/test.sh`](../../labs/04-locking-and-races/test.sh) | [`../../labs/04-locking-and-races/test.sh.md`](../../labs/04-locking-and-races/test.sh.md) | Lab04 unsafe/safe smoke test |
 | [`../../tests/driver_lab_race_cli.c`](../../tests/driver_lab_race_cli.c) | [`../../tests/driver_lab_race_cli.c.md`](../../tests/driver_lab_race_cli.c.md) | Lab04 userspace pthread race CLI |
 
+## Lab05 主線依賴
+
+| Source | Companion doc | 角色 |
+|---|---|---|
+| [`../../labs/05-pci-edu-mmio/driver_lab_edu_mmio.c`](../../labs/05-pci-edu-mmio/driver_lab_edu_mmio.c) | [`../../labs/05-pci-edu-mmio/driver_lab_edu_mmio.c.md`](../../labs/05-pci-edu-mmio/driver_lab_edu_mmio.c.md) | Lab05 PCI EDU MMIO driver 本體 |
+| [`../../labs/05-pci-edu-mmio/Makefile`](../../labs/05-pci-edu-mmio/Makefile) | [`../../labs/05-pci-edu-mmio/Makefile.md`](../../labs/05-pci-edu-mmio/Makefile.md) | Lab05 kbuild 入口 |
+| [`../../labs/05-pci-edu-mmio/test.sh`](../../labs/05-pci-edu-mmio/test.sh) | [`../../labs/05-pci-edu-mmio/test.sh.md`](../../labs/05-pci-edu-mmio/test.sh.md) | Lab05 PCI/MMIO smoke test |
+
 ## 目前範圍
 
-目前覆蓋 Lab00、Lab01、Lab02、Lab03 與 Lab04 主線依賴。`quality.sh`、共用 filesystem helper、其他 labs 尚未加入長篇 companion docs；它們仍可從既有 README、debug checklist 和 source 註解閱讀。
+目前覆蓋 Lab00、Lab01、Lab02、Lab03、Lab04 與 Lab05 主線依賴。`quality.sh`、共用 filesystem helper、其他 labs 尚未加入長篇 companion docs；它們仍可從既有 README、debug checklist 和 source 註解閱讀。
