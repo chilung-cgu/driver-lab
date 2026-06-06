@@ -64,6 +64,14 @@
 | [`../../labs/05-pci-edu-mmio/Makefile`](../../labs/05-pci-edu-mmio/Makefile) | [`../../labs/05-pci-edu-mmio/Makefile.md`](../../labs/05-pci-edu-mmio/Makefile.md) | Lab05 kbuild 入口 |
 | [`../../labs/05-pci-edu-mmio/test.sh`](../../labs/05-pci-edu-mmio/test.sh) | [`../../labs/05-pci-edu-mmio/test.sh.md`](../../labs/05-pci-edu-mmio/test.sh.md) | Lab05 PCI/MMIO smoke test |
 
+## Lab06 主線依賴
+
+| Source | Companion doc | 角色 |
+|---|---|---|
+| [`../../labs/06-pci-edu-irq/driver_lab_edu_irq.c`](../../labs/06-pci-edu-irq/driver_lab_edu_irq.c) | [`../../labs/06-pci-edu-irq/driver_lab_edu_irq.c.md`](../../labs/06-pci-edu-irq/driver_lab_edu_irq.c.md) | Lab06 PCI EDU IRQ driver 本體 |
+| [`../../labs/06-pci-edu-irq/Makefile`](../../labs/06-pci-edu-irq/Makefile) | [`../../labs/06-pci-edu-irq/Makefile.md`](../../labs/06-pci-edu-irq/Makefile.md) | Lab06 kbuild 入口 |
+| [`../../labs/06-pci-edu-irq/test.sh`](../../labs/06-pci-edu-irq/test.sh) | [`../../labs/06-pci-edu-irq/test.sh.md`](../../labs/06-pci-edu-irq/test.sh.md) | Lab06 PCI/IRQ smoke test |
+
 ## 目前範圍
 
-目前覆蓋 Lab00、Lab01、Lab02、Lab03、Lab04 與 Lab05 主線依賴。`quality.sh`、共用 filesystem helper、其他 labs 尚未加入長篇 companion docs；它們仍可從既有 README、debug checklist 和 source 註解閱讀。
+目前覆蓋 Lab00、Lab01、Lab02、Lab03、Lab04、Lab05 與 Lab06 主線依賴。`quality.sh`、共用 filesystem helper、其他 labs 尚未加入長篇 companion docs；它們仍可從既有 README、debug checklist 和 source 註解閱讀。

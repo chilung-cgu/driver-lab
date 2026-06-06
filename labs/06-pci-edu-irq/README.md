@@ -61,6 +61,16 @@
 - [`driver_lab_edu_irq.c`](driver_lab_edu_irq.c)
 - [`test.sh`](test.sh)
 
+## Source 旁讀文件
+
+讀 source 時可以直接打開同目錄的 companion doc，不需要回到 `docs/` 裡找對應解釋：
+
+| Source | 旁讀文件 | 建議用途 |
+|---|---|---|
+| [`driver_lab_edu_irq.c`](driver_lab_edu_irq.c) | [`driver_lab_edu_irq.c.md`](driver_lab_edu_irq.c.md) | 逐段理解 PCI/MMIO 前置、IRQ vector allocation、`request_irq()`、handler acknowledge、completion self-test 與 cleanup。 |
+| [`Makefile`](Makefile) | [`Makefile.md`](Makefile.md) | 理解 Lab06 external module kbuild 與 guest IRQ 驗證分工。 |
+| [`test.sh`](test.sh) | [`test.sh.md`](test.sh.md) | 理解 smoke test 如何檢查 EDU、driver bind、`/proc/interrupts`、dmesg gate 與 teardown。 |
+
 ## 第一次驗收時你要看到什麼
 
 - `request_irq()` 成功
