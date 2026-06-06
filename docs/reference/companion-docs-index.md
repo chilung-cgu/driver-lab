@@ -72,6 +72,14 @@
 | [`../../labs/06-pci-edu-irq/Makefile`](../../labs/06-pci-edu-irq/Makefile) | [`../../labs/06-pci-edu-irq/Makefile.md`](../../labs/06-pci-edu-irq/Makefile.md) | Lab06 kbuild 入口 |
 | [`../../labs/06-pci-edu-irq/test.sh`](../../labs/06-pci-edu-irq/test.sh) | [`../../labs/06-pci-edu-irq/test.sh.md`](../../labs/06-pci-edu-irq/test.sh.md) | Lab06 PCI/IRQ smoke test |
 
+## Lab07 主線依賴
+
+| Source | Companion doc | 角色 |
+|---|---|---|
+| [`../../labs/07-pci-edu-dma/driver_lab_edu_dma.c`](../../labs/07-pci-edu-dma/driver_lab_edu_dma.c) | [`../../labs/07-pci-edu-dma/driver_lab_edu_dma.c.md`](../../labs/07-pci-edu-dma/driver_lab_edu_dma.c.md) | Lab07 PCI EDU DMA driver 本體 |
+| [`../../labs/07-pci-edu-dma/Makefile`](../../labs/07-pci-edu-dma/Makefile) | [`../../labs/07-pci-edu-dma/Makefile.md`](../../labs/07-pci-edu-dma/Makefile.md) | Lab07 kbuild 入口 |
+| [`../../labs/07-pci-edu-dma/test.sh`](../../labs/07-pci-edu-dma/test.sh) | [`../../labs/07-pci-edu-dma/test.sh.md`](../../labs/07-pci-edu-dma/test.sh.md) | Lab07 PCI/DMA smoke test |
+
 ## 目前範圍
 
-目前覆蓋 Lab00、Lab01、Lab02、Lab03、Lab04、Lab05 與 Lab06 主線依賴。`quality.sh`、共用 filesystem helper、其他 labs 尚未加入長篇 companion docs；它們仍可從既有 README、debug checklist 和 source 註解閱讀。
+目前覆蓋 Lab00、Lab01、Lab02、Lab03、Lab04、Lab05、Lab06 與 Lab07 主線依賴。`quality.sh`、共用 filesystem helper、其他 labs 尚未加入長篇 companion docs；它們仍可從既有 README、debug checklist 和 source 註解閱讀。

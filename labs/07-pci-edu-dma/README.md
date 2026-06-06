@@ -64,6 +64,16 @@
 - [`driver_lab_edu_dma.c`](driver_lab_edu_dma.c)
 - [`test.sh`](test.sh)
 
+## Source 旁讀文件
+
+讀 source 時可以直接打開同目錄的 companion doc，不需要回到 `docs/` 裡找對應解釋：
+
+| Source | 旁讀文件 | 建議用途 |
+|---|---|---|
+| [`driver_lab_edu_dma.c`](driver_lab_edu_dma.c) | [`driver_lab_edu_dma.c.md`](driver_lab_edu_dma.c.md) | 逐段理解 DMA mask、coherent buffer、CPU pointer/DMA address、EDU DMA register、IRQ completion、round-trip 與 cleanup。 |
+| [`Makefile`](Makefile) | [`Makefile.md`](Makefile.md) | 理解 Lab07 external module kbuild 與 guest DMA 驗證分工。 |
+| [`test.sh`](test.sh) | [`test.sh.md`](test.sh.md) | 理解 smoke test 如何檢查 EDU、driver bind、DMA dmesg gate、`/proc/interrupts` 與 teardown。 |
+
 ## 第一次驗收時你要看到什麼
 
 - buffer 配置成功
@@ -89,10 +99,11 @@
 `dmesg` 裡第一版通常至少要看到：
 
 ```text
-driver_lab_edu: dma mask configured
-driver_lab_edu: coherent buffer allocated
-driver_lab_edu: dma transfer finished
-driver_lab_edu: round-trip compare passed
+driver_lab_edu_dma: dma mask configured
+driver_lab_edu_dma: coherent buffer allocated
+driver_lab_edu_dma: ram-to-edu transfer finished
+driver_lab_edu_dma: edu-to-ram transfer finished
+driver_lab_edu_dma: round-trip compare passed
 ```
 
 如果第一次做不到這麼完整，也沒關係。

@@ -28,7 +28,7 @@
 | 2 | Lab01 debugfs logging | 補觀測面與 debugfs 心智模型 | Done |
 | 3 | Lab02 char device | 補 `/dev`、cdev、read/write、filesystem surface | Done |
 | 4 | Lab04 locking/race 與 race CLI/UAPI | 補 concurrency、race reproduction、safe mode | Done |
-| 5 | Lab05-07 QEMU EDU PCI/MMIO/IRQ/DMA | 難度最高，需要更深圖解、resource lifecycle、QEMU/PCI 背景 | In progress: Lab05-06 done, Lab07 pending |
+| 5 | Lab05-07 QEMU EDU PCI/MMIO/IRQ/DMA | 難度最高，需要更深圖解、resource lifecycle、QEMU/PCI 背景 | Done |
 | 6 | Lab08-09 runtime/stress | 補驗證策略、stress scripts、runtime-library lab intent | Pending |
 | 7 | repo-level scripts and qemu helpers | 補環境檢查、filesystem helper、QEMU launch flow | Pending |
 
