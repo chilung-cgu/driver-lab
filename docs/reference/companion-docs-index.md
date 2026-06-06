@@ -46,6 +46,16 @@
 | [`../../runtime/include/driver_lab_uapi.h`](../../runtime/include/driver_lab_uapi.h) | [`../../runtime/include/driver_lab_uapi.h.md`](../../runtime/include/driver_lab_uapi.h.md) | kernel/userspace 共用 ABI |
 | [`../../tests/driver_lab_char_cli.c`](../../tests/driver_lab_char_cli.c) | [`../../tests/driver_lab_char_cli.c.md`](../../tests/driver_lab_char_cli.c.md) | userspace CLI |
 
+## Lab04 主線依賴
+
+| Source | Companion doc | 角色 |
+|---|---|---|
+| [`../../labs/04-locking-and-races/driver_lab_race.c`](../../labs/04-locking-and-races/driver_lab_race.c) | [`../../labs/04-locking-and-races/driver_lab_race.c.md`](../../labs/04-locking-and-races/driver_lab_race.c.md) | Lab04 race/safe-mode kernel driver 本體 |
+| [`../../labs/04-locking-and-races/driver_lab_race_uapi.h`](../../labs/04-locking-and-races/driver_lab_race_uapi.h) | [`../../labs/04-locking-and-races/driver_lab_race_uapi.h.md`](../../labs/04-locking-and-races/driver_lab_race_uapi.h.md) | Lab04 kernel/userspace ioctl ABI |
+| [`../../labs/04-locking-and-races/Makefile`](../../labs/04-locking-and-races/Makefile) | [`../../labs/04-locking-and-races/Makefile.md`](../../labs/04-locking-and-races/Makefile.md) | Lab04 kbuild 入口 |
+| [`../../labs/04-locking-and-races/test.sh`](../../labs/04-locking-and-races/test.sh) | [`../../labs/04-locking-and-races/test.sh.md`](../../labs/04-locking-and-races/test.sh.md) | Lab04 unsafe/safe smoke test |
+| [`../../tests/driver_lab_race_cli.c`](../../tests/driver_lab_race_cli.c) | [`../../tests/driver_lab_race_cli.c.md`](../../tests/driver_lab_race_cli.c.md) | Lab04 userspace pthread race CLI |
+
 ## 目前範圍
 
-目前覆蓋 Lab00、Lab01、Lab02 與 Lab03 主線依賴。`quality.sh`、共用 filesystem helper、其他 labs 尚未加入長篇 companion docs；它們仍可從既有 README、debug checklist 和 source 註解閱讀。
+目前覆蓋 Lab00、Lab01、Lab02、Lab03 與 Lab04 主線依賴。`quality.sh`、共用 filesystem helper、其他 labs 尚未加入長篇 companion docs；它們仍可從既有 README、debug checklist 和 source 註解閱讀。

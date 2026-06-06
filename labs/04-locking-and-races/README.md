@@ -74,6 +74,18 @@ module 載入後會建立：
 /dev/driver_lab_race0
 ```
 
+## Source 旁讀文件
+
+讀 source 時可以直接打開同目錄的 companion doc，不需要回到 `docs/` 裡找對應解釋：
+
+| Source | 旁讀文件 | 建議用途 |
+|---|---|---|
+| [`driver_lab_race.c`](driver_lab_race.c) | [`driver_lab_race.c.md`](driver_lab_race.c.md) | 逐段理解 unsafe/safe increment、mutex、kthread、ioctl control path 與 cleanup。 |
+| [`driver_lab_race_uapi.h`](driver_lab_race_uapi.h) | [`driver_lab_race_uapi.h.md`](driver_lab_race_uapi.h.md) | 理解 `struct dl_race_status` 與 `DL_RACE_IOC_*` ABI。 |
+| [`Makefile`](Makefile) | [`Makefile.md`](Makefile.md) | 理解 Lab04 external module kbuild 與 CLI build 分工。 |
+| [`test.sh`](test.sh) | [`test.sh.md`](test.sh.md) | 理解 smoke test 如何對照 unsafe/safe mode。 |
+| [`../../tests/driver_lab_race_cli.c`](../../tests/driver_lab_race_cli.c) | [`../../tests/driver_lab_race_cli.c.md`](../../tests/driver_lab_race_cli.c.md) | 理解 userspace pthread 如何對 driver ioctl 施壓。 |
+
 ## 這一關會出現哪些 filesystem 入口
 
 `04` 的重點是 race，不是新 device model；filesystem 入口仍沿用 `02` 的 char device 模型。
@@ -230,8 +242,8 @@ expected_at_least=400 observed=412 safe_mode=1
 
 | API | 參數角色 | 第一輪理解 |
 |---|---|---|
-| `mutex_lock_interruptible(&dl_race_lock)` | lock pointer | 取得保護共享 counter 的 lock；若被 signal 中斷會回錯誤。 |
-| `kthread_run(dl_race_worker_fn, NULL, "driver_lab_race_worker")` | thread function、private data、名稱 | 建一條背景 kernel thread；`NULL` 表示本 lab 沒傳 private data。 |
+| `mutex_lock(&dl_race_lock)` | lock pointer | 取得保護共享 counter 的 lock；這關在 ioctl/kthread path 使用一般 mutex。 |
+| `kthread_run(dl_race_worker_fn, NULL, "dl_race_worker")` | thread function、private data、名稱 | 建一條背景 kernel thread；`NULL` 表示本 lab 沒傳 private data。 |
 | `copy_from_user(&safe_mode, (void __user *)arg, sizeof(safe_mode))` | kernel destination、userspace source、size | 從 ioctl arg 讀回 userspace 想設定的 safe mode。 |
 | `copy_to_user((void __user *)arg, &status, sizeof(status))` | userspace destination、kernel source、size | 把 counter/safe_mode/worker 狀態回傳給 CLI。 |
 | `struct dl_race_status` | UAPI struct | userspace CLI 和 kernel driver 都要同意欄位順序與型別。 |

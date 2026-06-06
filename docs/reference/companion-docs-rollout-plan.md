@@ -27,7 +27,7 @@
 | 1 | Lab00 `driver_lab_hello.c` / `Makefile` / `test.sh` | 最小 build/load/unload 閉環，是所有後續 lab 的基礎 | Done |
 | 2 | Lab01 debugfs logging | 補觀測面與 debugfs 心智模型 | Done |
 | 3 | Lab02 char device | 補 `/dev`、cdev、read/write、filesystem surface | Done |
-| 4 | Lab04 locking/race 與 race CLI/UAPI | 補 concurrency、race reproduction、safe mode | Pending |
+| 4 | Lab04 locking/race 與 race CLI/UAPI | 補 concurrency、race reproduction、safe mode | Done |
 | 5 | Lab05-07 QEMU EDU PCI/MMIO/IRQ/DMA | 難度最高，需要更深圖解、resource lifecycle、QEMU/PCI 背景 | Pending |
 | 6 | Lab08-09 runtime/stress | 補驗證策略、stress scripts、runtime-library lab intent | Pending |
 | 7 | repo-level scripts and qemu helpers | 補環境檢查、filesystem helper、QEMU launch flow | Pending |

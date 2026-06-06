@@ -225,7 +225,7 @@ ret = simple_read_from_buffer(buf, count, ppos,
 | `01` | `debugfs_create_file(name, mode, parent, data, fops)`：檔名、權限、父目錄、private data、callback table。 |
 | `02` | char device pipeline：`dev_t`、`cdev`、`class`、`device`、`file_operations`。 |
 | `03` | `ioctl arg` 是 userspace pointer；`copy_from_user()` / `copy_to_user()` 看方向；`poll_wait()` 把 fd 和 waitqueue 接起來。 |
-| `04` | `mutex_lock_interruptible()` 保護共享 state；`kthread_run()` 建背景競爭來源；UAPI struct 是 userspace/kernel 合約。 |
+| `04` | `mutex_lock()` 保護共享 state；`kthread_run()` 建背景競爭來源；UAPI struct 是 userspace/kernel 合約。 |
 | `05` | `pci_enable_device(pdev)`、`pci_request_region(pdev, bar, name)`、`pci_iomap(pdev, bar, maxlen)` 都圍繞同一個 PCI device。 |
 | `06` | `pci_alloc_irq_vectors()` 取得 IRQ vector；`request_irq(vector, handler, flags, name, dev_id)` 把 IRQ 接到 handler。 |
 | `07` | `dma_alloc_coherent(dev, size, &dma_handle, gfp)` 同時給 CPU pointer 和 device DMA address。 |

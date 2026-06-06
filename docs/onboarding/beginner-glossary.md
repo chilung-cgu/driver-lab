@@ -980,9 +980,9 @@ static int dl_status_show(struct seq_file *m, void *unused)
 
 第一輪看參數：
 
-- `mutex_lock_interruptible(&lock)` 的參數是要取得的 lock
+- `mutex_lock(&lock)` 的參數是要取得的 lock
 - 成功後才能安全操作受保護的共享 state
-- 返回非 0 代表等待期間被 signal 中斷，driver 要回錯誤
+- 這個 lab 使用一般 `mutex_lock()`；如果之後改用 `mutex_lock_interruptible()`，才需要處理等待期間被 signal 中斷的返回值
 
 ## race condition
 
