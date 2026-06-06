@@ -26,6 +26,14 @@
 | [`../../labs/01-debugfs-logging/Makefile`](../../labs/01-debugfs-logging/Makefile) | [`../../labs/01-debugfs-logging/Makefile.md`](../../labs/01-debugfs-logging/Makefile.md) | Lab01 kbuild 入口 |
 | [`../../labs/01-debugfs-logging/test.sh`](../../labs/01-debugfs-logging/test.sh) | [`../../labs/01-debugfs-logging/test.sh.md`](../../labs/01-debugfs-logging/test.sh.md) | Lab01 debugfs smoke test |
 
+## Lab02 主線依賴
+
+| Source | Companion doc | 角色 |
+|---|---|---|
+| [`../../labs/02-char-device/driver_lab_char.c`](../../labs/02-char-device/driver_lab_char.c) | [`../../labs/02-char-device/driver_lab_char.c.md`](../../labs/02-char-device/driver_lab_char.c.md) | Lab02 char device kernel module 本體 |
+| [`../../labs/02-char-device/Makefile`](../../labs/02-char-device/Makefile) | [`../../labs/02-char-device/Makefile.md`](../../labs/02-char-device/Makefile.md) | Lab02 kbuild 入口 |
+| [`../../labs/02-char-device/test.sh`](../../labs/02-char-device/test.sh) | [`../../labs/02-char-device/test.sh.md`](../../labs/02-char-device/test.sh.md) | Lab02 char device smoke test |
+
 ## Lab03 主線依賴
 
 | Source | Companion doc | 角色 |
@@ -40,4 +48,4 @@
 
 ## 目前範圍
 
-目前覆蓋 Lab00、Lab01 與 Lab03 主線依賴。`quality.sh`、共用 filesystem helper、其他 labs 尚未加入長篇 companion docs；它們仍可從既有 README、debug checklist 和 source 註解閱讀。
+目前覆蓋 Lab00、Lab01、Lab02 與 Lab03 主線依賴。`quality.sh`、共用 filesystem helper、其他 labs 尚未加入長篇 companion docs；它們仍可從既有 README、debug checklist 和 source 註解閱讀。

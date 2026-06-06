@@ -64,6 +64,16 @@ sequenceDiagram
 /dev/driver_lab_char0
 ```
 
+## Source 旁讀文件
+
+讀 source 時可以直接打開同目錄的 companion doc，不需要回到 `docs/` 裡找對應解釋：
+
+| Source | 旁讀文件 | 建議用途 |
+|---|---|---|
+| [`driver_lab_char.c`](driver_lab_char.c) | [`driver_lab_char.c.md`](driver_lab_char.c.md) | 逐段理解 char device resource pipeline、`file_operations`、read/write data path、mutex 與 cleanup。 |
+| [`Makefile`](Makefile) | [`Makefile.md`](Makefile.md) | 理解 Lab02 external module kbuild 如何產生 `driver_lab_char.ko`。 |
+| [`test.sh`](test.sh) | [`test.sh.md`](test.sh.md) | 理解 smoke test 如何驗證 `/dev`、sysfs、`/proc/devices`、read/write 與 cleanup。 |
+
 ## 這一關會出現哪些 filesystem 入口
 
 讀這關前建議先看：
