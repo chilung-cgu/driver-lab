@@ -91,6 +91,15 @@
 | [`../../runtime/include/driver_lab_uapi.h`](../../runtime/include/driver_lab_uapi.h) | [`../../runtime/include/driver_lab_uapi.h.md`](../../runtime/include/driver_lab_uapi.h.md) | kernel/userspace 共用 ABI |
 | [`../../tests/driver_lab_char_cli.c`](../../tests/driver_lab_char_cli.c) | [`../../tests/driver_lab_char_cli.c.md`](../../tests/driver_lab_char_cli.c.md) | runtime CLI |
 
+## Lab09 主線依賴
+
+| Source | Companion doc | 角色 |
+|---|---|---|
+| [`../../labs/09-stress-and-fault-injection/test.sh`](../../labs/09-stress-and-fault-injection/test.sh) | [`../../labs/09-stress-and-fault-injection/test.sh.md`](../../labs/09-stress-and-fault-injection/test.sh.md) | Lab09 basic stress suite runner |
+| [`../../labs/09-stress-and-fault-injection/stress-03-reload.sh`](../../labs/09-stress-and-fault-injection/stress-03-reload.sh) | [`../../labs/09-stress-and-fault-injection/stress-03-reload.sh.md`](../../labs/09-stress-and-fault-injection/stress-03-reload.sh.md) | Lab03 repeated load/unload stress |
+| [`../../labs/09-stress-and-fault-injection/stress-03-parallel.sh`](../../labs/09-stress-and-fault-injection/stress-03-parallel.sh) | [`../../labs/09-stress-and-fault-injection/stress-03-parallel.sh.md`](../../labs/09-stress-and-fault-injection/stress-03-parallel.sh.md) | Lab03 parallel userspace access stress |
+| [`../../labs/09-stress-and-fault-injection/Makefile`](../../labs/09-stress-and-fault-injection/Makefile) | [`../../labs/09-stress-and-fault-injection/Makefile.md`](../../labs/09-stress-and-fault-injection/Makefile.md) | Lab09 scaffold Makefile |
+
 ## 目前範圍
 
-目前覆蓋 Lab00、Lab01、Lab02、Lab03、Lab04、Lab05、Lab06、Lab07 與 Lab08 主線依賴。`quality.sh`、共用 filesystem helper、其他 labs 尚未加入長篇 companion docs；它們仍可從既有 README、debug checklist 和 source 註解閱讀。
+目前覆蓋 Lab00、Lab01、Lab02、Lab03、Lab04、Lab05、Lab06、Lab07、Lab08 與 Lab09 主線依賴。`quality.sh`、共用 filesystem helper、repo-level scripts 尚未加入長篇 companion docs；它們仍可從既有 README、debug checklist 和 source 註解閱讀。

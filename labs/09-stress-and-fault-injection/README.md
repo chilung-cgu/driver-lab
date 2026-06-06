@@ -39,6 +39,18 @@
 - `test.sh`
   - 先把上述兩支腳本串成最小 stress 套件
 
+## Source 旁讀文件
+
+讀 source 時可以直接打開同目錄的 companion doc，不需要回到 `docs/` 裡找對應解釋：
+
+| Source | 旁讀文件 | 建議用途 |
+|---|---|---|
+| [`test.sh`](test.sh) | [`test.sh.md`](test.sh.md) | 理解 Lab09 目前如何串起 reload 與 parallel stress suite。 |
+| [`stress-03-reload.sh`](stress-03-reload.sh) | [`stress-03-reload.sh.md`](stress-03-reload.sh.md) | 理解 repeated load/unload 如何驗 Lab03 cleanup 對稱性。 |
+| [`stress-03-parallel.sh`](stress-03-parallel.sh) | [`stress-03-parallel.sh.md`](stress-03-parallel.sh.md) | 理解 parallel workers 如何透過 CLI/runtime 對 Lab03 施壓。 |
+| [`Makefile`](Makefile) | [`Makefile.md`](Makefile.md) | 理解目前 scaffold Makefile 為什麼不直接跑 stress。 |
+| [`../03-ioctl-poll-mmap/driver_lab_ioctl_poll_mmap.c`](../03-ioctl-poll-mmap/driver_lab_ioctl_poll_mmap.c) | [`../03-ioctl-poll-mmap/driver_lab_ioctl_poll_mmap.c.md`](../03-ioctl-poll-mmap/driver_lab_ioctl_poll_mmap.c.md) | 回頭理解 stress target driver 的 read/write/ioctl/poll/mmap path。 |
+
 ## 這一關會使用哪些 filesystem 入口
 
 `09` 目前不是新的 driver。它主要反覆操作 `03` 的入口：
