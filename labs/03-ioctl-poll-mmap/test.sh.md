@@ -1,160 +1,302 @@
 # `test.sh` 詳解
 
-## 這份檔案的角色
+## 結論
 
-這是 Lab03 的 smoke test。它不嘗試證明 driver 產品級完整，而是確認 Lab03 的四條主線都能在 Linux 上跑通：
-
-- `ioctl` control path
-- `read` data path
-- `mmap` shared memory path
-- `poll` event path
-
-它測的是 [`driver_lab_ioctl_poll_mmap.c`](driver_lab_ioctl_poll_mmap.c)、[`../../runtime/src/driver_lab_runtime.c`](../../runtime/src/driver_lab_runtime.c)、[`../../tests/driver_lab_char_cli.c`](../../tests/driver_lab_char_cli.c) 串在一起後的最小行為。
-
-## 先讀哪裡
-
-第一次照這個順序看：
-
-1. 開頭的 Linux 檢查：確認為什麼 macOS 不能跑這支。
-2. `cleanup()` 與 `trap`：先看失敗時怎麼卸載 module、刪 temp file。
-3. `make` / `make -C "$ROOT_DIR/runtime"`：看 kernel module 與 userspace CLI 都會被重建。
-4. `insmod` 後的 `fs_expect_char_device`：看 filesystem surface 驗證。
-5. CLI 命令序列：看四條 ABI path 怎麼被驗證。
-6. `rmmod` 後的 `fs_expect_absent`：看 cleanup 是否真的反映到 `/dev` / `/sys`。
-
-## 主線資料流
+`labs/03-ioctl-poll-mmap/test.sh` 是 Lab03 的 Linux smoke test。它驗證的不是單一函式，而是整條鏈：
 
 ```text
-test.sh
-  -> build Lab03 .ko
-  -> build runtime + CLI
-  -> insmod driver_lab_ioctl_poll_mmap.ko
-  -> verify /dev and /sys entries
-  -> run CLI subcommands through runtime
-  -> verify output with grep
-  -> rmmod
-  -> verify /dev and /sys entries disappear
+build .ko
+build runtime + CLI
+insmod
+verify /dev + /sys + /proc/devices
+run ioctl/read/mmap/poll CLI paths
+rmmod
+verify /dev + /sys disappear
+clean build artifacts
 ```
 
-這支 test 的價值在於它從 userspace 的角度驗證整條鏈，而不是只檢查 `.ko` 能不能 build。
+它的核心價值是：確認 Lab03 的四條 userspace ABI path 真的能在 Linux kernel 上跑，而不只是 source 看起來合理。
 
-## 分區詳解
+## 不確定處 / 查證範圍
 
-### Linux guard
+這份 companion doc 已查過：
+
+- [`test.sh`](test.sh) 本身。
+- 共用 filesystem helper：[`../../scripts/fs-surface-checks.sh`](../../scripts/fs-surface-checks.sh)。
+- CLI：[`../../tests/driver_lab_char_cli.c.md`](../../tests/driver_lab_char_cli.c.md)。
+- driver：[`driver_lab_ioctl_poll_mmap.c.md`](driver_lab_ioctl_poll_mmap.c.md)。
+- POSIX shell 的 `trap`/shell 語意以目前 script 和 POSIX sh 常見語意解釋，不展開所有 shell 標準細節。
+
+## 先理解這份檔案在 repo 的位置
+
+這支 script 要在 Lab03 目錄執行，但它自己會計算路徑，所以你也可以從別處呼叫：
 
 ```sh
-if [ "$(uname -s)" != "Linux" ]; then
+./labs/03-ioctl-poll-mmap/test.sh
 ```
 
-kernel module build/load、`lsmod`、`insmod`、`rmmod`、`/dev`/`/sys` surface 都是 Linux 行為，所以 macOS 只能做靜態檢查，不能跑這支 smoke test。
+它會使用：
 
-### path 與 temp state
+| 檔案/工具 | 用途 |
+|---|---|
+| [`Makefile`](Makefile) | build Lab03 `.ko` |
+| [`../../runtime/Makefile`](../../runtime/Makefile) | build runtime + CLI |
+| [`../../tests/driver_lab_char_cli.c`](../../tests/driver_lab_char_cli.c) | 操作 `/dev/driver_lab_ctl0` |
+| [`../../scripts/fs-surface-checks.sh`](../../scripts/fs-surface-checks.sh) | 驗證 `/dev`、`/sys`、`/proc/devices` |
 
-`SCRIPT_DIR` 是 Lab03 目錄，`ROOT_DIR` 是 repo 根目錄。這讓 test 不管從哪個工作目錄啟動，都能找到 runtime、CLI 與共用 helper。
+## 這份檔案要解決什麼問題？
 
-`POLL_LOG=$(mktemp)` 用來存背景 `poll` 的輸出。`poll_pid` 讓 cleanup 能在失敗時殺掉還在背景等待的 poll process。
+手動測 Lab03 容易漏步驟，例如：
 
-### cleanup 與 trap
+- 忘了重建 runtime CLI。
+- 舊 module 還載著。
+- `/dev` 出現但 `/sys/class` 沒出現。
+- `poll` 沒真的被 event 喚醒。
+- `rmmod` 後 device node 殘留。
 
-`cleanup()` 做三件事：
+`test.sh` 把這些最小成功條件串起來。
 
-1. 如果背景 poll 還活著，先 kill/wait。
-2. 如果 module 還載著，嘗試 `rmmod`。
+## 一、shell 模式與 Linux guard
+
+原始碼：
+
+```sh
+#!/bin/sh
+set -eu
+
+if [ "$(uname -s)" != "Linux" ]; then
+    printf 'ERROR: test.sh 必須在 Linux 主機上執行。\n' >&2
+    exit 1
+fi
+```
+
+`#!/bin/sh` 表示這支 script 要維持 POSIX sh 相容，不應隨便加入 Bash-only 語法。
+
+`set -eu`：
+
+| option | 意義 |
+|---|---|
+| `-e` | 命令失敗時中止 |
+| `-u` | 使用未設定變數時中止 |
+
+Linux guard 是必要的，因為 macOS 不能 build/load Linux kernel module，也沒有同樣的 `lsmod`、`insmod`、`rmmod` 行為。
+
+## 二、路徑與測試狀態
+
+原始碼：
+
+```sh
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
+ROOT_DIR=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
+MODULE_NAME=driver_lab_ioctl_poll_mmap
+SUDO=
+POLL_LOG=$(mktemp)
+poll_pid=
+```
+
+重點：
+
+- `SCRIPT_DIR`：Lab03 目錄。
+- `ROOT_DIR`：repo 根目錄。
+- `MODULE_NAME`：`lsmod` / `rmmod` 用的 module name。
+- `POLL_LOG`：存背景 poll output。
+- `poll_pid`：記錄背景 poll process id。
+
+`CDPATH=` 是為了避免使用者環境變數 `CDPATH` 影響 `cd` 輸出或行為。
+
+## 三、cleanup 與 trap
+
+原始碼：
+
+```sh
+cleanup() {
+    if [ -n "$poll_pid" ] && kill -0 "$poll_pid" 2>/dev/null; then
+        kill "$poll_pid" 2>/dev/null || true
+        wait "$poll_pid" 2>/dev/null || true
+    fi
+    if lsmod | grep -q "^${MODULE_NAME} "; then
+        $SUDO rmmod "$MODULE_NAME" || true
+    fi
+    rm -f "$POLL_LOG"
+}
+
+trap cleanup EXIT INT TERM
+```
+
+cleanup 做三件事：
+
+1. 如果背景 poll 還活著，殺掉並 wait。
+2. 如果 module 還載著，卸載。
 3. 刪掉 temp log。
 
-`trap cleanup EXIT INT TERM` 保證正常結束、Ctrl-C、或被終止時都會清理。這對 kernel module lab 很重要，因為殘留 module 會讓下一次測試狀態混亂。
+`trap cleanup EXIT INT TERM` 保證正常結束、Ctrl-C、被終止時都會清理。
 
-### sudo 與 filesystem helper
+為什麼 cleanup 裡有 `|| true`？
 
-如果不是 root，`SUDO=sudo`。接著：
+因為 cleanup 是 best-effort。測試已經要結束了，不希望 kill/wait/rmmod 清理失敗造成 cleanup 自己中斷，留下更多殘留。
+
+## 四、sudo 與共用 filesystem helper
+
+原始碼：
 
 ```sh
+if [ "$(id -u)" -ne 0 ]; then
+    SUDO=sudo
+fi
 FS_SUDO=$SUDO
 . "$ROOT_DIR/scripts/fs-surface-checks.sh"
 ```
 
-`fs-surface-checks.sh` 提供 `/dev`、`/sys`、`/proc/devices` 等 surface 的共用檢查。Lab03 用它確認 char device 出現和消失。
+如果不是 root，就用 `sudo` 執行需要權限的 module 操作。
 
-### build 與 module load
+`FS_SUDO=$SUDO` 是傳給 `fs-surface-checks.sh` 的設定，讓 helper 在需要檢查 root-only path 時能用同樣 sudo 策略。
+
+`.` 是 source，不是執行子程序。這樣 `fs_expect_char_device`、`fs_expect_absent` 這些 function 會出現在目前 shell。
+
+## 五、build module 與 runtime
+
+原始碼：
 
 ```sh
+cd "$SCRIPT_DIR"
 make
 make -C "$ROOT_DIR/runtime"
 ```
 
-第一個 `make` 建 Lab03 kernel module。第二個 `make` 建 userspace runtime + CLI，因為後面的命令不是直接呼叫 syscall，而是透過 `driver_lab_char_cli` 和 runtime 驗證。
+第一個 `make`：
 
-載入前若同名 module 已存在，先 `rmmod`，避免前一次測試殘留影響這次結果。
-
-### filesystem surface 驗證
-
-```sh
-fs_expect_char_device /dev/driver_lab_ctl0 \
-    /sys/class/driver_lab_ctl/driver_lab_ctl0 \
-    driver_lab_ctl
+```text
+build labs/03-ioctl-poll-mmap/driver_lab_ioctl_poll_mmap.ko
 ```
 
-這不是單純看 `/dev` 檔案是否存在，而是同時檢查：
+第二個 `make`：
+
+```text
+build tests/driver_lab_char_cli
+```
+
+兩者都需要，因為測試不是只 load module，還會透過 CLI 操作 driver。
+
+## 六、卸載舊 module，避免狀態污染
+
+原始碼：
+
+```sh
+if lsmod | grep -q "^${MODULE_NAME} "; then
+    $SUDO rmmod "$MODULE_NAME"
+fi
+```
+
+如果前一次測試中斷，module 可能還載著。直接 `insmod` 同名 module 會失敗或造成狀態混亂，所以先檢查並卸載。
+
+`grep -q "^${MODULE_NAME} "` 的空白很重要，避免 module name prefix 誤判。
+
+## 七、載入 module 並驗證 filesystem surface
+
+原始碼：
+
+```sh
+$SUDO insmod "./${MODULE_NAME}.ko"
+fs_expect_char_device /dev/driver_lab_ctl0 \
+	/sys/class/driver_lab_ctl/driver_lab_ctl0 \
+	driver_lab_ctl
+```
+
+`fs_expect_char_device` 不只看 `/dev` 存不存在，它也驗：
 
 - `/dev/driver_lab_ctl0` 是 char device。
 - `/sys/class/driver_lab_ctl/driver_lab_ctl0` 存在。
-- `/proc/devices` 裡有 `driver_lab_ctl`。
+- sysfs `dev` 檔含 major:minor。
+- `/proc/devices` 列出 `driver_lab_ctl`。
 
-這些訊號合起來代表 char device registration 和 device model entry 都有成功。
+這比單純 `test -e /dev/...` 更有價值，因為它確認 char device registration 和 device model surface 都可觀測。
 
-### CLI 行為驗證
+## 八、逐一驗證 CLI paths
 
-| 命令 | 驗證重點 |
-|---|---|
-| `ioctl-write hello-ioctl` | control path 能把 message 寫進 driver |
-| `status | grep 'buffer_len='` | `DL_IOC_GET_STATUS` 能回傳結構化狀態 |
-| `read | grep 'hello-ioctl'` | data path 能讀回剛設定的 message |
-| `mmap-read | grep 'magic=0x'` | shared page 可以被 mmap 並讀到 magic |
-| 背景 `poll 3000` + `trigger` | event path 可以被 waitqueue 喚醒 |
-| `clear` | control path 可以清掉 buffer/event state |
-
-### poll 測試為什麼要背景執行
-
-`poll 3000` 的目的就是等待事件。如果前景直接執行，script 會卡在那裡，沒有機會送 `trigger`。所以 test 先把 poll 放背景：
+原始碼：
 
 ```sh
-"$ROOT_DIR/tests/driver_lab_char_cli" ... poll 3000 >"$POLL_LOG" &
+$SUDO "$ROOT_DIR/tests/driver_lab_char_cli" /dev/driver_lab_ctl0 ioctl-write hello-ioctl
+$SUDO "$ROOT_DIR/tests/driver_lab_char_cli" /dev/driver_lab_ctl0 status | grep 'buffer_len='
+$SUDO "$ROOT_DIR/tests/driver_lab_char_cli" /dev/driver_lab_ctl0 read | grep 'hello-ioctl'
+$SUDO "$ROOT_DIR/tests/driver_lab_char_cli" /dev/driver_lab_ctl0 mmap-read | grep 'magic=0x'
 ```
 
-接著 sleep 一秒，讓 poll 真的進入等待，再用 `trigger` 喚醒它。最後用 `grep 'poll ret=1'` 確認 poll 收到一個事件。
+對照：
 
-### unload 與退場驗證
+| 命令 | 驗證 |
+|---|---|
+| `ioctl-write hello-ioctl` | control path 能 set message |
+| `status | grep buffer_len=` | status ioctl 有回傳 |
+| `read | grep hello-ioctl` | data path 能讀回 message |
+| `mmap-read | grep magic=0x` | mmap shared page 能讀 |
 
-`rmmod` 後，test 會檢查：
+注意 `read` 會消費 buffer，所以後續 `mmap-read` 看到的 buffer 可能已清空；這個 test 只驗 mmap page 有正確 magic，不要求 buffer 仍是 `hello-ioctl`。
+
+## 九、poll / trigger 測試
+
+原始碼：
+
+```sh
+$SUDO "$ROOT_DIR/tests/driver_lab_char_cli" /dev/driver_lab_ctl0 poll 3000 >"$POLL_LOG" &
+poll_pid=$!
+sleep 1
+$SUDO "$ROOT_DIR/tests/driver_lab_char_cli" /dev/driver_lab_ctl0 trigger
+wait "$poll_pid"
+poll_pid=
+grep 'poll ret=1' "$POLL_LOG"
+```
+
+為什麼 `poll` 要放背景？
+
+```text
+poll 的目的就是等事件
+如果前景執行 poll，script 就沒有機會執行 trigger
+```
+
+流程：
+
+1. 背景啟動 `poll 3000`。
+2. `sleep 1` 讓 poll 有時間進入等待。
+3. 前景執行 `trigger`。
+4. driver 喚醒 poll。
+5. `grep 'poll ret=1'` 確認 poll 有收到事件。
+
+## 十、clear / rmmod / 退場驗證
+
+原始碼：
+
+```sh
+$SUDO "$ROOT_DIR/tests/driver_lab_char_cli" /dev/driver_lab_ctl0 clear
+$SUDO rmmod "$MODULE_NAME"
+fs_expect_absent /dev/driver_lab_ctl0 "device node"
+fs_expect_absent /sys/class/driver_lab_ctl/driver_lab_ctl0 "sysfs class device"
+make clean
+```
+
+這裡驗證 cleanup 真的反映到 filesystem surface：
 
 - `/dev/driver_lab_ctl0` 消失。
 - `/sys/class/driver_lab_ctl/driver_lab_ctl0` 消失。
 
-這能抓到「module 看似卸載，但 device node/sysfs entry 殘留」這類 cleanup 問題。
-
-## 關鍵 shell pattern
-
-| pattern | 用途 |
-|---|---|
-| `set -eu` | 未定義變數或命令失敗時中止 |
-| `trap cleanup EXIT INT TERM` | 保證失敗時清理 module/temp file |
-| `SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)` | 取得穩定絕對路徑，避免呼叫位置影響測試 |
-| `SUDO=sudo` / `FS_SUDO=$SUDO` | 非 root 時仍能執行 module 與 filesystem 檢查 |
-| `wait "$poll_pid"` | 等背景 poll 結束並取得結果 |
+這能抓到 driver exit path 漏掉 `device_destroy()` 或 class/cdev cleanup 的問題。
 
 ## 常見卡點
 
-- 在 macOS 執行會直接失敗，因為這支需要 Linux kernel module 行為。
-- `sudo` 可能要求密碼；自動化環境要先處理 sudo 權限。
-- 如果前一次測試異常中斷，舊 module 可能仍載著；這支會先卸載同名 module。
-- `poll ret=0` 通常代表 timeout，先看 `trigger` 是否真的執行成功。
-- `/dev` 存在不代表完整成功，還要看 sysfs class 和 `/proc/devices`。
+- 在 macOS 跑會直接失敗，這是預期行為。
+- `sudo` 可能要求密碼。
+- `poll ret=0` 代表 timeout，先看 `trigger` 是否有執行。
+- `mmap-read` 在 `read` 後只 grep magic，不 grep buffer，因為 read 會消費 buffer。
+- `make clean` 不會卸載 module；卸載是前面的 `rmmod`。
+- cleanup 裡的 `rmmod || true` 不代表忽略測試錯誤，而是收尾階段 best-effort。
 
 ## 讀完後你應該能回答
 
 | 問題 | 標準答案 |
 |---|---|
-| 這支 test 為什麼只能在 Linux 跑？ | 它需要 build/load/unload kernel module，並驗證 Linux `/dev`、`/sys`、`/proc` surface。 |
-| 為什麼要同時 `make` 和 `make -C ../../runtime`？ | 前者建 `.ko`，後者建 userspace runtime + CLI。 |
-| 背景 poll 的目的？ | 讓 poll 先睡著等待事件，主流程再 trigger 喚醒它。 |
-| `fs_expect_absent` 在驗什麼？ | 驗證 `rmmod` 後 device node 和 sysfs class device 真的消失。 |
+| 這支 test 為什麼只能在 Linux 跑？ | 它需要 build/load/unload kernel module 並檢查 Linux `/dev`/`/sys`/`/proc`。 |
+| 為什麼要同時 build module 和 runtime？ | module 提供 kernel driver，runtime build 產生 CLI。 |
+| `fs_expect_char_device` 驗什麼？ | `/dev` char device、sysfs class device、sysfs dev major:minor、`/proc/devices`。 |
+| 為什麼 poll 要背景跑？ | 前景需要執行 trigger 來喚醒 poll。 |
+| `read` 後為什麼 `mmap-read` 不 grep `hello-ioctl`？ | 因為 Lab03 read 是消費型，完整讀完會清 buffer。 |
+| `rmmod` 後為什麼還要 `fs_expect_absent`？ | 驗證 driver exit path 的 filesystem surface 真的退場。 |
