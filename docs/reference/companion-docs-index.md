@@ -18,6 +18,14 @@
 | [`../../labs/00-hello-module/Makefile`](../../labs/00-hello-module/Makefile) | [`../../labs/00-hello-module/Makefile.md`](../../labs/00-hello-module/Makefile.md) | Lab00 kbuild 入口 |
 | [`../../labs/00-hello-module/test.sh`](../../labs/00-hello-module/test.sh) | [`../../labs/00-hello-module/test.sh.md`](../../labs/00-hello-module/test.sh.md) | Lab00 smoke test |
 
+## Lab01 主線依賴
+
+| Source | Companion doc | 角色 |
+|---|---|---|
+| [`../../labs/01-debugfs-logging/driver_lab_debugfs_logging.c`](../../labs/01-debugfs-logging/driver_lab_debugfs_logging.c) | [`../../labs/01-debugfs-logging/driver_lab_debugfs_logging.c.md`](../../labs/01-debugfs-logging/driver_lab_debugfs_logging.c.md) | Lab01 debugfs/logging kernel module 本體 |
+| [`../../labs/01-debugfs-logging/Makefile`](../../labs/01-debugfs-logging/Makefile) | [`../../labs/01-debugfs-logging/Makefile.md`](../../labs/01-debugfs-logging/Makefile.md) | Lab01 kbuild 入口 |
+| [`../../labs/01-debugfs-logging/test.sh`](../../labs/01-debugfs-logging/test.sh) | [`../../labs/01-debugfs-logging/test.sh.md`](../../labs/01-debugfs-logging/test.sh.md) | Lab01 debugfs smoke test |
+
 ## Lab03 主線依賴
 
 | Source | Companion doc | 角色 |
@@ -32,4 +40,4 @@
 
 ## 目前範圍
 
-目前覆蓋 Lab00 與 Lab03 主線依賴。`quality.sh`、共用 filesystem helper、其他 labs 尚未加入長篇 companion docs；它們仍可從既有 README、debug checklist 和 source 註解閱讀。
+目前覆蓋 Lab00、Lab01 與 Lab03 主線依賴。`quality.sh`、共用 filesystem helper、其他 labs 尚未加入長篇 companion docs；它們仍可從既有 README、debug checklist 和 source 註解閱讀。

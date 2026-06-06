@@ -66,6 +66,16 @@ flowchart LR
   emit_debug
 ```
 
+## Source 旁讀文件
+
+讀 source 時可以直接打開同目錄的 companion doc，不需要回到 `docs/` 裡找對應解釋：
+
+| Source | 旁讀文件 | 建議用途 |
+|---|---|---|
+| [`driver_lab_debugfs_logging.c`](driver_lab_debugfs_logging.c) | [`driver_lab_debugfs_logging.c.md`](driver_lab_debugfs_logging.c.md) | 逐段理解 debugfs 建立、read/write callback、state 更新、dynamic debug 與 cleanup。 |
+| [`Makefile`](Makefile) | [`Makefile.md`](Makefile.md) | 理解 Lab01 external module kbuild 如何產生 `.ko`。 |
+| [`test.sh`](test.sh) | [`test.sh.md`](test.sh.md) | 理解 smoke test 如何驗證 debugfs entries、trigger path、dmesg 與 cleanup。 |
+
 ## 這一關會出現哪些 filesystem 入口
 
 `01` 還不是正式 `/dev` char device。它使用的是 debugfs 和 procfs：

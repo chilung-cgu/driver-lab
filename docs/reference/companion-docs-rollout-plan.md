@@ -24,8 +24,8 @@
 | Phase | 範圍 | 理由 | 狀態 |
 |---|---|---|---|
 | 0 | companion-doc skill、Lab03 golden sample | 建立品質標準 | Done |
-| 1 | Lab00 `driver_lab_hello.c` / `Makefile` / `test.sh` | 最小 build/load/unload 閉環，是所有後續 lab 的基礎 | In progress |
-| 2 | Lab01 debugfs logging | 補觀測面與 debugfs 心智模型 | Pending |
+| 1 | Lab00 `driver_lab_hello.c` / `Makefile` / `test.sh` | 最小 build/load/unload 閉環，是所有後續 lab 的基礎 | Done |
+| 2 | Lab01 debugfs logging | 補觀測面與 debugfs 心智模型 | Done |
 | 3 | Lab02 char device | 補 `/dev`、cdev、read/write、filesystem surface | Pending |
 | 4 | Lab04 locking/race 與 race CLI/UAPI | 補 concurrency、race reproduction、safe mode | Pending |
 | 5 | Lab05-07 QEMU EDU PCI/MMIO/IRQ/DMA | 難度最高，需要更深圖解、resource lifecycle、QEMU/PCI 背景 | Pending |
