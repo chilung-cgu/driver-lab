@@ -25,6 +25,19 @@
 - [`../../runtime/README.md`](../../runtime/README.md)
 - [`../../tests/driver_lab_char_cli.c`](../../tests/driver_lab_char_cli.c)
 
+## Source 旁讀文件
+
+讀 source 時可以直接打開相鄰 companion doc；Lab08 本身是 runtime build/test 入口，runtime 真正實作在 repo 根目錄：
+
+| Source | 旁讀文件 | 建議用途 |
+|---|---|---|
+| [`Makefile`](Makefile) | [`Makefile.md`](Makefile.md) | 理解 Lab08 如何委派到 `runtime/` 建 userspace CLI。 |
+| [`test.sh`](test.sh) | [`test.sh.md`](test.sh.md) | 理解 build/CLI usage smoke test 驗了什麼、沒驗什麼。 |
+| [`../../runtime/src/driver_lab_runtime.c`](../../runtime/src/driver_lab_runtime.c) | [`../../runtime/src/driver_lab_runtime.c.md`](../../runtime/src/driver_lab_runtime.c.md) | 逐段理解 runtime 如何包 open/read/write/ioctl/poll/mmap。 |
+| [`../../runtime/include/driver_lab_runtime.h`](../../runtime/include/driver_lab_runtime.h) | [`../../runtime/include/driver_lab_runtime.h.md`](../../runtime/include/driver_lab_runtime.h.md) | 理解 userspace runtime public API。 |
+| [`../../runtime/include/driver_lab_uapi.h`](../../runtime/include/driver_lab_uapi.h) | [`../../runtime/include/driver_lab_uapi.h.md`](../../runtime/include/driver_lab_uapi.h.md) | 理解 kernel/userspace 共享 ABI。 |
+| [`../../tests/driver_lab_char_cli.c`](../../tests/driver_lab_char_cli.c) | [`../../tests/driver_lab_char_cli.c.md`](../../tests/driver_lab_char_cli.c.md) | 理解 CLI 如何呼叫 runtime，而不是散寫 raw syscall。 |
+
 ## 成功標準
 
 - 不直接把原始 syscall 散落在每個測試程式裡
