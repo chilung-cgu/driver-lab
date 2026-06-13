@@ -1,0 +1,8 @@
+{
+  "recommendations": [
+    "llvm-vs-code-extensions.vscode-clangd",
+    "ms-vscode.cpptools",
+    "eamodio.gitlens",
+    "aaron-bond.better-comments"
+  ]
+}
