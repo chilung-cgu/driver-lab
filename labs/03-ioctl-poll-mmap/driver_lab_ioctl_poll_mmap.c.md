@@ -70,6 +70,135 @@ Lab02 讓你知道 `/dev/...` 可以接 `read/write`。Lab03 的問題是：
 | event path | `poll()` | `dl_poll()` | 等待可讀資料或 pending event |
 | shared memory path | `mmap()` | `dl_mmap()` | 讓 userspace 讀一頁 shared snapshot |
 
+## 💡 核心觀念突破：全端拓樸架構與兩種平行的資料傳遞流派
+
+很多人以為 Lab03 只是在介紹如何用 `ioctl` 控制 Driver，但這份程式碼真正的底層精髓在於：**它在同一個專案中，刻意並列了 Kernel 與 Userspace 之間「兩種截然不同」的資料傳遞架構。**
+
+為了幫助你徹底看清整個 Lab03，我們從最上層的 CLI，一路往下透視到實體記憶體，為你梳理出這份「全端架構拓樸 (Topology)」：
+
+### 1. Lab03 全端架構拓樸圖 (End-to-End Topology)
+
+```mermaid
+flowchart TD
+    subgraph Userspace_Layer ["Userspace (使用者空間)"]
+        CLI["tests/driver_lab_char_cli.c\n(命令列測試工具)"]
+        Runtime["runtime/src/driver_lab_runtime.c\n(封裝 Syscall 的 Wrapper)"]
+        UAPI["runtime/include/driver_lab_uapi.h\n(共用 ABI，定義 Struct 與巨集)"]
+        
+        CLI -->|呼叫函式| Runtime
+        Runtime -.->|引用定義| UAPI
+    end
+
+    subgraph Syscall_Layer ["Syscall Boundary (系統呼叫護城河)"]
+        SysRead["read()"]
+        SysWrite["write()"]
+        SysIoctl["ioctl()"]
+        SysMmap["mmap()"]
+        SysPoll["poll()"]
+    end
+
+    Runtime -->|發布系統呼叫| SysRead & SysWrite & SysIoctl & SysMmap & SysPoll
+
+    subgraph Kernel_Layer ["Kernel Space (核心空間: driver_lab_ioctl_poll_mmap.c)"]
+        Fops{"dl_fops\n(/dev/driver_lab_ctl0 路由表)"}
+        SysRead & SysWrite & SysIoctl & SysMmap & SysPoll -->|VFS 導向| Fops
+        
+        OpRead["dl_read()"]
+        OpWrite["dl_write()"]
+        OpIoctl["dl_unlocked_ioctl()"]
+        OpMmap["dl_mmap()"]
+        OpPoll["dl_poll()"]
+        
+        Fops --> OpRead & OpWrite & OpIoctl & OpMmap & OpPoll
+
+        subgraph Paradigm_1 ["傳遞流派一：搬運工模式 (Active Copy)"]
+            CopyFunc["copy_to_user()\ncopy_from_user()"]
+            OpWrite & OpRead & OpIoctl --->|需要搬運過河| CopyFunc
+        end
+
+        subgraph Paradigm_2 ["傳遞流派二：任意門模式 (Zero-copy)"]
+            Remap["remap_pfn_range()\n(將指標對齊物理記憶體)"]
+            OpMmap --> Remap
+        end
+
+        subgraph Driver_State ["Driver 內部狀態與記憶體"]
+            GlobalVars[("dl_buffer 等\n全域變數 (Single Source of Truth)")]
+            SharedPage[("dl_shared_page_addr\n(mmap 共用的一頁實體記憶體)")]
+            
+            HelperPublish[["dl_publish_message_locked()\n(負責統整)"]]
+            HelperSync[["dl_sync_shared_page_locked()\n(抄錄快照)"]]
+        end
+
+        CopyFunc <-->|讀寫| GlobalVars
+        OpWrite & OpIoctl -->|收到新資料| HelperPublish
+        
+        HelperPublish -->|1. 更新真相| GlobalVars
+        HelperPublish -->|2. 觸發同步| HelperSync
+        HelperSync -->|3. 刷新快照| SharedPage
+        Remap -.->|4. 開啟任意門對接| SharedPage
+    end
+    
+    style SharedPage fill:#ffebb5,stroke:#333,stroke-width:2px
+    style GlobalVars fill:#ffd5d5,stroke:#333,stroke-width:2px
+    style CopyFunc stroke:#d8b024,stroke-width:2px,stroke-dasharray: 5 5
+    style Remap stroke:#d8b024,stroke-width:2px,stroke-dasharray: 5 5
+```
+
+這張圖標誌出三個重要元件：
+- **UAPI 的角色**：它是 Userspace 與 Kernel 雙方溝通的白紙黑字合約，確保兩邊對封包結構 (`struct dl_shared_page`) 與控制碼 (`DL_IOC_SET_MESSAGE`) 的解讀一致。
+- **`dl_fops` 路由表**：所有從 Userspace 來的 Syscall，一過護城河，都會由 VFS (虛擬檔案系統) 透過這張檔案操作表，精準派發到你寫的 `dl_read` 等對應的 C 函式。
+- **內部狀態 vs 對外展示面**：左下角的粉紅色圓柱 (`GlobalVars`) 才是 Driver 真實的腦袋，而黃色圓柱 (`SharedPage`) 只是特別陳列出來給外面參觀的玻璃展示櫃。
+
+接下來，我們直接用時序圖，來看這兩個「資料傳遞流派」是怎麼平行運作的。
+
+### 2. 深入兩種資料傳遞流派的時序圖 (Sequence Diagram)
+
+為體會兩個極端，我們來看一次完整的：「寫入 -> 同步 -> 分別讀取」過程：
+
+```mermaid
+sequenceDiagram
+    participant U as Userspace (CLI)
+    participant C as 系統護城河 (copy_from/to_user)
+    participant D as Kernel Driver
+    participant G as 內部全域變數 (Global State)
+    participant S as 任意門實體記憶體 (Shared Page)
+
+    Note over U, S: 【流派二建置：Zero-copy 任意門】
+    U->>D: 1. 呼叫 mmap()
+    D->>S: 2. remap_pfn_range() 施展魔法，將 U 的虛擬指標直接對齊 S 的實體位址
+    S-->>U: 3. 回傳指標 (user_ptr) 給 U
+
+    Note over U, S: 【流派一寫入：發動搬運工作業】
+    U->>D: 4. 呼叫 ioctl(SET_MESSAGE, "hello")
+    D->>C: 5. 呼叫 copy_from_user()
+    C-->>D: 6. 貨車駛過護城河，將 "hello" 字串搬運進 Kernel
+    D->>G: 7. 由 dl_publish_message_locked() 將字串更新為「全域真相」
+    
+    Note over G, S: 【觸發內部同步機制】
+    G->>S: 8. dl_sync_shared_page_locked() 偷偷將快照抄錄一份放到任意門桌子上
+    
+    Note over U, S: 【流派一讀取：需再次呼叫搬運工】
+    U->>D: 9. 呼叫 ioctl(GET_STATUS, status_ptr)
+    D->>G: 10. 讀取最新狀態，打包成 struct
+    D->>C: 11. 呼叫 copy_to_user()
+    C-->>U: 12. 貨車再次出動，將 struct 搬運回 Userspace
+
+    Note over U, S: 【流派二極致優勢：瞬間讀取】
+    Note right of U: 此時 Userspace 不需發動任何 Syscall 或拷貝！
+    U->>S: 13. printf("%s", user_ptr->buffer);
+    Note left of S: 透過任意門，無延遲瞬間看見步驟 8 剛更新的最新資料！
+```
+
+#### 📍 傳遞流派一：搬運工陣營 (`copy_to_user` / `copy_from_user`)
+這是作業系統中最常見、最正統的防禦性隔離方法（涵蓋了 `read`、`write`、`ioctl`）。
+*   **機制**：Kernel 與 Userspace 的記憶體彼此完全隔離。當使用者發動 ioctl 時，Kernel 必須主動查驗指標，再派出「搬運工」將資料拷貝 (`copy_from_user`) 進 Kernel，或將狀態打包拷貝送出 (`copy_to_user`)。
+*   **特性與痛點**：一來一往，一次呼叫只搬運一次。這代表假設 Driver 在背景偷偷更新了狀態，Userspace 完全不知道。你如果想知道最新狀態，就必須寫一個無窮迴圈，不斷發出 ioctl (產生巨大的 Context Switch 切換成本) 去詢問。
+
+#### 📍 傳遞流派二：任意門陣營 (`mmap` + `dl_sync_shared_page_locked`)
+這是為了**極致效能**與**即時狀態獲取**而生的進階霸道機制。
+*   **機制**：不派搬運工了，而是利用 `mmap` syscall，直接「精準對齊」Kernel 內部預先要好的那頁全域實體記憶體 (`dl_shared_page_addr`)，如同開了一扇任意門給 Userspace。
+*   **特性與爽點**：只要完成了初始綁定，之後完全**免拷貝 (Zero-copy)**！只要 Driver 在更新變數時有守規矩地呼叫 `dl_sync_shared_page_locked` 把資料「抄錄一份」放回這張任意門桌子上，任何相連的 Userspace 應用程式，瞬間就能從指標中取得最新鮮的資料，中間不再需要引發任何系統呼叫。
+
 ## 它怎麼被 build / load / 呼叫
 
 Build 由同目錄 [`Makefile`](Makefile) 交給 kbuild：
@@ -250,12 +379,15 @@ static void dl_sync_shared_page_locked(void)
 
 名稱裡的 `_locked` 很重要：它不是語意裝飾，而是告訴你呼叫前必須持有 `dl_lock`。原因是它會同時讀多個 shared state 欄位；如果沒有 lock，userspace 可能看到半更新的 snapshot。
 
+**關鍵解惑：這段程式碼寫在哪裡？**
+`page` 看似只是一個區域指標，宣告完、賦值完函式就結束了。但其實 `page = (struct dl_shared_page *)dl_shared_page_addr;` 是讓指標對準了那頁全域的實體記憶體。所以當函式結束，指標消失也無妨，資料已經穩穩地存放在這塊 `mmap` 的任意門桌子上了。
+
 白話講：
 
 ```text
-driver 內部 state 是真相
-shared page 是給 userspace 看的一份快照
-每次 state 改變後，就同步更新快照
+driver 的內部全域變數才是 Single Source of Truth
+shared page 是擺在任意門桌子上給 userspace 看的快照
+每次內部 state 有改變後，就呼叫這支 sync 來刷新快照
 ```
 
 ## 五、`dl_publish_message_locked()`：統一更新 message 與 event
@@ -285,13 +417,21 @@ static void dl_publish_message_locked(const char *src, size_t len)
 2. 複製新 message。
 3. 補上 `'\0'`，方便 shared page / debug 觀察。
 4. 增加 event count，設定 pending event。
-5. 更新 mmap shared page。
+5. 呼叫 `dl_sync_shared_page_locked()` 更新 mmap shared page。
+
+**機制運作總結：**
+1. Userspace 發動 Write 或是 ioctl 觸發更新。
+2. `dl_publish` 將新資料更新進入 Driver 自身的內部全域變數 (Global variables)。
+3. `dl_publish` 緊接著呼叫 `dl_sync_shared_page_locked`。
+4. 將更新後的變數「抄一份」存放到 `dl_shared_page_addr` 所指向的物理記憶體桌子上。
+5. 所有用 `mmap` 的程式，因為早就把這張桌子映射進自己的行程空間，所以瞬間就能看見新狀態。
 
 白話講：
 
 ```text
-只要有新 message
-就同時代表 data 更新、event 發生、shared page 也要刷新
+只要有使用者的資料寫入 (不論入口是 write 還是 ioctl)，
+就統一由這個 Helper 更新內部變數，
+並同步觸發 sync 去刷新 mmap 頁面，防堵狀態不一致。
 ```
 
 ## 六、`dl_open()` / `dl_release()`：目前只當觀測點
@@ -600,13 +740,21 @@ return remap_pfn_range(vma, vma->vm_start, pfn, size, vma->vm_page_prot);
 | `vma->vm_pgoff != 0` | 只允許 offset 0 |
 | `size > PAGE_SIZE` | 最多只允許一頁 |
 
-接著把 `dl_shared_page_addr` 轉成 PFN，交給 `remap_pfn_range()` 映射到 userspace VMA。
+**關鍵魔法解析：`virt_to_phys` 與 `remap_pfn_range`**
+```text
+pfn = virt_to_phys((void *)dl_shared_page_addr) >> PAGE_SHIFT;
+return remap_pfn_range(vma, vma->vm_start, pfn, size, vma->vm_page_prot);
+```
+此處就是「任意門」的建置現場：
+1. `virt_to_phys` 把 Kernel 的虛擬位址轉換成硬體真實的「物理記憶體位址 (Physical Address)」，再透過 `>> PAGE_SHIFT` 算出這個實體位址對應的「頁框號碼 (PFN)」。
+2. `remap_pfn_range` 則是把這個找出來的物理頁面 (pfn)，直接綁定、對齊到 Userspace 所宣告的記憶體位址 (`vma->vm_start`)。
 
 白話講：
 
 ```text
-mmap 不是讓 userspace 看任意 kernel memory
-Lab03 只允許 userspace 看 driver 預先配置的一頁 shared snapshot
+mmap 不是讓 userspace 看任意 kernel memory，這樣太危險了。
+Lab03 只允許 userspace 開啟「一頁大小」的任意門，精準對齊到 dl_shared_page_addr 上的物理位址。
+只要這扇門一建立，後續 Userspace 就能免拷貝、直接讀取最新的狀態。
 ```
 
 userspace CLI 會把這頁當成：
@@ -669,8 +817,8 @@ dl_device = device_create(dl_class, NULL, dl_devt, NULL,
 
 建立順序：
 
-1. 配一頁 shared page。
-2. 初始化 shared page snapshot。
+1. 配一頁 shared page：透過 `__get_free_page(GFP_KERNEL | __GFP_ZERO)` 向系統要求一頁實體記憶體，並把它的起始位址指派給全域變數 `dl_shared_page_addr`。這是整個 `mmap` 與任意門機制的物理基礎。
+2. 初始化 shared page snapshot (`dl_sync_shared_page_locked()`)。
 3. 取得 major/minor。
 4. 初始化並加入 cdev。
 5. 建 class。
