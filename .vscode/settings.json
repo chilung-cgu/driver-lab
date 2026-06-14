@@ -1,10 +1,13 @@
 {
-  "C_Cpp.intelliSenseEngine": "disabled",
-  "clangd.arguments": [
-    "--background-index",
-    "--clang-tidy",
-    "--header-insertion=iwyu",
-    "--completion-style=detailed"
+  "C_Cpp.intelliSenseEngine": "disabled",             // [關鍵] 關閉微軟引擎，防衝突
+  "clangd.arguments": [                               // [關鍵] Clangd 驅動參數
+    "--background-index",                             // 允許全專案背景掃描 (加速 F12 到 Kernel 原始碼)
+    "--compile-commands-dir=.",                       // ★ 最重要：指定編譯參數資料庫路徑位於根目錄
+    "--clang-tidy",                                   // (專案原有) 靜態程式碼分析
+    "--header-insertion=iwyu",                        // (專案原有) Include-What-You-Use 分析
+    "--completion-style=detailed"                     // (專案原有) 提供參數型別提示
   ],
-  "editor.formatOnSave": false
+  "editor.formatOnSave": false,                       // (專案原有) 避免存檔自動修改了 Kernel 嚴格格式
+  "makefile.extensionOutputFolder": "./.vscode",      // 防止 Makefile 工具污染 Git tracking
+  "bashIde.shellcheckPath": "shellcheck"                 // (專案原有) 指定 ShellCheck 可執行檔路徑
 }
