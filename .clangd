@@ -1,0 +1,14 @@
+CompileFlags:
+  CompilationDatabase: .
+
+---
+If:
+  PathMatch: ^(tests|runtime)/(.*)\.(c|h)$
+CompileFlags:
+  # userspace 檔案不要沿用 kernel module 的強制 include 與禁止標準標頭設定。
+  Remove:
+    - -nostdinc
+    - -include
+    - -D__KERNEL__
+  Add:
+    - -Iruntime/include

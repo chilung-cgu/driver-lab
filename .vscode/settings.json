@@ -3,6 +3,8 @@
   "clangd.arguments": [                               // [關鍵] Clangd 驅動參數
     "--background-index",                             // 允許全專案背景掃描 (加速 F12 到 Kernel 原始碼)
     "--compile-commands-dir=.",                       // ★ 最重要：指定編譯參數資料庫路徑位於根目錄
+    "--enable-config",                                // 允許讀取專案根目錄 .clangd 覆寫規則
+    "--query-driver=/usr/bin/gcc-*,/usr/bin/clang-*", // 讓 clangd 正確向 GCC/Clang 查詢系統標頭路徑
     "--clang-tidy",                                   // (專案原有) 靜態程式碼分析
     "--header-insertion=iwyu",                        // (專案原有) Include-What-You-Use 分析
     "--completion-style=detailed"                     // (專案原有) 提供參數型別提示

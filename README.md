@@ -151,6 +151,75 @@ cd labs/00-hello-module
 ./quality.sh
 ```
 
+## Clangd / Compile Commands
+
+如果你在 VS Code 使用 `clangd` 做 `Go to Definition`、hover、diagnostics，這個 repo 依賴根目錄的 `compile_commands.json` 讓 clangd 知道每個 `.c` 檔案應該用什麼編譯參數解析。
+
+這份資料特別重要，因為本專案同時包含：
+
+- `labs/00-07` 的 kernel module source
+- `runtime/` 與 `tests/` 的 userspace source
+
+如果沒有正確的 compile commands，clangd 很容易把 `tests/` 或 `runtime/` 的 userspace 檔案誤套成 kernel 編譯旗標，導致像 `fprintf()`、`open()`、`pthread_create()` 這類標準函式或系統標頭無法正確跳轉。
+
+### 相關檔案
+
+- `scripts/gen_compile_commands.sh`
+  - 給人直接執行的入口
+- `scripts/gen_compile_commands.py`
+  - 真正負責生成 `compile_commands.json`
+  - 會把 kernel module 的 `.cmd` 編譯資訊，和 userspace `runtime/`、`tests/` 的編譯參數合併到同一份資料庫
+
+### 什麼時候要跑
+
+- 第一次 clone repo 後
+- 跑過新的 lab `make` 之後
+- 修改 Makefile、include path、編譯旗標之後
+- clangd 開始出現錯誤解析、F12 跳不到定義時
+
+### 正確使用方式
+
+1. 先讓你要分析的 kernel lab 至少 build 過一次，產生 `.cmd` 檔
+
+```sh
+make -C labs/00-hello-module
+make -C labs/01-debugfs-logging
+make -C labs/02-char-device
+make -C labs/03-ioctl-poll-mmap
+make -C labs/04-locking-and-races
+make -C labs/05-pci-edu-mmio
+make -C labs/06-pci-edu-irq
+make -C labs/07-pci-edu-dma
+```
+
+2. 在 repo 根目錄重新生成 `compile_commands.json`
+
+```sh
+./scripts/gen_compile_commands.sh
+```
+
+3. 回到 VS Code，重啟 clangd
+
+- `Clangd: Restart language server`
+- 如果仍異常，再 `Developer: Reload Window`
+
+### 它如何讓 `tests/` / `runtime/` 恢復 Go to Definition
+
+`gen_compile_commands.py` 會為下列 userspace source 明確加入正確的編譯條目：
+
+- `runtime/src/driver_lab_runtime.c`
+- `tests/driver_lab_char_cli.c`
+- `tests/driver_lab_race_cli.c`
+
+這讓 clangd 知道：
+
+- 它們是 userspace C，不是 kernel module
+- `driver_lab_char_cli.c` / `driver_lab_runtime.c` 要使用 `runtime/include`
+- `driver_lab_race_cli.c` 需要 `-pthread`
+- 系統標頭例如 `<stdio.h>`、`<fcntl.h>`、`<pthread.h>` 應該走正常 userspace 解析流程
+
+因此像 `fprintf()` 這類符號通常就能至少跳到宣告，例如 `/usr/include/stdio.h`。這通常已代表 clangd 解析正常；若本機沒有安裝 glibc 原始碼，F12 不一定能再往下跳到 libc 的真正實作，這是正常現象。
+
 ## Git hooks
 
 這個 repo 附了一組 repo-local hook 範本：
