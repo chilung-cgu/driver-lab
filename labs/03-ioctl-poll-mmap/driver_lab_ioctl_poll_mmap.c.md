@@ -355,6 +355,34 @@ static unsigned long dl_shared_page_addr;
 | `dl_read_wq` | blocking read 等待 buffer 有資料 |
 | `dl_event_wq` | poll 等待 event pending 或狀態變化 |
 
+### 完整 wake_up 與 sync 矩陣
+
+Driver 中所有 `wake_up_interruptible` 與 `dl_sync_shared_page_locked()` 的呼叫點匯總，可作快速查表。
+
+**wake_up_interruptible 呼叫點：**
+
+| 觸發操作 | CLI subcommand | 喚醒 `dl_read_wq` | 喚醒 `dl_event_wq` |
+|---|---|---|---|
+| `dl_write()` | `write <msg>` | ✓ | ✓ |
+| `DL_IOC_SET_MESSAGE` | `ioctl-write <msg>` | ✓ | ✓ |
+| `DL_IOC_TRIGGER_EVENT` | `trigger` | — | ✓ |
+| `DL_IOC_CLEAR_BUFFER` | `clear` | — | ✓ |
+| `dl_read()` 完整消費 buffer 後 | `read` | — | ✓ |
+
+`DL_IOC_GET_STATUS`（`status`）與 `dl_mmap()`（`mmap-read`）**不呼叫任何 wake_up**。
+
+**dl_sync_shared_page_locked() 呼叫點：**
+
+| 呼叫位置 | 時機 | 同步後 shared page 的狀態 |
+|---|---|---|
+| `dl_publish_message_locked()` | `dl_write()` 或 `DL_IOC_SET_MESSAGE` 寫入新 message | buffer 有新內容，event_pending=true |
+| `DL_IOC_TRIGGER_EVENT` | trigger 操作 | buffer 不變，event_count++，event_pending=true |
+| `DL_IOC_CLEAR_BUFFER` | clear 操作 | buffer_len=0，event_pending=false |
+| `dl_read()`（buffer 完整消費後） | read 消費完 buffer | buffer_len=0，event_pending=false |
+| `init`（module 載入） | module 初始化 | 全零快照（magic/version 已填入） |
+
+`dl_sync_shared_page_locked()` 的呼叫者規則：進入前必須持有 `dl_lock`。
+
 ## 四、`dl_sync_shared_page_locked()`：把 driver state 發布到 mmap page
 
 原始碼：
@@ -526,6 +554,24 @@ Lab03 的 read 是「消費型」語意：如果完整讀完 message，就清 bu
   完整讀完後把 buffer 當作被消費掉
 ```
 
+### read 消費後的連鎖效果（容易被忽略的細節）
+
+`dl_read()` 完整消費 buffer 後（`*ppos >= dl_buffer_len`），除了清空 buffer 之外，還會做兩件事：
+
+```c
+/* dl_read() 消費 buffer 後 */
+dl_event_pending = false;
+dl_sync_shared_page_locked();        // ① 刷新 shared page
+wake_up_interruptible(&dl_event_wq); // ② 喚醒 dl_event_wq
+```
+
+| 動作 | 為什麼要做 |
+|---|---|
+| `dl_sync_shared_page_locked()` | buffer 已清空，mmap-read 需要立刻看到 buffer_len=0、event_pending=false 的最新狀態 |
+| `wake_up_interruptible(&dl_event_wq)` | 讓正在 poll 等待的 process 重新評估條件；此時 buffer_len=0 且 event_pending=false，poll 重評估後回傳 revents=0 |
+
+消費後喚醒的是 `dl_event_wq`，不是 `dl_read_wq`。因為 buffer 已清空，喚醒 `dl_read_wq` 沒有意義（其他等待讀的 process 醒來也只會再次睡回去）。
+
 ## 八、`dl_write()`：把 userspace bytes 發布成新 message
 
 原始碼主體：
@@ -630,6 +676,74 @@ poll 的 callback 要做兩件事：
 1. 告訴 kernel：如果要睡，請睡在這些 waitqueue 上
 2. 告訴 userspace：現在是否已經有事件
 ```
+
+### 哪些操作能喚醒 poll？完整對照表
+
+`dl_poll()` 同時向 `dl_read_wq` 和 `dl_event_wq` 登記（兩行 `poll_wait()`）。只要任一 waitqueue 被 `wake_up_interruptible()` 打到，kernel 就會再次呼叫 `dl_poll()` 重新評估並回傳 revents。
+
+| 觸發操作 | CLI subcommand | 被打的 waitqueue | poll 重評估後的 revents |
+|---|---|---|---|
+| `dl_write()` | `write <msg>` | `dl_read_wq` + `dl_event_wq` | `POLLIN \| POLLRDNORM \| POLLPRI` |
+| `DL_IOC_SET_MESSAGE` | `ioctl-write <msg>` | `dl_read_wq` + `dl_event_wq` | `POLLIN \| POLLRDNORM \| POLLPRI` |
+| `DL_IOC_TRIGGER_EVENT` | `trigger` | `dl_event_wq` only | `POLLPRI`（buffer 無資料時）|
+| `DL_IOC_CLEAR_BUFFER` | `clear` | `dl_event_wq` only | `0`（buffer 空，event_pending=false）|
+| `dl_read()` 完整消費後 | `read` | `dl_event_wq` only | `0`（buffer 已清空）|
+
+`POLLIN | POLLRDNORM` 由 `dl_buffer_len > 0` 決定；`POLLPRI` 由 `dl_event_pending` 決定。
+
+### 路徑一：write / ioctl-write 喚醒 poll 的時序圖
+
+```text
+Process A（poll 3000）
+  ↓ poll(fd, ..., 3000ms)
+      └─ kernel 呼叫 dl_poll()
+           ├─ poll_wait(file, &dl_read_wq, wait)   ← 登記到 dl_read_wq
+           ├─ poll_wait(file, &dl_event_wq, wait)  ← 登記到 dl_event_wq
+           ├─ dl_buffer_len == 0 → mask = 0
+           └─ 回傳 0，Process A 進入等待
+
+                        Process B（write <msg> 或 ioctl-write <msg>）
+                          ↓ dl_write() 或 DL_IOC_SET_MESSAGE
+                              └─ dl_publish_message_locked()
+                                   ├─ dl_buffer_len = len     ← buffer 有資料
+                                   ├─ dl_event_pending = true
+                                   └─ dl_sync_shared_page_locked()
+                          ↓ wake_up_interruptible(&dl_read_wq)  ← 打 dl_read_wq
+                          ↓ wake_up_interruptible(&dl_event_wq) ← 打 dl_event_wq
+
+Process A 被喚醒
+  ↓ kernel 再次呼叫 dl_poll()
+      ├─ dl_buffer_len > 0  → mask |= POLLIN | POLLRDNORM
+      └─ dl_event_pending   → mask |= POLLPRI
+  ↓ poll() 回傳 revents = POLLIN | POLLRDNORM | POLLPRI
+```
+
+### 路徑二：trigger 喚醒 poll 的時序圖
+
+```text
+Process A（poll 3000）
+  ↓ poll(fd, ..., 3000ms)（同上，登記在兩個 waitqueue 等待）
+
+                        Process B（trigger）
+                          ↓ DL_IOC_TRIGGER_EVENT
+                              ├─ dl_event_count++
+                              ├─ dl_event_pending = true  ← buffer 不變
+                              └─ dl_sync_shared_page_locked()
+                          ↓ wake_up_interruptible(&dl_event_wq) ← 只打 dl_event_wq
+                            （dl_read_wq 未被喚醒）
+
+Process A 被喚醒
+  ↓ kernel 再次呼叫 dl_poll()
+      ├─ dl_buffer_len == 0 → POLLIN 不設
+      └─ dl_event_pending   → mask |= POLLPRI
+  ↓ poll() 回傳 revents = POLLPRI（無 POLLIN）
+```
+
+兩條路徑的關鍵差異：
+- `write` / `ioctl-write` 同時打兩個 waitqueue → revents 同時有 `POLLIN` 和 `POLLPRI`
+- `trigger` 只打 `dl_event_wq` → revents 只有 `POLLPRI`，沒有 `POLLIN`
+
+這是設計上刻意的區分：`trigger` 產生「事件通知」但不附帶可讀資料；`write` / `ioctl-write` 既產生事件也帶來可讀資料。
 
 ## 十、`dl_unlocked_ioctl()`：control path dispatcher
 
@@ -818,6 +932,7 @@ dl_device = device_create(dl_class, NULL, dl_devt, NULL,
 建立順序：
 
 1. 配一頁 shared page：透過 `__get_free_page(GFP_KERNEL | __GFP_ZERO)` 向系統要求一頁實體記憶體，並把它的起始位址指派給全域變數 `dl_shared_page_addr`。這是整個 `mmap` 與任意門機制的物理基礎。
+   > **注意**：`__get_free_page()` 回傳的是 **kernel virtual address**（核心虛擬位址），不是 physical address。雖然它確實分配了實體記憶體，但存在 `dl_shared_page_addr` 裡的值是 kernel 線性映射區的虛擬位址。這就是為什麼 `dl_mmap()` 裡需要 `virt_to_phys(dl_shared_page_addr)` 再轉一次，才能拿到真正的實體位址與 PFN。
 2. 初始化 shared page snapshot (`dl_sync_shared_page_locked()`)。
 3. 取得 major/minor。
 4. 初始化並加入 cdev。
@@ -909,6 +1024,9 @@ smoke test 的退場驗證會檢查 `/dev/driver_lab_ctl0` 和 `/sys/class/...` 
 | `write()` 和 `DL_IOC_SET_MESSAGE` 最後都集中到哪個 helper？ | `dl_publish_message_locked()`。 |
 | blocking read 沒資料時睡在哪個 waitqueue？ | `dl_read_wq`。 |
 | `poll()` 為什麼能被 `trigger` 喚醒？ | `dl_poll()` 註冊 `dl_event_wq`，`DL_IOC_TRIGGER_EVENT` 會設定 pending 並 `wake_up_interruptible(&dl_event_wq)`。 |
+| `poll()` 為什麼也能被 `write` / `ioctl-write` 喚醒？ | `dl_poll()` 同時在 `dl_read_wq` 和 `dl_event_wq` 兩個 waitqueue 登記；`write` 和 `ioctl-write` 都呼叫 `wake_up_interruptible(&dl_read_wq)` 和 `wake_up_interruptible(&dl_event_wq)`，兩條路都打到。|
+| `write` 喚醒 poll 後 revents 是什麼？ | `POLLIN \| POLLRDNORM \| POLLPRI`；因為 buffer 有資料（POLLIN）且 event_pending=true（POLLPRI）。|
+| `dl_read()` 消費 buffer 後還會做哪兩件事？ | 呼叫 `dl_sync_shared_page_locked()`（讓 mmap-read 看到 buffer_len=0 的最新狀態）和 `wake_up_interruptible(&dl_event_wq)`（讓 poll 重新評估，此時 revents=0）。|
 | `mmap()` 最多允許映射多少？ | 一頁，`size > PAGE_SIZE` 會回 `-EINVAL`。 |
 | shared page layout 在哪定義？ | [`../../runtime/include/driver_lab_uapi.h`](../../runtime/include/driver_lab_uapi.h) 的 `struct dl_shared_page`。 |
 | init 中 `device_create()` 失敗時要釋放哪些 resource？ | destroy class、del cdev、unregister devt、free shared page。 |
