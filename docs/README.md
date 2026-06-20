@@ -12,6 +12,7 @@
 | [`onboarding/beginner-glossary.md`](onboarding/beginner-glossary.md) | 遇到陌生名詞時 | 單一查詢表，不需要從頭背完 |
 | [`onboarding/kernel-filesystem-surfaces.md`](onboarding/kernel-filesystem-surfaces.md) | 開始分不清 `/dev`、`/sys`、`/proc`、debugfs 時 | driver 建立或暴露的 filesystem 入口各自代表什麼 |
 | [`onboarding/kernel-api-parameter-roles.md`](onboarding/kernel-api-parameter-roles.md) | 開始讀 `.c` 裡的 kernel API 呼叫時 | 每個參數是 input、output、resource、數量、名字、callback，還是 cleanup 對象 |
+| [`guides/lab-04-study-order.md`](guides/lab-04-study-order.md) | 準備從 `03` 進 `04-locking-and-races` 時 | Lab04 的前置條件、閱讀順序、source trace 順序與驗收方式 |
 | [`reference/companion-docs-index.md`](reference/companion-docs-index.md) | 正在 trace 某份 source 時 | 哪些 source 檔旁邊有可直接閱讀的 companion doc |
 | [`reference/companion-docs-rollout-plan.md`](reference/companion-docs-rollout-plan.md) | 想知道 companion docs 會怎麼分段補齊時 | 哪些檔案需要長篇旁讀、哪些先不需要 |
 
@@ -40,9 +41,10 @@
 8. 完成 `00` 後，先讀 [`onboarding/00-to-01-debugfs-bridge.md`](onboarding/00-to-01-debugfs-bridge.md)，再進 `labs/01-debugfs-logging`
 9. 完成 `01` 後，讀 [`onboarding/lab-transition-map.md`](onboarding/lab-transition-map.md) 與 [`onboarding/01-to-03-user-kernel-abi-bridge.md`](onboarding/01-to-03-user-kernel-abi-bridge.md)
 10. 開始讀 `02` source 前，讀 [`onboarding/kernel-filesystem-surfaces.md`](onboarding/kernel-filesystem-surfaces.md) 與 [`onboarding/kernel-api-parameter-roles.md`](onboarding/kernel-api-parameter-roles.md)
-11. 進 `04/05` 前，讀 [`onboarding/03-to-05-concurrency-pci-bridge.md`](onboarding/03-to-05-concurrency-pci-bridge.md)
-12. 進 `06/07` 前，讀 [`onboarding/05-to-07-pci-irq-dma-bridge.md`](onboarding/05-to-07-pci-irq-dma-bridge.md)
-13. 進 `08/09` 前，讀 [`onboarding/07-to-09-runtime-validation-bridge.md`](onboarding/07-to-09-runtime-validation-bridge.md)
+11. 進 `04` 前，讀 [`onboarding/03-to-05-concurrency-pci-bridge.md`](onboarding/03-to-05-concurrency-pci-bridge.md) 與 [`guides/lab-04-study-order.md`](guides/lab-04-study-order.md)
+12. 進 `05` 前，回到 [`onboarding/03-to-05-concurrency-pci-bridge.md`](onboarding/03-to-05-concurrency-pci-bridge.md) 的 PCI 段落
+13. 進 `06/07` 前，讀 [`onboarding/05-to-07-pci-irq-dma-bridge.md`](onboarding/05-to-07-pci-irq-dma-bridge.md)
+14. 進 `08/09` 前，讀 [`onboarding/07-to-09-runtime-validation-bridge.md`](onboarding/07-to-09-runtime-validation-bridge.md)
 
 ## QEMU 相關文件在哪裡
 

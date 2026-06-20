@@ -52,6 +52,8 @@
 
 `03` 開始不建議直接跳 source code。先讀 bridge，再回到 README 的 source reading order。
 
+`04` 也不要直接從 source 開始。完成 `03` 後，先讀 [`03 到 05：併發與 PCI 過渡導讀`](03-to-05-concurrency-pci-bridge.md)，再讀 [`Lab04 讀懂順序`](../guides/lab-04-study-order.md)，用它把 concurrency primer、walkthrough、UAPI、CLI、driver source 和 smoke test 串起來。
+
 ## 什麼時候才看 QEMU
 
 請等到下面三件事至少成立兩件，再進 QEMU：

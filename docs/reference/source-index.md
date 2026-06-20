@@ -13,8 +13,13 @@
 | Module license | [Linux kernel licensing rules](https://docs.kernel.org/process/license-rules.html) | `MODULE_LICENSE()` 與 taint / GPL-compatible module 判斷 |
 | Kernel/module parameters | [The kernel's command-line parameters](https://docs.kernel.org/admin-guide/kernel-parameters.html) | `module_param()` 與 module parameter 觀念 |
 | DMA API | [Dynamic DMA mapping Guide](https://docs.kernel.org/core-api/dma-api-howto.html) | coherent vs streaming DMA、DMA address 觀念 |
+| Kernel lock types | [Lock types and their rules](https://docs.kernel.org/locking/locktypes.html) | sleeping lock、spinning lock、context 限制 |
+| Mutex | [Generic Mutex Subsystem](https://docs.kernel.org/locking/mutex-design.html) | mutex 作為 shared memory serialization primitive 的定位 |
+| Kernel thread | [Driver Basics](https://docs.kernel.org/driver-api/basics.html) | `kthread_run()`、`kthread_should_stop()`、`kthread_stop()` 與 worker lifetime |
 | KUnit | [KUnit](https://docs.kernel.org/dev-tools/kunit/) | 白箱 kernel unit test |
 | kselftest | [Linux Kernel Selftests](https://docs.kernel.org/dev-tools/kselftest.html) | 從 userspace 驗證 kernel 行為 |
+| Kernel testing overview | [Kernel Testing Guide](https://docs.kernel.org/dev-tools/testing-overview.html) | KASAN、KCSAN、lockdep 等動態檢查工具定位 |
+| KCSAN | [Kernel Concurrency Sanitizer](https://docs.kernel.org/dev-tools/kcsan.html) | data race 偵測與 Lab04 後續進階方向 |
 | Driver debugging | [Debugging advice for driver development](https://docs.kernel.org/process/debugging/driver_development_debugging_guide.html) | debugfs、ftrace、sanitizers、lockdep |
 | Dynamic debug | [Dynamic debug](https://docs.kernel.org/admin-guide/dynamic-debug-howto.html) | 精準開關 `pr_debug()` |
 | Fault injection | [Fault injection capabilities infrastructure](https://docs.kernel.org/fault-injection/fault-injection.html) | error path 驗證 |

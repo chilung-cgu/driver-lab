@@ -9,6 +9,7 @@
 
 ## 開始前先看
 
+- [`../../docs/guides/lab-04-study-order.md`](../../docs/guides/lab-04-study-order.md)
 - [`../../docs/onboarding/03-to-05-concurrency-pci-bridge.md`](../../docs/onboarding/03-to-05-concurrency-pci-bridge.md)
 - [`../../docs/concepts/concurrency-primer.md`](../../docs/concepts/concurrency-primer.md)
 - [`../../docs/guides/lab-04-walkthrough.md`](../../docs/guides/lab-04-walkthrough.md)
