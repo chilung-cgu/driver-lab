@@ -19,6 +19,29 @@
 - 背景 worker 也在加 counter，讓數字看起來不直覺
 - 把「不穩定重現」誤解成「沒有 race」
 
+## 症狀：`safe mode should not perform worse than unsafe mode`
+
+先查證據：
+
+```sh
+../../tests/driver_lab_race_cli /dev/driver_lab_race0 status
+../../tests/driver_lab_race_cli /dev/driver_lab_race0 safe-mode 0
+../../tests/driver_lab_race_cli /dev/driver_lab_race0 reset
+../../tests/driver_lab_race_cli /dev/driver_lab_race0 race 8 50
+../../tests/driver_lab_race_cli /dev/driver_lab_race0 safe-mode 1
+../../tests/driver_lab_race_cli /dev/driver_lab_race0 reset
+../../tests/driver_lab_race_cli /dev/driver_lab_race0 race 8 50
+sudo dmesg | tail -n 50
+```
+
+常見原因：
+
+- safe mode 沒有真的切到 `1`，先用 `status` 確認。
+- 兩輪實驗中間沒有 `reset`，上一輪 counter 影響觀察。
+- 舊 module 或舊 CLI artifact 還在，先 `rmmod` 後重建再跑。
+- race 是 timing-dependent，短時間 smoke test 偶爾可能不穩；手動加大 `race <threads> <loops>` 再觀察。
+- 如果 `dmesg` 有 module load/unload 或 ioctl 錯誤，先處理 kernel log 裡的第一個錯誤。
+
 ## 症狀：`rmmod` 卡住或失敗
 
 先查證據：

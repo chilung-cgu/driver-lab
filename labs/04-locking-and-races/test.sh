@@ -50,12 +50,12 @@ fs_expect_char_device /dev/driver_lab_race0 \
 $SUDO "$CLI" /dev/driver_lab_race0 safe-mode 0
 $SUDO "$CLI" /dev/driver_lab_race0 reset
 # 先跑故意不加鎖的版本，通常會看到更明顯的 lost update。
-$SUDO "$CLI" /dev/driver_lab_race0 race 8 50 | tee "$UNSAFE_LOG"
+$SUDO time "$CLI" /dev/driver_lab_race0 race 8 500 | tee "$UNSAFE_LOG"
 
 $SUDO "$CLI" /dev/driver_lab_race0 safe-mode 1
 $SUDO "$CLI" /dev/driver_lab_race0 reset
 # 再跑修正後版本，用來跟 unsafe 模式做對照。
-$SUDO "$CLI" /dev/driver_lab_race0 race 8 50 | tee "$SAFE_LOG"
+$SUDO time "$CLI" /dev/driver_lab_race0 race 8 500| tee "$SAFE_LOG"
 
 unsafe_observed=$(sed -n 's/.*observed=\([0-9][0-9]*\).*/\1/p' "$UNSAFE_LOG")
 safe_observed=$(sed -n 's/.*observed=\([0-9][0-9]*\).*/\1/p' "$SAFE_LOG")

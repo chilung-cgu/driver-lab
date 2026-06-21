@@ -204,7 +204,7 @@ mutex_unlock(&dl_race_lock);
 
 | CLI subcommand | ioctl command | payload 方向 | payload type |
 |---|---|---|---|
-| `safe-mode 0|1` | `DL_RACE_IOC_SET_SAFE_MODE` | user -> kernel | `unsigned int` |
+| `safe-mode 0\|1` | `DL_RACE_IOC_SET_SAFE_MODE` | user -> kernel | `unsigned int` |
 | `status` | `DL_RACE_IOC_GET_STATUS` | kernel -> user | `struct dl_race_status` |
 | `inc <count>` | `DL_RACE_IOC_INC_COUNTER` | none | none |
 | `race <threads> <loops>` | `DL_RACE_IOC_INC_COUNTER` | none | none |

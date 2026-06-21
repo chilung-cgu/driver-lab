@@ -215,6 +215,8 @@ static struct task_struct *dl_race_worker;
 
 Lab04 比 Lab02 多出的關鍵是 `dl_race_worker`。卸載時要先停 worker，再拆 device resource，否則背景 thread 可能繼續碰已經進入 teardown 的 state。
 
+這些 global resource 是 static storage duration；在 module 載入時會先是零值。也就是說，`dl_counter`、`dl_safe_mode`、`dl_worker_running` 一開始都是 false/0，真正讓 worker 開始跑的是後面 `kthread_run()` 成功回傳。
+
 ## 三、shared state：先標出誰會被共享
 
 原始碼：
@@ -234,6 +236,8 @@ static bool dl_worker_running;
 | `dl_worker_running` | read/status | init/exit | 觀察 worker lifetime |
 
 這個表比先背 API 更重要。你要先知道哪些 state 會被多條 execution path 碰到。
+
+`dl_worker_running` 是教學用的觀測旗標，不是真正控制 kthread 停止的機制。真正的停止流程在 exit path：呼叫 `kthread_stop()`，worker loop 透過 `kthread_should_stop()` 看到停止要求後返回。
 
 ## 四、safe increment：mutex 保護 critical section
 
@@ -358,6 +362,8 @@ static int dl_race_worker_fn(void *unused)
 - race 不只來自 userspace threads。
 - driver 內部背景工作也可能碰同一份 state。
 - `expected_at_least` 不能期待等於精確值，因為 worker 會額外加 counter。
+
+`kthread_run()` 會建立並啟動 worker；只要它成功，`dl_race_worker_fn()` 就可能開始和 userspace ioctl path 同時碰 `dl_counter`。
 
 `kthread_should_stop()` 會在 `kthread_stop()` 被呼叫後讓 worker 知道該退出。這也是 exit path 必須先停 worker 的原因。
 

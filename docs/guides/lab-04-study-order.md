@@ -32,6 +32,8 @@
 
 ## 三輪閱讀法
 
+Lab04 的第一輪邊界很重要：本關實作主線是 `mutex + kthread + ioctl race reproduction`。`spinlock`、`atomic`、`completion`、`workqueue`、KCSAN、lockdep 會先作為語彙與後續方向出現，但不是這個 smoke test 要你立刻完成的內容。
+
 第一輪只看「問題如何被重現」：
 
 - `safe_mode = 0` 為什麼會 lost update。

@@ -19,16 +19,24 @@
 - 你已經寫過至少一支會被 userspace 反覆呼叫的 driver
 - 你已經知道 `read/write/ioctl` 會共享同一份 kernel state
 
-## 這一關要練什麼
+## 這一關實作主線
 
 - mutex
+- kthread
+- userspace pthread race reproduction
+- ioctl control path
+- cleanup / lifetime 順序
+
+## 這一關先建立語彙，之後再深入
+
 - spinlock
 - atomic
 - completion
 - waitqueue
 - workqueue
-- kthread
 - KASAN / KCSAN / lockdep
+
+這些名詞會在 `04` 的導讀中先建立最低心智模型，但目前 Lab04 source 沒有實作它們的完整範例。第一輪請先把 `mutex + kthread + ioctl race reproduction` 讀懂，再把 KCSAN / lockdep 當成後續驗證工具。
 
 ## 建議輸出
 
@@ -57,7 +65,7 @@
 1. 先做一個「故意會壞」的版本
 2. 用多執行緒 userspace 測試把它踩爆
 3. 再用 `mutex` 修到穩
-4. 最後才加更進階的 waitqueue / completion / worker
+4. 最後才加更進階的 waitqueue / completion / worker lifecycle 驗證
 
 ## 如果你完全看不懂 source code，先看這 5 行/區塊
 

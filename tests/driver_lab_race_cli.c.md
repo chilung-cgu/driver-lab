@@ -391,7 +391,7 @@ unsafe mode 下，因為 lost update，`observed` 常常比期待值低很多。
 |---|---|---|
 | `status` | `DL_RACE_IOC_GET_STATUS` | fill `struct dl_race_status` + `copy_to_user()` |
 | `reset` | `DL_RACE_IOC_RESET_COUNTER` | lock -> `dl_counter = 0` |
-| `safe-mode 0|1` | `DL_RACE_IOC_SET_SAFE_MODE` | `copy_from_user()` -> set `dl_safe_mode` |
+| `safe-mode 0\|1` | `DL_RACE_IOC_SET_SAFE_MODE` | `copy_from_user()` -> set `dl_safe_mode` |
 | `inc <count>` | `DL_RACE_IOC_INC_COUNTER` repeatedly | `dl_race_increment()` |
 | `race <threads> <loops>` | `DL_RACE_IOC_INC_COUNTER` from many pthreads | unsafe/safe contrast |
 
@@ -411,7 +411,7 @@ unsafe mode 下，因為 lost update，`observed` 常常比期待值低很多。
 | `race 8 50` 代表什麼？ | 8 條 pthread，每條送 50 次 increment ioctl。 |
 | `expected_at_least` 怎麼算？ | `threads * loops`。 |
 | 為什麼 `observed` 可能大於 `expected_at_least`？ | kernel background worker 也會 increment counter。 |
-| 哪個 subcommand 切 safe/unsafe？ | `safe-mode <0|1>`。 |
+| 哪個 subcommand 切 safe/unsafe？ | `safe-mode <0\|1>`。 |
 | 哪個 subcommand 讀回 struct status？ | `status` 或 `race` 結尾都會用 `DL_RACE_IOC_GET_STATUS`。 |
 
 ## 查證來源

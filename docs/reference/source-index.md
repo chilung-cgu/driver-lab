@@ -16,6 +16,7 @@
 | Kernel lock types | [Lock types and their rules](https://docs.kernel.org/locking/locktypes.html) | sleeping lock、spinning lock、context 限制 |
 | Mutex | [Generic Mutex Subsystem](https://docs.kernel.org/locking/mutex-design.html) | mutex 作為 shared memory serialization primitive 的定位 |
 | Kernel thread | [Driver Basics](https://docs.kernel.org/driver-api/basics.html) | `kthread_run()`、`kthread_should_stop()`、`kthread_stop()` 與 worker lifetime |
+| Compiler access wrappers | [Linux kernel memory barriers](https://docs.kernel.org/core-api/wrappers/memory-barriers.html) | `READ_ONCE()` / `WRITE_ONCE()` 不是 lock，只約束單次存取與 compiler/ordering 行為 |
 | KUnit | [KUnit](https://docs.kernel.org/dev-tools/kunit/) | 白箱 kernel unit test |
 | kselftest | [Linux Kernel Selftests](https://docs.kernel.org/dev-tools/kselftest.html) | 從 userspace 驗證 kernel 行為 |
 | Kernel testing overview | [Kernel Testing Guide](https://docs.kernel.org/dev-tools/testing-overview.html) | KASAN、KCSAN、lockdep 等動態檢查工具定位 |

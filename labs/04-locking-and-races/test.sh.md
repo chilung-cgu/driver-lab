@@ -62,8 +62,8 @@ Lab04 必須在 Linux 上跑，因為它要：
 原始碼：
 
 ```sh
-SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
-ROOT_DIR=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
+SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname "$0")" && pwd)
+ROOT_DIR=$(CDPATH='' cd -- "$(dirname "$0")/../.." && pwd)
 CLI="$ROOT_DIR/tests/driver_lab_race_cli"
 MODULE_NAME=driver_lab_race
 SUDO=
@@ -81,6 +81,8 @@ SAFE_LOG=$(mktemp)
 | `SAFE_LOG` | 保存 safe mode 的 `race` output。 |
 
 `mktemp` 讓兩份 log 不會互相覆蓋，也方便 cleanup。
+
+`CDPATH=''` 是為了避免使用者環境中的 `CDPATH` 影響 `cd` 的輸出或路徑解析；這個寫法也比 `CDPATH= cd ...` 更容易通過 shellcheck。
 
 ## 三、cleanup 與 trap
 
@@ -113,11 +115,17 @@ cleanup 做三件事：
 if [ "$(id -u)" -ne 0 ]; then
     SUDO=sudo
 fi
+# shellcheck disable=SC2034
 FS_SUDO=$SUDO
+# shellcheck disable=SC1091
 . "$ROOT_DIR/scripts/fs-surface-checks.sh"
 ```
 
 不是 root 時使用 `sudo`。
+
+`FS_SUDO` 是傳給被 source 進來的 `fs-surface-checks.sh` 使用，所以在本檔看起來像沒有直接引用；`SC2034` 是針對這個跨檔案用法的 shellcheck 註記。
+
+`fs-surface-checks.sh` 的路徑是 runtime 算出來的 repo 路徑，shellcheck 靜態分析不會跟進這個動態 source；`SC1091` 註記只是在說明這個限制，不改變執行行為。
 
 source [`../../scripts/fs-surface-checks.sh`](../../scripts/fs-surface-checks.sh) 後，可以直接使用：
 
