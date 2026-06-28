@@ -46,7 +46,7 @@ scripts/quality.sh
 原始碼片段：
 
 ```sh
-ROOT_DIR=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
+ROOT_DIR=$(CDPATH='' cd -- "$(dirname "$0")/.." && pwd)
 TARGET_DIR=${1:-$ROOT_DIR}
 KERNEL_TREE=${KERNEL_TREE:-}
 ```

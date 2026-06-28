@@ -82,7 +82,7 @@ SAFE_LOG=$(mktemp)
 
 `mktemp` 讓兩份 log 不會互相覆蓋，也方便 cleanup。
 
-`CDPATH=''` 是為了避免使用者環境中的 `CDPATH` 影響 `cd` 的輸出或路徑解析；這個寫法也比 `CDPATH= cd ...` 更容易通過 shellcheck。
+`CDPATH=''` 是為了避免使用者環境中的 `CDPATH` 影響 `cd` 的輸出或路徑解析；這個寫法也比 `CDPATH='' cd ...` 更容易通過 shellcheck。
 
 ## 三、cleanup 與 trap
 

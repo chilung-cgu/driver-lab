@@ -58,8 +58,8 @@ Lab01 必須在 Linux 上跑，因為它需要：
 原始碼：
 
 ```sh
-SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
-ROOT_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/../.." && pwd)
+SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname "$0")" && pwd)
+ROOT_DIR=$(CDPATH='' cd -- "$SCRIPT_DIR/../.." && pwd)
 MODULE_NAME=driver_lab_debugfs_logging
 SUDO=
 ```

@@ -55,7 +55,7 @@ Linux guard 是必要的，因為 macOS 不能載入 Linux kernel module。
 原始碼：
 
 ```sh
-SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
+SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname "$0")" && pwd)
 MODULE_NAME=driver_lab_hello
 SUDO=
 ```

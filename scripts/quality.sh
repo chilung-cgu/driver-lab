@@ -4,7 +4,7 @@ set -eu
 # 這個腳本刻意保持簡單：
 # 先做語法檢查，再做可選的靜態檢查，最後在有 kernel tree 時跑 checkpatch。
 
-ROOT_DIR=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
+ROOT_DIR=$(CDPATH='' cd -- "$(dirname "$0")/.." && pwd)
 TARGET_DIR=${1:-$ROOT_DIR}
 KERNEL_TREE=${KERNEL_TREE:-}
 

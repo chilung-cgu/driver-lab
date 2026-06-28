@@ -65,8 +65,8 @@ fi
 原始碼：
 
 ```sh
-SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
-ROOT_DIR=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
+SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname "$0")" && pwd)
+ROOT_DIR=$(CDPATH='' cd -- "$(dirname "$0")/../.." && pwd)
 cd "$SCRIPT_DIR"
 
 MODULE_NAME=driver_lab_char

@@ -8,8 +8,7 @@ if [ "$(uname -s)" != "Linux" ]; then
     exit 1
 fi
 
-SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
-ROOT_DIR=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
+ROOT_DIR=$(CDPATH='' cd -- "$(dirname "$0")/../.." && pwd)
 LAB_DIR="$ROOT_DIR/labs/03-ioctl-poll-mmap"
 CLI="$ROOT_DIR/tests/driver_lab_char_cli"
 MODULE_NAME=driver_lab_ioctl_poll_mmap
@@ -18,7 +17,9 @@ SUDO=
 if [ "$(id -u)" -ne 0 ]; then
     SUDO=sudo
 fi
+# shellcheck disable=SC2034
 FS_SUDO=$SUDO
+# shellcheck disable=SC1091
 . "$ROOT_DIR/scripts/fs-surface-checks.sh"
 
 cleanup() {

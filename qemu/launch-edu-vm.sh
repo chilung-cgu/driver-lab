@@ -44,6 +44,7 @@ pick_default_accel() {
 
 if [ -z "$QEMU_IMAGE" ]; then
     printf 'ERROR: 請先設定 QEMU_IMAGE 指向你的 guest image。\n' >&2
+    # shellcheck disable=SC2016
     printf '例如：QEMU_IMAGE=$HOME/vm/ubuntu.qcow2 %s\n' "$0" >&2
     exit 1
 fi

@@ -8,7 +8,7 @@ if [ "$(uname -s)" != "Linux" ]; then
     exit 1
 fi
 
-SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
+SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname "$0")" && pwd)
 MODULE_NAME=driver_lab_hello
 SUDO=
 

@@ -61,7 +61,7 @@ Lab08 test 使用 POSIX shell 風格：
 原始碼：
 
 ```sh
-ROOT_DIR=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
+ROOT_DIR=$(CDPATH='' cd -- "$(dirname "$0")/../.." && pwd)
 CLI="$ROOT_DIR/tests/driver_lab_char_cli"
 OUTPUT_LOG=$(mktemp)
 ```

@@ -35,7 +35,7 @@ stress-03-parallel.sh
 #!/bin/sh
 set -eu
 
-SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
+SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname "$0")" && pwd)
 
 "$SCRIPT_DIR/stress-03-reload.sh"
 "$SCRIPT_DIR/stress-03-parallel.sh"
@@ -73,7 +73,7 @@ set -eu
 原始碼：
 
 ```sh
-SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
+SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname "$0")" && pwd)
 ```
 
 這讓 suite 可以從任何 cwd 執行：

@@ -75,8 +75,8 @@ macOS 不能直接跑。
 原始碼：
 
 ```sh
-SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
-ROOT_DIR=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
+SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname "$0")" && pwd)
+ROOT_DIR=$(CDPATH='' cd -- "$(dirname "$0")/../.." && pwd)
 LAB_DIR="$ROOT_DIR/labs/03-ioctl-poll-mmap"
 CLI="$ROOT_DIR/tests/driver_lab_char_cli"
 MODULE_NAME=driver_lab_ioctl_poll_mmap

@@ -3,7 +3,7 @@ set -eu
 
 # 這支測試只驗證 runtime/CLI 能 build，以及 CLI 無參數時會印 usage。
 # 真正 driver 行為驗證仍回到 02/03 的 Linux smoke test。
-ROOT_DIR=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
+ROOT_DIR=$(CDPATH='' cd -- "$(dirname "$0")/../.." && pwd)
 CLI="$ROOT_DIR/tests/driver_lab_char_cli"
 OUTPUT_LOG=$(mktemp)
 

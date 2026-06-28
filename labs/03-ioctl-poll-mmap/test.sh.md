@@ -86,8 +86,8 @@ Linux guard 是必要的，因為 macOS 不能 build/load Linux kernel module，
 原始碼：
 
 ```sh
-SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
-ROOT_DIR=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
+SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname "$0")" && pwd)
+ROOT_DIR=$(CDPATH='' cd -- "$(dirname "$0")/../.." && pwd)
 MODULE_NAME=driver_lab_ioctl_poll_mmap
 SUDO=
 POLL_LOG=$(mktemp)

@@ -79,8 +79,8 @@ Lab07 需要：
 原始碼：
 
 ```sh
-SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
-ROOT_DIR=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
+SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname "$0")" && pwd)
+ROOT_DIR=$(CDPATH='' cd -- "$(dirname "$0")/../.." && pwd)
 MODULE_NAME=driver_lab_edu_dma
 DMESG_LOG=$(mktemp)
 SUDO=

@@ -1,3 +1,4 @@
+# shellcheck shell=sh
 # POSIX shell helper for lab smoke tests.
 #
 # 這個檔案不是主程式，而是一組可以被 test.sh / stress script 共用的
