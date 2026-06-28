@@ -7,6 +7,8 @@
 | 主題 | 來源 | 你要學什麼 |
 |---|---|---|
 | Linux PCI driver | [How To Write Linux PCI Drivers](https://docs.kernel.org/PCI/pci.html) | `probe/remove`、PCI 初始化、DMA、IRQ 骨架 |
+| PCI support library | [PCI Support Library](https://docs.kernel.org/driver-api/pci/pci.html) | `pci_enable_device()`、`pci_request_region()`、`pci_iomap()` 等 helper API reference |
+| Device I/O accessors | [Bus-Independent Device Accesses](https://docs.kernel.org/driver-api/device-io.html) | `__iomem`、`ioread32()`、`iowrite32()` 與 MMIO access 模型 |
 | 外掛模組建置 | [Building External Modules](https://docs.kernel.org/kbuild/modules.html) | kbuild 正確用法 |
 | Driver entry/exit | [Driver Basics](https://docs.kernel.org/driver-api/basics.html) | `module_init()` / `module_exit()` 的角色 |
 | Kernel logging | [Message logging with printk](https://docs.kernel.org/core-api/printk-basics.html) | `printk`、`pr_info()`、`pr_debug()`、`pr_fmt()` |

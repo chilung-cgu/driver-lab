@@ -209,6 +209,8 @@ pci_set_drvdata(pdev, dl);
 
 `devm_kzalloc()` 是 device-managed allocation。它把這份記憶體綁在 `pdev->dev` lifecycle 上；device detach 時會由 devres 機制釋放，所以 remove path 不需要手動 `kfree(dl)`。
 
+這個 managed allocation 只處理 `dl` 這份 private state。Lab05 仍然用非 devm/pcim 的 PCI helper 取得 BAR mapping、BAR region 與 device enable 狀態，所以 `pci_iounmap()`、`pci_release_region()`、`pci_disable_device()` 仍然要在 error path 與 remove path 明確處理。
+
 `pci_set_drvdata(pdev, dl)` 把 private state 掛到 `pdev` 上。remove path 可以用：
 
 ```c
@@ -292,6 +294,8 @@ BAR0 resource
 ```
 
 第三個參數 `0` 表示 map 整個 BAR。
+
+Lab05 選擇明確呼叫 `pci_iounmap()`，讓你第一輪先看清楚 resource 取得與釋放的對稱關係。Linux 也有 `pcim_iomap()` 這類 managed mapping helper，但那不是本關要先練的主線。
 
 ## 七、讀 identification register
 
@@ -464,6 +468,8 @@ module exit:
 ```
 
 所以你不會在 source 裡看到手寫 `module_init()` / `module_exit()`。
+
+Lab05 也刻意沒有呼叫 `pci_set_master()`。本關只做 CPU 主動讀寫 MMIO register，不啟動 EDU 的 IRQ/DMA path；bus mastering 會在後續需要 device 主動發起 bus transaction 的關卡才值得深入。
 
 ## source、test、觀測點對照
 

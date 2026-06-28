@@ -54,6 +54,8 @@
 
 `04` 也不要直接從 source 開始。完成 `03` 後，先讀 [`03 到 05：併發與 PCI 過渡導讀`](03-to-05-concurrency-pci-bridge.md)，再讀 [`Lab04 讀懂順序`](../guides/lab-04-study-order.md)，用它把 concurrency primer、walkthrough、UAPI、CLI、driver source 和 smoke test 串起來。
 
+`05` 也不要直接從 `driver_lab_edu_mmio.c` 開始。完成 `04` 後，先讀 [`Lab05 讀懂順序`](../guides/lab-05-study-order.md)，用它把 PCI primer、QEMU EDU bring-up、host/guest 邊界、Lab05 README、source companion doc 和 smoke test 串起來。
+
 ## 什麼時候才看 QEMU
 
 請等到下面三件事至少成立兩件，再進 QEMU：
@@ -66,10 +68,11 @@
 
 1. [`../concepts/pcie-primer.md`](../concepts/pcie-primer.md)
 2. [`03 到 05：併發與 PCI 過渡導讀`](03-to-05-concurrency-pci-bridge.md)
-3. [`05 到 07：PCI、IRQ、DMA 過渡導讀`](05-to-07-pci-irq-dma-bridge.md)
-4. [`../guides/qemu-edu-first-pass.md`](../guides/qemu-edu-first-pass.md)
+3. [`../guides/qemu-edu-first-pass.md`](../guides/qemu-edu-first-pass.md)
+4. [`../guides/lab-05-study-order.md`](../guides/lab-05-study-order.md)
 5. [`../../qemu/README.md`](../../qemu/README.md)
 6. [`../guides/linux-guest-05-to-07-walkthrough.md`](../guides/linux-guest-05-to-07-walkthrough.md)
+7. [`05 到 07：PCI、IRQ、DMA 過渡導讀`](05-to-07-pci-irq-dma-bridge.md)
 
 ## Walkthrough 和 Checklist 差在哪裡
 

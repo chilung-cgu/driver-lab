@@ -14,17 +14,20 @@
 
 ## 開始前先看
 
+- [`../../docs/guides/lab-05-study-order.md`](../../docs/guides/lab-05-study-order.md)
 - [`../../docs/onboarding/03-to-05-concurrency-pci-bridge.md`](../../docs/onboarding/03-to-05-concurrency-pci-bridge.md)
-- [`../../docs/onboarding/05-to-07-pci-irq-dma-bridge.md`](../../docs/onboarding/05-to-07-pci-irq-dma-bridge.md)
 - [`../../docs/concepts/pcie-primer.md`](../../docs/concepts/pcie-primer.md)
 - [`../../docs/guides/qemu-edu-first-pass.md`](../../docs/guides/qemu-edu-first-pass.md)
 - [`../../qemu/edu-bringup-checklist.md`](../../qemu/edu-bringup-checklist.md)
+- [`../../docs/onboarding/05-to-07-pci-irq-dma-bridge.md`](../../docs/onboarding/05-to-07-pci-irq-dma-bridge.md)
 
 ## 先備條件
 
-- 你已完成 `00-04` 至少前半
+- 你已完成 `00-04` 的第一輪，尤其懂 Lab04 的 shared state、lifetime、cleanup
 - 你知道 `probe/remove` 是 driver 的裝置生命週期入口
-- 你接受這一關需要 QEMU 與更多 Linux 背景
+- 你接受這一關需要 QEMU EDU，且實際 build/load/test 位置是 Linux guest
+
+如果你只是要開始讀這一關，先用 [`Lab05 讀懂順序`](../../docs/guides/lab-05-study-order.md) 當導航。它會告訴你哪些文件先看、哪些先略過，以及卡住時先切 QEMU/guest、bind 還是 BAR/MMIO 問題。
 
 ## 這一關要練什麼
 
@@ -34,6 +37,8 @@
 - BAR resource handling
 - `pci_iomap()`
 - 讀取裝置 identification / liveness register
+
+這一關的實作主線只到 `PCI probe + BAR0 MMIO + liveness check`。IRQ、DMA、MSI、AER、reset、power management 先當成後續語彙，不是 Lab05 smoke test 要驗的內容。
 
 ## 成功標準
 
@@ -164,7 +169,7 @@ cd labs/05-pci-edu-mmio
 | 分類 | 內容 |
 |---|---|
 | 第一輪必懂 | QEMU EDU 必須先出現在 guest 的 PCI bus；PCI ID match 後才會進 `probe()`；BAR0 map 後才能用 `ioread32()` / `iowrite32()` 讀寫 register。 |
-| 可以先略過 | PCI enumeration 的完整流程；BAR assignment 的平台細節；AER、reset、power management。 |
+| 可以先略過 | PCI enumeration 的完整流程；BAR assignment 的平台細節；IRQ、DMA、MSI、AER、reset、power management。 |
 | 之後再回來補 | `pci_request_region()` 的 resource ownership、MMIO ordering、不同 BAR 類型與 real hardware bring-up 差異。 |
 
 ## 完成後你應該能回答

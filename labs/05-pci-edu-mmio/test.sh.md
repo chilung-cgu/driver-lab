@@ -59,8 +59,8 @@ Lab05 需要：
 原始碼：
 
 ```sh
-SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
-ROOT_DIR=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
+SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname "$0")" && pwd)
+ROOT_DIR=$(CDPATH='' cd -- "$(dirname "$0")/../.." && pwd)
 MODULE_NAME=driver_lab_edu_mmio
 DMESG_LOG=$(mktemp)
 SUDO=
@@ -100,11 +100,15 @@ PCI lab 尤其需要這個保護，因為前一次 bind 狀態殘留可能影響
 if [ "$(id -u)" -ne 0 ]; then
     SUDO=sudo
 fi
+# shellcheck disable=SC2034
 FS_SUDO=$SUDO
+# shellcheck disable=SC1091
 . "$ROOT_DIR/scripts/fs-surface-checks.sh"
 ```
 
 不是 root 時使用 `sudo`。
+
+`FS_SUDO` 是傳給 source 進來的 `fs-surface-checks.sh` 使用；本檔不會直接讀它，所以用 `SC2034` 註明這個變數是刻意設定給 helper 的。`SC1091` 則是告訴 shellcheck：這個 helper 由 runtime path 決定，不需要在靜態檢查時強制解析。
 
 source helper 後會使用：
 
