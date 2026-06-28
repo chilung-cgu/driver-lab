@@ -99,11 +99,11 @@ graph TD
     B -->|"學會接中斷與自我測試"| C["Lab 07: DMA 大量傳輸"]
 ```
 
-1. [**05-pci-edu-mmio**](file:///home/ubuntu/driver-lab/labs/05-pci-edu-mmio/README.md)：
+1. [**05-pci-edu-mmio**](../../labs/05-pci-edu-mmio/README.md)：
    * **目標**：確認你的驅動程式能成功 bind 到虛擬裝置，並成功映射 BAR0，能讀寫基本的 Identification / Liveness 暫存器。
-2. [**06-pci-edu-irq**](file:///home/ubuntu/driver-lab/labs/06-pci-edu-irq/README.md)：
+2. [**06-pci-edu-irq**](../../labs/06-pci-edu-irq/README.md)：
    * **目標**：在 05 的基礎上，加入中斷機制。能成功向核心註冊 IRQ，當對暫存器寫入觸發中斷時，你的 Interrupt Handler 能接住並正確清除中斷狀態。
-3. [**07-pci-edu-dma**](file:///home/ubuntu/driver-lab/labs/07-pci-edu-dma/README.md)：
+3. [**07-pci-edu-dma**](../../labs/07-pci-edu-dma/README.md)：
    * **目標**：在 05 與 06 的基礎上，配置一致性 DMA 緩衝區（Coherent DMA Buffer），控制裝置把資料從 A 點搬到 B 點，並驗證搬移結果。
 
 ---
