@@ -18,8 +18,9 @@
 
 1. [`../../qemu/README.md`](../../qemu/README.md)
 2. [`../../qemu/edu-bringup-checklist.md`](../../qemu/edu-bringup-checklist.md)
-3. [`qemu-edu-first-pass.md`](qemu-edu-first-pass.md)
-4. [`linux-guest-05-to-07-walkthrough.md`](linux-guest-05-to-07-walkthrough.md)
+3. ARM host 使用者補看 [`../../qemu/arm-host-x86-guest.md`](../../qemu/arm-host-x86-guest.md)
+4. [`qemu-edu-first-pass.md`](qemu-edu-first-pass.md)
+5. [`linux-guest-05-to-07-walkthrough.md`](linux-guest-05-to-07-walkthrough.md)
 
 ## 正確閱讀順序
 
@@ -27,7 +28,7 @@
 2. 讀 [`../concepts/pcie-primer.md`](../concepts/pcie-primer.md)。第一輪只抓 PCI ID、BAR、MMIO、`probe/remove` 的最低心智模型。
 3. 讀 [`qemu-edu-first-pass.md`](qemu-edu-first-pass.md)。理解 QEMU EDU 是教學用 PCI device，`05/06/07` 是同一路線的三個階段。
 4. 讀本文件，先決定後續每一步看哪裡、哪些先略過。
-5. 讀 [`../../qemu/README.md`](../../qemu/README.md) 與 [`../../qemu/edu-bringup-checklist.md`](../../qemu/edu-bringup-checklist.md)。確認 host 負責啟 QEMU，guest 才負責 build/load driver。
+5. 讀 [`../../qemu/README.md`](../../qemu/README.md) 與 [`../../qemu/edu-bringup-checklist.md`](../../qemu/edu-bringup-checklist.md)。確認 host 負責啟 QEMU，guest 才負責 build/load driver。若 host 是 ARM，但要維持 x86_64 guest，先讀 [`../../qemu/arm-host-x86-guest.md`](../../qemu/arm-host-x86-guest.md)。
 6. 在 guest 內確認 `lspci -nn | grep 1234:11e8`。看不到就先修 QEMU/guest，不要先追 driver code。
 7. 讀 [`../../labs/05-pci-edu-mmio/README.md`](../../labs/05-pci-edu-mmio/README.md)。確認本關目標、成功訊號與不做 IRQ/DMA。
 8. 讀 [`../../labs/05-pci-edu-mmio/driver_lab_edu_mmio.c`](../../labs/05-pci-edu-mmio/driver_lab_edu_mmio.c) 和 [`../../labs/05-pci-edu-mmio/driver_lab_edu_mmio.c.md`](../../labs/05-pci-edu-mmio/driver_lab_edu_mmio.c.md)。照下面的 source trace 順序讀，不要從第一行硬掃。

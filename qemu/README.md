@@ -48,6 +48,7 @@ QEMU 官方把 `edu` 定位成：
 - [`launch-edu-vm.sh`](launch-edu-vm.sh)：最小可用的 QEMU 啟動腳本
 - [`launch-edu-vm.sh.md`](launch-edu-vm.sh.md)：逐行解釋啟動腳本、accelerator 選擇、`-device edu` 與 host/guest 分工
 - [`edu-bringup-checklist.md`](edu-bringup-checklist.md)：host 到 guest 的最小 bring-up 清單
+- [`arm-host-x86-guest.md`](arm-host-x86-guest.md)：ARM host 上用 `qemu-system-x86_64` 建立 x86_64 EDU guest 的可重建流程
 - [`../docs/guides/qemu-edu-first-pass.md`](../docs/guides/qemu-edu-first-pass.md)：第一次做 `05-07` 的白話導讀
 - [`../docs/guides/linux-guest-05-to-07-walkthrough.md`](../docs/guides/linux-guest-05-to-07-walkthrough.md)：第一次進 guest 的完整 runbook
 - [`../docs/guides/linux-guest-05-to-07-checklist.md`](../docs/guides/linux-guest-05-to-07-checklist.md)：第二次之後的速查單
@@ -71,7 +72,8 @@ QEMU_EXTRA_ARGS="-monitor stdio" \
 1. [`../docs/concepts/pcie-primer.md`](../docs/concepts/pcie-primer.md)
 2. [`../docs/guides/qemu-edu-first-pass.md`](../docs/guides/qemu-edu-first-pass.md)
 3. [`edu-bringup-checklist.md`](edu-bringup-checklist.md)
-4. [`../docs/guides/linux-guest-05-to-07-walkthrough.md`](../docs/guides/linux-guest-05-to-07-walkthrough.md)
+4. ARM host 使用者先看 [`arm-host-x86-guest.md`](arm-host-x86-guest.md)
+5. [`../docs/guides/linux-guest-05-to-07-walkthrough.md`](../docs/guides/linux-guest-05-to-07-walkthrough.md)
 
 ## 現在先不要追的東西
 

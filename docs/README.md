@@ -54,3 +54,4 @@
 - guest 操作手冊：[`guides/linux-guest-05-to-07-walkthrough.md`](guides/linux-guest-05-to-07-walkthrough.md)
 - guest 速查單：[`guides/linux-guest-05-to-07-checklist.md`](guides/linux-guest-05-to-07-checklist.md)
 - host 端 QEMU 入口：[`../qemu/README.md`](../qemu/README.md)
+- ARM host 跑 x86_64 guest：[`../qemu/arm-host-x86-guest.md`](../qemu/arm-host-x86-guest.md)
