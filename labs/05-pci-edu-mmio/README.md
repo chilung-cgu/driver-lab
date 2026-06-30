@@ -231,3 +231,89 @@ cd labs/05-pci-edu-mmio
   - 先檢查 PCI ID table
 - BAR map 失敗
   - 先檢查 `pci_enable_device()` 與 BAR index
+
+## 補充：Driver 與 Device 的綁定順序
+
+第一輪只要記住「PCI ID match 後才會進 `probe()`」就夠了。這一節是第二輪再看的延伸：不管你是「先載入 driver」還是「先插上 device」，Linux PCI 子系統（PCI Core）都會在兩者皆就緒的瞬間自動綁定（bind）並呼叫 `probe()`。
+
+現代 PCI/PCIe 匯流排與核心都支援熱插拔（Hotplug），所以兩種載入次序最後都會收斂到同一個 `probe()`。以下分別說明這兩種 case 的時間序。
+
+### Case 1：先 `insmod driver`，再熱插拔插入 `device`
+
+在這個情況下，Driver 已經在系統中等待裝置。當你插入裝置（例如在虛擬機中進行 PCI 熱插拔，或實體機插入 PCIe 卡）時，核心會偵測到它，並找到對應的 Driver。
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as 使用者
+    participant PC as PCI Core
+    participant D as Driver (核心模組)
+    participant Dev as Device (硬體)
+
+    User->>D: 1. 執行 insmod 載入模組
+    D->>PC: 呼叫 pci_register_driver() 註冊自己
+    PC->>PC: 比對系統中現有的 unbound 裝置（此時無符合裝置）
+    Note over PC,D: Driver 註冊成功，留在核心的驅動列表內等待
+
+    User->>Dev: 2. 熱插拔插入裝置 (或 QEMU device_add)
+    Dev->>PC: PCIe 控制器偵測到電氣變化，觸發中斷 (Hotplug Event)
+    PC->>Dev: 讀取 Configuration Space (獲取 Vendor/Device ID 與 BAR 規格)
+    PC->>PC: 建立 struct pci_dev 物件，並比對已註冊的 Drivers 列表
+    PC->>D: 匹配 ID 成功！呼叫 Driver 的 probe(pdev)
+    
+    rect rgb(30, 41, 59)
+        Note over D,Dev: 進入 probe 流程
+        D->>PC: pci_enable_device(pdev) 啟用裝置
+        D->>PC: pci_iomap(pdev, BAR0) 映射 MMIO 空間
+        D->>Dev: ioread32 / iowrite32 存取暫存器完成 Liveness 測試
+    end
+```
+
+#### 時間序詳細步驟：
+1. **Driver 註冊**：`insmod` 執行，Driver 呼叫 `pci_register_driver()` 告訴 PCI Core：「我有 `1234:11e8` 的 id_table」。
+2. **等待裝置**：PCI Core 發現系統中目前沒有這個 ID 的裝置，所以把這個 Driver 掛在 `pci_bus_type` 底下的 driver 列表（透過 driver core 管理）中，此時沒有任何 `probe()` 執行。
+3. **裝置插入**：硬體裝置插入。PCIe Host Bridge 偵測到熱插拔，通知 PCI Core。
+4. **硬體探測**：PCI Core 讀取該新裝置的 Configuration Space，得知它是 `1234:11e8`，並為它建立一個 `struct pci_dev`。
+5. **匹配與 Bind**：PCI Core 掃描驅動列表，發現剛剛第 1 步註冊的 Driver 剛好支援這個 ID。
+6. **執行 probe**：PCI Core 呼叫你的 `probe()` 函數，這才開始做 `pci_enable_device`、`pci_iomap` 以及暫存器讀寫。
+
+---
+
+### Case 2：先插入 `device`，再 `insmod driver`
+
+這是我們最常遇到的狀況（比如 QEMU 一開機就已經掛載了 `edu` 裝置，但我們還沒有編譯並載入核心模組）。
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as 使用者
+    participant PC as PCI Core
+    participant D as Driver (核心模組)
+    participant Dev as Device (硬體)
+
+    User->>Dev: 1. 開機已插入裝置 (或開機後熱插拔插入)
+    Dev->>PC: 觸發 PCIe 插槽中斷 (Hotplug / Boot Scan)
+    PC->>Dev: 讀取 Configuration Space (獲取 Vendor/Device ID)
+    PC->>PC: 建立 struct pci_dev (此時無對應驅動，處於 unbound 狀態)
+    Note over PC,Dev: 裝置已就緒，在 sysfs 產生節點，等待相容 Driver
+
+    User->>D: 2. 執行 insmod 載入模組
+    D->>PC: 呼叫 pci_register_driver() 註冊自己
+    PC->>PC: 遍歷系統中 unbound 的 pci_dev，與新 Driver 的 id_table 比對
+    PC->>D: 匹配 ID 成功！呼叫 Driver 的 probe(pdev)
+
+    rect rgb(30, 41, 59)
+        Note over D,Dev: 進入 probe 流程
+        D->>PC: pci_enable_device(pdev) 啟用裝置
+        D->>PC: pci_iomap(pdev, BAR0) 映射 MMIO 空間
+        D->>Dev: ioread32 / iowrite32 存取暫存器完成 Liveness 測試
+    end
+```
+
+#### 時間序詳細步驟：
+1. **硬體已存在**：當系統開機或裝置提早插入時，PCI Core 就已經完成了匯流排掃描，讀取了 `1234:11e8` 裝置的 Configuration Space，並建立了 `struct pci_dev`（掛在核心全域的 `pci_devices` 裝置鏈結串列中）。
+2. **等待驅動**：因為系統此時找不到對應的 Driver，裝置處於「未綁定（unbound）」狀態（在 `lspci` 可以看到它，但 `/sys/bus/pci/devices/0000:00:04.0/driver` 符號連結不存在）。
+3. **Driver 註冊**：你執行 `insmod` 載入模組，Driver 呼叫 `pci_register_driver()`。
+4. **比對現有裝置**：PCI Core 發現新驅動註冊了，立刻去掃描目前系統中所有「未綁定」的 `struct pci_dev`。
+5. **匹配與 Bind**：PCI Core 發現這台早已存在的 EDU 裝置與你的 `id_table` 匹配。
+6. **執行 probe**：PCI Core 呼叫你的 `probe()` 函數，這才開始做 `pci_enable_device`、`pci_iomap` 以及暫存器讀寫。
