@@ -15,6 +15,9 @@
 #define DL_EDU_VENDOR_ID 0x1234
 #define DL_EDU_DEVICE_ID 0x11e8
 #define DL_EDU_BAR_INDEX 0
+#define DL_EDU_IDENT_REG 0x00
+#define DL_EDU_IDENT_SIGNATURE_MASK 0x0000ffffU
+#define DL_EDU_IDENT_SIGNATURE 0x000000edU
 #define DL_EDU_IRQ_STATUS_REG 0x24
 #define DL_EDU_IRQ_ACK_REG 0x64
 #define DL_EDU_DMA_SRC_REG 0x80
@@ -22,12 +25,15 @@
 #define DL_EDU_DMA_COUNT_REG 0x90
 #define DL_EDU_DMA_CMD_REG 0x98
 #define DL_EDU_DEVICE_RAM_OFFSET 0x00040000ULL
+#define DL_EDU_DEVICE_RAM_BYTES 4096U
+#define DL_EDU_DMA_ADDRESS_BITS 28U
 #define DL_EDU_DMA_IRQ_MASK 0x00000100U
 #define DL_EDU_DMA_CMD_START 0x01U
 #define DL_EDU_DMA_CMD_FROM_DEVICE 0x02U
 #define DL_EDU_DMA_CMD_IRQ 0x04U
 #define DL_EDU_DMA_WAIT_TIMEOUT_MS 1000
-#define DL_EDU_DMA_BUFFER_BYTES 256
+#define DL_EDU_DMA_BUFFER_BYTES 256U
+#define DL_EDU_DMA_TOTAL_BYTES (DL_EDU_DMA_BUFFER_BYTES * 2U)
 #define DL_EDU_DMA_MMIO_MIN_LEN (DL_EDU_DMA_CMD_REG + sizeof(u32))
 
 struct dl_edu_dma_dev {
@@ -37,7 +43,9 @@ struct dl_edu_dma_dev {
 	int irq_vector;
 	unsigned long irq_flags;
 	bool irq_registered;
+	bool bus_master_enabled;
 	bool dma_in_flight;
+	bool dma_mapping_safe_to_free;
 	struct completion irq_done;
 	u32 last_irq_status;
 	u32 irq_count;
@@ -50,15 +58,20 @@ struct dl_edu_dma_dev {
 static irqreturn_t dl_edu_dma_handler(int irq, void *opaque)
 {
 	struct dl_edu_dma_dev *dl = opaque;
+	u32 handled;
 	u32 status;
 
 	status = ioread32(dl->bar0 + DL_EDU_IRQ_STATUS_REG);
-	if (!(status & DL_EDU_DMA_IRQ_MASK))
+	handled = status & DL_EDU_DMA_IRQ_MASK;
+	if (!handled)
 		return IRQ_NONE;
 
 	dl->last_irq_status = status;
 	dl->irq_count++;
-	iowrite32(status, dl->bar0 + DL_EDU_IRQ_ACK_REG);
+	/* Do not discard an unrelated factorial IRQ bit. */
+	iowrite32(handled, dl->bar0 + DL_EDU_IRQ_ACK_REG);
+	/* Deassert legacy INTx / complete the posted acknowledge before return. */
+	(void)ioread32(dl->bar0 + DL_EDU_IRQ_STATUS_REG);
 	complete(&dl->irq_done);
 	dev_dbg_ratelimited(&dl->pdev->dev,
 				"dma irq status=0x%08x acknowledged\n", status);
@@ -70,7 +83,7 @@ static void dl_edu_dma_ack_pending(struct dl_edu_dma_dev *dl)
 	u32 status;
 
 	status = ioread32(dl->bar0 + DL_EDU_IRQ_STATUS_REG);
-	if (status)
+	if (status && status != ~0U)
 		iowrite32(status, dl->bar0 + DL_EDU_IRQ_ACK_REG);
 	(void)ioread32(dl->bar0 + DL_EDU_IRQ_STATUS_REG);
 }
@@ -106,12 +119,21 @@ static int dl_edu_dma_wait_for_cmd_clear(struct dl_edu_dma_dev *dl,
 	return -ETIMEDOUT;
 }
 
-static void dl_edu_dma_program_addrs(struct dl_edu_dma_dev *dl,
+static int dl_edu_dma_program_addrs(struct dl_edu_dma_dev *dl,
 							 dma_addr_t src, dma_addr_t dst)
 {
-	/* EDU default DMA mask is 28 bits, so lower_32_bits is sufficient here. */
+	/* EDU is configured with a 28-bit mask, so the 32-bit access is sufficient. */
+	if ((u64)src > DMA_BIT_MASK(DL_EDU_DMA_ADDRESS_BITS) ||
+	    (u64)dst > DMA_BIT_MASK(DL_EDU_DMA_ADDRESS_BITS)) {
+		dev_err(&dl->pdev->dev,
+			"DMA address exceeds EDU mask: src=%pad dst=%pad\n",
+			&src, &dst);
+		return -ERANGE;
+	}
+
 	iowrite32(lower_32_bits(src), dl->bar0 + DL_EDU_DMA_SRC_REG);
 	iowrite32(lower_32_bits(dst), dl->bar0 + DL_EDU_DMA_DST_REG);
+	return 0;
 }
 
 static int dl_edu_dma_run_once(struct dl_edu_dma_dev *dl, dma_addr_t src,
@@ -120,18 +142,23 @@ static int dl_edu_dma_run_once(struct dl_edu_dma_dev *dl, dma_addr_t src,
 {
 	int ret;
 
+	if (!dl->bus_master_enabled)
+		return -EIO;
+
 	reinit_completion(&dl->irq_done);
-	dl_edu_dma_program_addrs(dl, src, dst);
+	ret = dl_edu_dma_program_addrs(dl, src, dst);
+	if (ret)
+		return ret;
+
 	iowrite32(DL_EDU_DMA_BUFFER_BYTES,
 		  dl->bar0 + DL_EDU_DMA_COUNT_REG);
 
 	/*
-	 * Coherent mapping avoids explicit cache flush/invalidate, but ownership
-	 * fields/data still need ordering. dma_wmb() publishes CPU writes before
-	 * the device is told to start. Normal iowrite32() additionally orders prior
-	 * normal-memory writes and prior MMIO writes for the default mapping.
+	 * A normal iowrite32() on the default mapping orders prior coherent-memory
+	 * CPU writes before the MMIO start command. Do not add a cargo-cult wmb().
+	 * A descriptor ring would still use dma_wmb() between descriptor fields and
+	 * its OWN/VALID publication before the normal MMIO doorbell.
 	 */
-	dma_wmb();
 	WRITE_ONCE(dl->dma_in_flight, true);
 	iowrite32(cmd, dl->bar0 + DL_EDU_DMA_CMD_REG);
 
@@ -142,8 +169,9 @@ static int dl_edu_dma_run_once(struct dl_edu_dma_dev *dl, dma_addr_t src,
 	if (ret)
 		return ret;
 
-	/* Device completion/ownership is observed before CPU consumes DMA data. */
-	dma_rmb();
+	/* Completion is established first; then order device writes before CPU use. */
+	if (cmd & DL_EDU_DMA_CMD_FROM_DEVICE)
+		dma_rmb();
 	WRITE_ONCE(dl->dma_in_flight, false);
 	dev_info(&dl->pdev->dev, "%s finished\n", phase);
 	return 0;
@@ -159,39 +187,42 @@ static void dl_edu_dma_fill_pattern(struct dl_edu_dma_dev *dl)
 }
 
 /*
- * Return true only when it is safe to release the DMA mapping.
- *
- * A timeout cannot be followed by blindly freeing memory that hardware may
- * still address. Clearing Bus Master Enable blocks new bus-master requests,
- * but a real device still needs a device-specific stop/abort/reset protocol.
- * EDU has no richer stop command, so a generic function reset is the final
- * teaching fallback. If even that fails, leaking the mapping is safer than a
- * DMA use-after-free; production hardware needs a stronger recovery design.
+ * Stop new device-originated transactions, prove the command engine is idle or
+ * reset the function, then detach the IRQ. If neither idle nor reset can be
+ * established, retain the coherent allocation rather than risk DMA UAF.
+ * Real hardware needs a device-specific stop/abort/reset/reinit state machine.
  */
-static bool dl_edu_dma_quiesce(struct dl_edu_dma_dev *dl)
+static void dl_edu_dma_quiesce(struct dl_edu_dma_dev *dl)
 {
 	bool safe_to_free = true;
 	int ret;
 
 	if (!dl)
-		return true;
+		return;
 
-	pci_clear_master(dl->pdev);
+	if (dl->bus_master_enabled) {
+		pci_clear_master(dl->pdev);
+		dl->bus_master_enabled = false;
+	}
 
 	if (dl->bar0 && READ_ONCE(dl->dma_in_flight)) {
 		ret = dl_edu_dma_wait_for_cmd_clear(dl, "teardown");
 		if (ret) {
+			/*
+			 * pci_reset_function() saves/restores PCI config, including BAR/MSI
+			 * state, but it does not rebuild device-specific queues/firmware.
+			 */
 			ret = pci_reset_function(dl->pdev);
 			if (ret) {
 				safe_to_free = false;
 				dev_crit(&dl->pdev->dev,
-					 "generic function reset failed: %d; "
-					 "DMA quiesce is unproven, so the coherent mapping "
-					 "will be intentionally leaked\n",
+					 "cannot prove DMA quiescence: reset failed: %d; retaining coherent mapping until reboot/platform recovery\n",
 					 ret);
+			} else {
+				dev_warn(&dl->pdev->dev,
+					 "function reset used to quiesce EDU; production hardware needs device-specific recovery\n");
 			}
 		}
-
 		if (safe_to_free)
 			WRITE_ONCE(dl->dma_in_flight, false);
 	}
@@ -199,35 +230,34 @@ static bool dl_edu_dma_quiesce(struct dl_edu_dma_dev *dl)
 	if (dl->bar0)
 		dl_edu_dma_ack_pending(dl);
 
+	if (!safe_to_free) {
+		/* Prevent a late QEMU EDU event falling back to legacy INTx. */
+		pci_intx(dl->pdev, 0);
+	}
+
 	if (dl->irq_registered) {
 		synchronize_irq(dl->irq_vector);
 		free_irq(dl->irq_vector, dl);
 		dl->irq_registered = false;
 	}
 
-	return safe_to_free;
+	dl->dma_mapping_safe_to_free = safe_to_free;
 }
 
-static void dl_edu_dma_free_buffer(struct dl_edu_dma_dev *dl,
-						   bool safe_to_free)
+static void dl_edu_dma_free_buffer(struct dl_edu_dma_dev *dl)
 {
 	if (!dl || !dl->dma_buf)
 		return;
 
-	if (!safe_to_free) {
+	if (!dl->dma_mapping_safe_to_free) {
 		dev_crit(&dl->pdev->dev,
-			 "not freeing coherent buffer cpu=%p dma=%pad bytes=%u; "
-			 "reboot or platform-level recovery is required to reclaim it safely\n",
-			 dl->dma_buf, &dl->dma_handle,
-			 DL_EDU_DMA_BUFFER_BYTES * 2);
+			 "coherent allocation intentionally retained to avoid DMA use-after-free\n");
 		return;
 	}
 
-	dma_free_coherent(&dl->pdev->dev, DL_EDU_DMA_BUFFER_BYTES * 2,
+	dma_free_coherent(&dl->pdev->dev, DL_EDU_DMA_TOTAL_BYTES,
 				  dl->dma_buf, dl->dma_handle);
 	dl->dma_buf = NULL;
-	dl->tx_buf = NULL;
-	dl->rx_buf = NULL;
 }
 
 static int dl_edu_dma_probe(struct pci_dev *pdev,
@@ -236,7 +266,7 @@ static int dl_edu_dma_probe(struct pci_dev *pdev,
 	struct dl_edu_dma_dev *dl;
 	dma_addr_t tx_dma;
 	dma_addr_t rx_dma;
-	bool safe_to_free = true;
+	u32 ident;
 	int ret;
 
 	pr_info("probe start for %s\n", pci_name(pdev));
@@ -245,6 +275,7 @@ static int dl_edu_dma_probe(struct pci_dev *pdev,
 	if (!dl)
 		return -ENOMEM;
 	dl->pdev = pdev;
+	dl->dma_mapping_safe_to_free = true;
 	init_completion(&dl->irq_done);
 	pci_set_drvdata(pdev, dl);
 
@@ -252,7 +283,6 @@ static int dl_edu_dma_probe(struct pci_dev *pdev,
 	if (ret)
 		return dev_err_probe(&pdev->dev, ret,
 						 "pci_enable_device failed\n");
-	pci_set_master(pdev);
 
 	if (!(pci_resource_flags(pdev, DL_EDU_BAR_INDEX) & IORESOURCE_MEM)) {
 		ret = -ENODEV;
@@ -279,21 +309,43 @@ static int dl_edu_dma_probe(struct pci_dev *pdev,
 		goto err_release_region;
 	}
 
-	ret = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(28));
-	if (ret) {
+	ident = ioread32(dl->bar0 + DL_EDU_IDENT_REG);
+	if ((ident & DL_EDU_IDENT_SIGNATURE_MASK) != DL_EDU_IDENT_SIGNATURE) {
 		dev_err(&pdev->dev,
-			"dma_set_mask_and_coherent(28) failed: %d\n", ret);
+			"unexpected EDU identification signature: ident=0x%08x\n",
+			ident);
+		ret = -ENODEV;
 		goto err_iounmap;
 	}
-	dev_info(&pdev->dev, "dma mask configured to 28 bits\n");
 
-	dl->dma_buf = dma_alloc_coherent(&pdev->dev,
-					  DL_EDU_DMA_BUFFER_BYTES * 2,
+	ret = dma_set_mask_and_coherent(&pdev->dev,
+						DMA_BIT_MASK(DL_EDU_DMA_ADDRESS_BITS));
+	if (ret) {
+		dev_err(&pdev->dev,
+			"dma_set_mask_and_coherent(%u) failed: %d\n",
+			DL_EDU_DMA_ADDRESS_BITS, ret);
+		goto err_iounmap;
+	}
+	dev_info(&pdev->dev, "dma mask configured to %u bits\n",
+		 DL_EDU_DMA_ADDRESS_BITS);
+
+	dl->dma_buf = dma_alloc_coherent(&pdev->dev, DL_EDU_DMA_TOTAL_BYTES,
 					  &dl->dma_handle, GFP_KERNEL);
 	if (!dl->dma_buf) {
 		ret = -ENOMEM;
 		goto err_iounmap;
 	}
+
+	if ((u64)dl->dma_handle >
+	    DMA_BIT_MASK(DL_EDU_DMA_ADDRESS_BITS) -
+	    (DL_EDU_DMA_TOTAL_BYTES - 1U)) {
+		dev_err(&pdev->dev,
+			"coherent DMA range exceeds EDU mask: base=%pad bytes=%u\n",
+			&dl->dma_handle, DL_EDU_DMA_TOTAL_BYTES);
+		ret = -ERANGE;
+		goto err_free_dma;
+	}
+
 	dl->tx_buf = dl->dma_buf;
 	dl->rx_buf = (u8 *)dl->dma_buf + DL_EDU_DMA_BUFFER_BYTES;
 	tx_dma = dl->dma_handle;
@@ -301,7 +353,7 @@ static int dl_edu_dma_probe(struct pci_dev *pdev,
 
 	dev_info(&pdev->dev,
 		 "coherent buffer allocated: cpu=%p dma=%pad bytes=%u\n",
-		 dl->dma_buf, &dl->dma_handle, DL_EDU_DMA_BUFFER_BYTES * 2);
+		 dl->dma_buf, &dl->dma_handle, DL_EDU_DMA_TOTAL_BYTES);
 
 	ret = pci_alloc_irq_vectors(pdev, 1, 1, PCI_IRQ_ALL_TYPES);
 	if (ret < 0)
@@ -316,6 +368,10 @@ static int dl_edu_dma_probe(struct pci_dev *pdev,
 	if (ret)
 		goto err_free_vectors;
 	dl->irq_registered = true;
+
+	/* DMA and MSI are device-originated memory transactions; enable BME last. */
+	pci_set_master(pdev);
+	dl->bus_master_enabled = true;
 
 	dl_edu_dma_fill_pattern(dl);
 	ret = dl_edu_dma_run_once(dl, tx_dma, DL_EDU_DEVICE_RAM_OFFSET,
@@ -344,17 +400,16 @@ static int dl_edu_dma_probe(struct pci_dev *pdev,
 	return 0;
 
 err_quiesce:
-	safe_to_free = dl_edu_dma_quiesce(dl);
+	dl_edu_dma_quiesce(dl);
 err_free_vectors:
 	pci_free_irq_vectors(pdev);
 err_free_dma:
-	dl_edu_dma_free_buffer(dl, safe_to_free);
+	dl_edu_dma_free_buffer(dl);
 err_iounmap:
 	pci_iounmap(pdev, dl->bar0);
 err_release_region:
 	pci_release_region(pdev, DL_EDU_BAR_INDEX);
 err_disable_device:
-	pci_clear_master(pdev);
 	pci_disable_device(pdev);
 	return ret;
 }
@@ -362,11 +417,10 @@ err_disable_device:
 static void dl_edu_dma_remove(struct pci_dev *pdev)
 {
 	struct dl_edu_dma_dev *dl = pci_get_drvdata(pdev);
-	bool safe_to_free;
 
-	safe_to_free = dl_edu_dma_quiesce(dl);
+	dl_edu_dma_quiesce(dl);
 	pci_free_irq_vectors(pdev);
-	dl_edu_dma_free_buffer(dl, safe_to_free);
+	dl_edu_dma_free_buffer(dl);
 	if (dl && dl->bar0)
 		pci_iounmap(pdev, dl->bar0);
 	pci_release_region(pdev, DL_EDU_BAR_INDEX);
@@ -390,4 +444,4 @@ module_pci_driver(dl_edu_dma_driver);
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Codex");
-MODULE_DESCRIPTION("QEMU EDU coherent DMA lab with explicit ownership and quiesce");
+MODULE_DESCRIPTION("QEMU EDU coherent DMA lab with validated identity and quiesce");
