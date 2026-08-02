@@ -1,68 +1,67 @@
-# 07 - PCI EDU coherent DMA round-trip
+# 07 — QEMU EDU coherent DMA round-trip
 
-> This lab must run in the Linux guest that sees QEMU EDU (`1234:11e8`).
+> Run inside the x86_64 little-endian Linux guest that sees QEMU EDU `1234:11e8`.
 >
-> Current source is authoritative: [`driver_lab_edu_dma.c`](driver_lab_edu_dma.c). The older generated companion may describe pre-audit behavior; use the audited study guide in `pcie-study/docs/phase3-driverlab-guides/08-lab07-guide.md` until companions are regenerated.
+> Current source is authoritative: [`driver_lab_edu_dma.c`](driver_lab_edu_dma.c). Generated companions may describe older code.
 
 ## Goal
 
-Build one complete host-side DMA loop:
-
 ```text
 CPU fills coherent TX memory
-→ device DMA: host RAM → EDU local RAM
-→ device DMA: EDU local RAM → host RX memory
-→ interrupt/status completion
+→ EDU DMA: host RAM → EDU local RAM
+→ EDU DMA: EDU local RAM → host RX memory
+→ IRQ + command-idle evidence
 → CPU compares TX and RX
 ```
 
-The lab teaches:
+This lab teaches:
 
-- CPU virtual pointer vs device DMA address;
-- the QEMU EDU 28-bit DMA mask;
-- bus mastering;
-- coherent DMA allocation;
+- CPU virtual pointer vs `dma_addr_t`;
+- truthful 28-bit DMA mask;
+- coherent allocation and ownership/ordering;
+- Bus Master Enable timing;
 - MMIO programming and IRQ acknowledgement;
-- data validation, not only interrupt validation;
-- fail-safe teardown when DMA quiesce cannot be proven.
+- completion vs payload correctness;
+- fail-safe teardown when DMA quiescence cannot be proven.
 
-It does not teach streaming scatter-gather, user-pinned memory, multi-queue MSI-X, production reset recovery or real-board PCIe PHY behavior.
+It does not teach streaming SG, user-pinned memory, multi-queue MSI-X, production reset recovery or real-board PHY/link behavior.
 
 ## Prerequisites
-
-- Lab05 and Lab06 concepts are understood.
-- In the guest:
 
 ```sh
 lspci -Dnn | grep '1234:11e8'
 test -e /lib/modules/"$(uname -r)"/build
 ```
 
-- No other driver owns EDU and `driver_lab_edu_dma` is not already loaded.
+Complete Lab05/06 concepts first. No other driver should own EDU, and this module must not already be loaded when running the isolated test.
 
 ## Resource flow
 
 ```text
 pci_enable_device
-→ pci_set_master
 → validate/request/map BAR0
+→ validate EDU identification signature
 → dma_set_mask_and_coherent(28 bits)
 → dma_alloc_coherent(TX + RX)
 → allocate vector / request handler
+→ pci_set_master (last, immediately before device-originated traffic)
 → run two transfers
 ```
 
 Normal teardown:
 
 ```text
-stop/confirm DMA
-→ clear bus mastering
-→ acknowledge/synchronize/free IRQ
-→ free coherent mapping
-→ free vectors
+clear BME / stop new bus-master traffic
+→ prove EDU command idle or reset function
+→ acknowledge source
+→ synchronize/free IRQ
+→ free vector
+→ free coherent mapping only if quiescence is proven
 → unmap/release BAR
 → disable device
 ```
+
+BME is deliberately enabled late. It does not create a DMA mapping, start the engine or prove that an in-flight transaction has stopped.
 
 ## Two address views
 
@@ -73,54 +72,126 @@ dma_addr_t dma_handle;
 cpu_addr = dma_alloc_coherent(dev, size, &dma_handle, GFP_KERNEL);
 ```
 
-- Kernel CPU code uses `cpu_addr`.
-- EDU registers receive `dma_handle`.
-- The values may differ because of IOMMU/platform DMA translation.
-- Never cast the CPU pointer or use `virt_to_phys()` as a DMA address.
+- CPU uses `cpu_addr`.
+- EDU source/destination registers use `dma_handle` for host memory.
+- Values may differ due to IOMMU/platform translation.
+- Never cast the CPU pointer or use `virt_to_phys()` as the DMA address.
+
+The driver also checks that the complete two-buffer DMA range fits the EDU 28-bit mask. The DMA API should already enforce the mask; the check is a teaching assertion against accidental truncation or platform/API misuse.
+
+## Host DMA address vs EDU local address
+
+EDU DMA registers use two address domains depending on direction:
+
+```text
+RAM → EDU:
+  source      = host DMA address
+  destination = EDU-local RAM offset 0x40000
+
+EDU → RAM:
+  source      = EDU-local RAM offset 0x40000
+  destination = host DMA address
+```
+
+`0x40000` is not a host DMA mapping. It is an address in EDU's internal 4 KiB buffer aperture. Direction/count/range mistakes may still generate completion; `memcmp()` is required.
 
 ## Why the mask is 28 bits
 
-QEMU EDU's default DMA engine accepts 28 address bits. The driver must state the real capability and check the return value:
-
 ```c
-ret = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(28));
-if (ret)
-	return ret;
+ret = dma_set_mask_and_coherent(dev, DMA_BIT_MASK(28));
 ```
 
-Claiming 64-bit support would allow the DMA layer to return an address the EDU engine cannot represent. Truncating such an address would corrupt unrelated memory.
+The mask states what the hardware can represent. Claiming 64-bit support or truncating a returned address could DMA into unrelated memory.
+
+QEMU's official EDU model defaults to 28 DMA address bits. Record the exact QEMU version in bug reports because model behavior changes: current QEMU master rejects invalid internal/host range combinations before transfer; older versions historically logged a bad range but continued.
 
 ## Ordering and completion
 
-Coherent mapping removes per-transfer cache flush/invalidate requirements, but does not replace ordering or completion:
+Coherent mapping removes per-transfer cache flush/invalidate, not ordering/completion/lifetime.
 
-- `dma_wmb()` publishes CPU-written DMA data before the start/ownership transition.
-- Normal `iowrite32()` supplies the default normal-memory-to-MMIO ordering.
-- IRQ and command-bit clear establish EDU-specific completion/idle evidence.
-- `dma_rmb()` orders CPU consumption after device completion.
-- `memcmp()` proves the payload made a correct round-trip.
+### RAM → device start
 
-Do not interpret `dma_wmb()` as “wait for DMA,” or an IRQ as proof that the data is correct.
+For this simple single-buffer path:
+
+```text
+CPU writes coherent TX bytes
+→ normal iowrite32() programs registers/start command
+```
+
+The normal accessor supplies the documented prior-normal-memory→MMIO ordering. The code intentionally does **not** add a cargo-cult `wmb()` or `dma_wmb()` here.
+
+A real descriptor ring is different:
+
+```text
+write descriptor fields
+→ dma_wmb()
+→ publish OWN/VALID/index
+→ normal MMIO doorbell
+```
+
+`dma_wmb()` belongs between coherent descriptor data and ownership publication; it does not wait for DMA.
+
+### Device → RAM consumption
+
+```text
+IRQ received and acknowledged
+→ EDU START bit observed clear
+→ dma_rmb()
+→ CPU reads RX bytes
+→ memcmp()
+```
+
+- IRQ proves a notification path.
+- START clear is EDU-specific idle evidence.
+- `dma_rmb()` orders coherent device writes before CPU consumption after completion has been established.
+- `memcmp()` verifies address, direction, length and data content.
+
+No single item substitutes for all the others.
+
+## MMIO endianness boundary
+
+Current QEMU EDU source declares the MMIO region `DEVICE_NATIVE_ENDIAN`, not universally little-endian. This repository's runtime target is explicitly an **x86_64 little-endian guest**, where `ioread32/iowrite32` match the tested model.
+
+Porting to a big-endian guest requires re-validating QEMU target semantics and accessor choices; do not generalize this lab into a fixed-LE hardware specification.
 
 ## Critical timeout rule
 
-A DMA timeout cannot be followed by blindly freeing the mapping. The device may still hold or use the address.
+A timeout cannot be followed by blindly freeing the mapping. The device may still hold/use the DMA address.
 
-The current teaching fallback is:
+Current teaching fallback:
 
 ```text
 clear bus mastering
-→ bounded wait for EDU command to clear
+→ bounded wait for command clear
 → if still active, try pci_reset_function()
-→ acknowledge/synchronize/free IRQ
+→ acknowledge source
+→ synchronize/free IRQ
 ```
 
-`dl_edu_dma_quiesce()` returns whether the mapping is proven safe to free.
+- `pci_reset_function()` saves/restores PCI configuration state around the reset.
+- It does not rebuild device-specific firmware, queues or driver software state.
+- It is a QEMU EDU teaching fallback, not a universal hardware recovery plan.
 
-- If EDU stops or reset succeeds, the mapping is freed normally.
-- If reset also fails, the driver logs a critical error and **intentionally leaks the coherent mapping** instead of risking DMA use-after-free.
+The quiesce helper records whether the mapping is safe to free:
 
-A leak is not a production recovery strategy. It is the fail-safe choice when the only alternatives are “retain inaccessible memory until reboot/platform recovery” or “free memory the device may still overwrite.” Real hardware needs a device-specific stop/abort/reset design and a tested recovery scope.
+- command idle or reset success → free normally;
+- reset failure and no proof of idle → log critical error, disable legacy INTx fallback and **intentionally retain the coherent allocation** rather than risk DMA use-after-free.
+
+That leak requires reboot/platform recovery to reclaim. Production hardware needs a device-specific stop/abort/reset/reinit state machine.
+
+## IRQ details
+
+The handler:
+
+```text
+read status
+→ handle only DMA bit 0x100
+→ ACK only that bit (do not discard unrelated factorial bit)
+→ read status back to complete/deassert ACK
+→ complete waiter
+```
+
+The read-back matters for legacy INTx deassertion and posted write completion. Hard IRQ uses ratelimited debug logging rather than unconditional info logging.
 
 ## Run
 
@@ -132,13 +203,13 @@ cd labs/07-pci-edu-dma
 The smoke test:
 
 - refuses to unload a module it did not load;
-- does not clear the global kernel log;
-- checks only log lines added during this run;
-- verifies driver bind and `/proc/interrupts`;
+- does not clear global kernel logs;
+- checks only lines added during this run;
+- verifies bind and `/proc/interrupts`;
 - requires both transfer phases and `round-trip compare passed`;
-- fails on kernel warnings, sanitizer reports or unproven DMA quiesce.
+- fails on warnings/sanitizer reports/unproven quiescence.
 
-Expected evidence includes:
+Expected evidence:
 
 ```text
 dma mask configured to 28 bits
@@ -149,33 +220,56 @@ round-trip compare passed
 device removed
 ```
 
-## What to debug first
+## Debug order
 
 | Symptom | First checks |
 |---|---|
-| DMA mask fails | EDU capability, DMA layer/IOMMU/SWIOTLB, return code |
-| IRQ timeout | vector allocation, status bit, ACK, bus mastering, command write |
-| Command never clears | address/count/direction, device state, reset path |
-| Compare fails | source/destination, direction bit, count, DMA handles, ordering |
-| Remove warns about unproven quiesce | do not free/reuse the mapping; inspect reset/device state |
+| Identity rejected | QEMU EDU model/version, MMIO endian/width, correct function |
+| DMA mask fails | platform DMA layer, IOMMU/SWIOTLB, return code |
+| Address-range assertion fails | mask contract, allocation size, accidental truncation |
+| IRQ timeout | vector mode, BME, status bit, ACK, command write |
+| Command never clears | source/destination domain, direction, count, QEMU model/reset path |
+| Compare fails | DMA handles vs CPU pointer, local offset, direction/count, ordering |
+| Unproven quiesce | do not free/reuse mapping; inspect reset/device state |
 
-## Required follow-up work before calling this production-ready
+## Required follow-up before production claims
 
-- deterministic timeout and failed-reset injection;
-- streaming and scatter-gather DMA;
+- deterministic IRQ/command timeout and failed-reset injection;
+- repeated load/unload under KASAN/lockdep;
+- streaming and SG DMA;
 - descriptor ownership ring;
-- multiple queues/vectors;
-- real-device stop/abort/reset specification;
-- hot-unplug/AER/power management;
-- IOMMU security and user-buffer lifetime;
-- KASAN/lockdep/IOMMU fault testing;
-- throughput and tail-latency measurement.
+- multi-queue/vector/NUMA;
+- device-specific reset/firmware recovery;
+- hot-unplug/AER/PM;
+- IOMMU security and pinned-user-memory lifetime;
+- throughput/tail-latency tests.
+
+## Self-check
+
+1. Why is BME enabled after mappings/IRQ are ready rather than immediately after `pci_enable_device()`?
+2. Which addresses are host DMA addresses and which are EDU-local offsets?
+3. Why is there no `dma_wmb()` in this simple start path, but a descriptor ring may need one?
+4. What does IRQ, START clear, `dma_rmb()` and `memcmp()` each prove?
+5. Why retain a mapping when reset fails?
+6. Why is EDU not described as universally little-endian?
+
+<details>
+<summary>Reference answers</summary>
+
+1. BME authorizes device-originated memory transactions; enabling it only after buffers, handlers and state exist reduces the interval in which a misbehaving device can access host memory or signal MSI.
+2. `dma_handle`/`dma_handle+256` are host DMA addresses; `0x40000` is the EDU internal RAM aperture address used by its engine.
+3. Normal `iowrite32()` orders prior coherent CPU writes before the command for this single-buffer path. In a ring, `dma_wmb()` orders descriptor fields before the separate OWN/VALID publication; neither barrier waits for hardware.
+4. IRQ proves notification, START clear proves EDU engine idle, `dma_rmb()` orders completed device writes before CPU reads, and `memcmp()` proves payload correctness.
+5. If the device may still write, freeing lets memory be reused and creates DMA UAF/corruption. A leak is safer until reboot/recovery, though not a production solution.
+6. Current QEMU models the region with `DEVICE_NATIVE_ENDIAN`; this lab promises only its tested x86_64 LE guest configuration. Cross-endian ports must revalidate.
+
+</details>
 
 ## References
 
-- QEMU EDU: <https://www.qemu.org/docs/master/specs/edu.html>
+- QEMU EDU spec/source: <https://www.qemu.org/docs/master/specs/edu.html>, <https://github.com/qemu/qemu/blob/master/hw/misc/edu.c>
 - DMA API HOWTO: <https://docs.kernel.org/core-api/dma-api-howto.html>
-- DMA API: <https://docs.kernel.org/core-api/dma-api.html>
+- Device I/O: <https://docs.kernel.org/driver-api/device-io.html>
 - PCI reset APIs: <https://docs.kernel.org/driver-api/pci/pci.html>
 - Generic IRQ: <https://docs.kernel.org/core-api/genericirq.html>
 - Audit: [`../../docs/reference/accuracy-audit-2026-08.md`](../../docs/reference/accuracy-audit-2026-08.md)
