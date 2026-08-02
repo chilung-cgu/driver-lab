@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-/* 第一個 PCI lab：match QEMU EDU、map BAR0、做最小 MMIO round-trip。 */
+/* Minimal PCI + MMIO driver for QEMU EDU. */
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
 #include <linux/io.h>
@@ -11,17 +11,18 @@
 #define DL_EDU_BAR_INDEX 0
 #define DL_EDU_IDENT_REG 0x00
 #define DL_EDU_LIVENESS_REG 0x04
-#define DL_EDU_LIVENESS_PATTERN 0xa5a55a5aU
+#define DL_EDU_IDENT_SIGNATURE_MASK 0x0000ffffU
+#define DL_EDU_IDENT_SIGNATURE 0x000000edU
+#define DL_EDU_LIVENESS_PATTERN 0x12345678U
 #define DL_EDU_MMIO_MIN_LEN (DL_EDU_LIVENESS_REG + sizeof(u32))
 
 struct dl_edu_mmio_dev {
 	struct pci_dev *pdev;
-	/* Byte-addressed base，offset 的單位明確是 byte。 */
 	u8 __iomem *bar0;
 	resource_size_t bar0_len;
 	u32 ident;
-	u32 liveness_pattern;
-	u32 liveness_result;
+	u32 liveness_written;
+	u32 liveness_read;
 };
 
 static int dl_edu_mmio_probe(struct pci_dev *pdev,
@@ -40,12 +41,10 @@ static int dl_edu_mmio_probe(struct pci_dev *pdev,
 	pci_set_drvdata(pdev, dl);
 
 	ret = pci_enable_device(pdev);
-	if (ret) {
-		dev_err(&pdev->dev, "pci_enable_device failed: %d\n", ret);
-		return ret;
-	}
+	if (ret)
+		return dev_err_probe(&pdev->dev, ret,
+						 "pci_enable_device failed\n");
 
-	/* 先確認 BAR0 真的是 memory resource，且覆蓋會使用的 register。 */
 	if (!(pci_resource_flags(pdev, DL_EDU_BAR_INDEX) & IORESOURCE_MEM)) {
 		dev_err(&pdev->dev, "BAR%d is not an MMIO resource\n",
 			DL_EDU_BAR_INDEX);
@@ -55,8 +54,7 @@ static int dl_edu_mmio_probe(struct pci_dev *pdev,
 
 	dl->bar0_len = pci_resource_len(pdev, DL_EDU_BAR_INDEX);
 	if (dl->bar0_len < DL_EDU_MMIO_MIN_LEN) {
-		dev_err(&pdev->dev,
-			"BAR%d too small: len=%llu need>=%u\n",
+		dev_err(&pdev->dev, "BAR%d too small: len=%llu need>=%u\n",
 			DL_EDU_BAR_INDEX,
 			(unsigned long long)dl->bar0_len,
 			(unsigned int)DL_EDU_MMIO_MIN_LEN);
@@ -65,38 +63,39 @@ static int dl_edu_mmio_probe(struct pci_dev *pdev,
 	}
 
 	ret = pci_request_region(pdev, DL_EDU_BAR_INDEX, KBUILD_MODNAME);
-	if (ret) {
-		dev_err(&pdev->dev, "pci_request_region BAR%d failed: %d\n",
-			DL_EDU_BAR_INDEX, ret);
+	if (ret)
 		goto err_disable_device;
-	}
 
 	dl->bar0 = pci_iomap(pdev, DL_EDU_BAR_INDEX, 0);
 	if (!dl->bar0) {
-		dev_err(&pdev->dev, "pci_iomap BAR%d failed\n", DL_EDU_BAR_INDEX);
 		ret = -ENOMEM;
 		goto err_release_region;
 	}
 
-	dev_info(&pdev->dev, "BAR0 mapped, len=%llu bytes\n",
-		 (unsigned long long)dl->bar0_len);
+	dev_info(&pdev->dev, "BAR%d mapped, len=%llu bytes\n",
+		 DL_EDU_BAR_INDEX, (unsigned long long)dl->bar0_len);
 
 	dl->ident = ioread32(dl->bar0 + DL_EDU_IDENT_REG);
 	dev_info(&pdev->dev, "ident=0x%08x\n", dl->ident);
-
-	/*
-	 * EDU liveness register 讀回寫入值的 bitwise inverse。這個 read 同時
-	 * 讓前一筆 PCI posted write 完成到可被同一裝置 read ordering 觀察的點；
-	 * 它不代表所有一般裝置命令都已完成，真實硬體仍要看 status/IRQ。
-	 */
-	dl->liveness_pattern = DL_EDU_LIVENESS_PATTERN;
-	iowrite32(dl->liveness_pattern, dl->bar0 + DL_EDU_LIVENESS_REG);
-	dl->liveness_result = ioread32(dl->bar0 + DL_EDU_LIVENESS_REG);
-	expected = ~dl->liveness_pattern;
-	if (dl->liveness_result != expected) {
+	if ((dl->ident & DL_EDU_IDENT_SIGNATURE_MASK) !=
+	    DL_EDU_IDENT_SIGNATURE) {
 		dev_err(&pdev->dev,
-			"liveness failed: wrote=0x%08x read=0x%08x expected=0x%08x\n",
-			dl->liveness_pattern, dl->liveness_result, expected);
+			"unexpected EDU identification signature: ident=0x%08x\n",
+			dl->ident);
+		ret = -ENODEV;
+		goto err_iounmap;
+	}
+
+	dl->liveness_written = DL_EDU_LIVENESS_PATTERN;
+	iowrite32(dl->liveness_written, dl->bar0 + DL_EDU_LIVENESS_REG);
+	dl->liveness_read = ioread32(dl->bar0 + DL_EDU_LIVENESS_REG);
+	expected = ~dl->liveness_written;
+
+	dev_info(&pdev->dev,
+		 "liveness wrote=0x%08x read=0x%08x expected=0x%08x\n",
+		 dl->liveness_written, dl->liveness_read, expected);
+	if (dl->liveness_read != expected) {
+		dev_err(&pdev->dev, "liveness check failed\n");
 		ret = -EIO;
 		goto err_iounmap;
 	}
@@ -140,4 +139,4 @@ module_pci_driver(dl_edu_mmio_driver);
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Codex");
-MODULE_DESCRIPTION("QEMU EDU MMIO lab with validated BAR access");
+MODULE_DESCRIPTION("QEMU EDU PCI/MMIO lab with BAR and identity validation");
