@@ -67,8 +67,9 @@ unsafe_observed=$(sed -n \
 [ -n "$unsafe_expected" ]
 [ -n "$unsafe_observed" ]
 if [ "$unsafe_observed" -ge "$unsafe_expected" ]; then
-    printf 'NOTE: this unsafe run did not expose a net lost-update deficit; '\
-'it remains intentionally racy and needs stress/KCSAN for stronger evidence.\n' >&2
+    printf '%s\n' \
+        'NOTE: this unsafe run did not expose a net lost-update deficit; it remains intentionally racy and needs stress/KCSAN for stronger evidence.' \
+        >&2
 fi
 
 # Safe phase: switching mode and reset wait for old unsafe increments to exit.
