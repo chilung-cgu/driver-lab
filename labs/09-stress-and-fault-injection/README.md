@@ -1,155 +1,199 @@
-# 09 - stress and fault-injection scaffold
+# 09 — Stress and fault-injection roadmap
 
-## Current implemented scope
+## Current scope
 
-This directory currently exercises **Lab03 only**:
+The repository currently implements two repeatable **Lab03 stress gates**:
 
-- [`stress-03-reload.sh`](stress-03-reload.sh)
-  - Builds Lab03 once.
-  - Repeats isolated load/surface-check/unload cycles.
-  - Refuses to remove a module that was already loaded by another session.
-  - Supports `ITERATIONS=<positive integer>`; default 20.
-- [`stress-03-parallel.sh`](stress-03-parallel.sh)
-  - Loads Lab03.
-  - Runs four concurrent userspace workers through ioctl/status/read/trigger paths.
-  - Accepts only successful reads or a bounded GNU `timeout` status 124.
-  - Stops/reaps background workers on interruption and does not hide arbitrary failures with `|| true`.
-- [`test.sh`](test.sh)
-  - Runs the two scripts above.
+1. repeated module load/unload;
+2. parallel ioctl/status/mmap/read/trigger activity.
 
-This is **not yet** a complete fault-injection framework. It does not currently automate failslab/fail_page_alloc, KUnit/kselftest, IRQ/DMA timeout injection, QEMU EDU reset/error tests, or long-duration soak testing.
+It does **not** yet implement a complete KUnit/kselftest/failslab/fail_page_alloc/fail_usercopy framework, nor dedicated Lab05–07 IRQ/DMA fault injection. The directory name is a roadmap as well as a current test suite.
 
-## Why this lab exists
+## Why stress is different from proof
 
-A single happy-path run does not exercise:
+- Smoke: one intended path works once.
+- Stress: increases the chance of exposing timing/lifetime/resource bugs.
+- Regression: the same gates run after every change.
+- Fault injection: deliberately forces a specific failure/error path.
+- Static reasoning/sanitizers: answer different correctness questions.
 
-- resource reacquisition after unload;
-- concurrent callback interleavings;
-- cleanup when a test is interrupted;
-- stale `/dev`/sysfs/module state;
-- error codes hidden by shell pipelines;
-- late IRQ/DMA/work users;
-- sanitizer-only failures.
-
-Stress raises the probability of finding a bug. It does not prove the absence of races or lifetime errors.
+A stress pass is evidence, not proof that no race exists. A failure must preserve its first error and evidence rather than be retried until green.
 
 ## Run
 
-Linux only:
-
 ```sh
+cd labs/09-stress-and-fault-injection
 ./test.sh
 ```
 
-Reload only:
+The suite runs reload first, then parallel stress. Environment variables can scale the individual scripts:
 
 ```sh
 ITERATIONS=100 ./stress-03-reload.sh
-```
 
-Parallel only:
-
-```sh
+WORKERS=8 \
+ITERATIONS=100 \
+READ_TIMEOUT_SECONDS=2 \
 ./stress-03-parallel.sh
 ```
 
-The scripts require the same kernel-module build prerequisites as Lab03 and use `sudo` when not already root. GNU `timeout` is required by the parallel test.
+All values must be positive integers.
 
-## What a pass currently proves
+## Module ownership
 
-A pass gives evidence that, in the tested environment:
+Both scripts refuse to start if `driver_lab_ioctl_poll_mmap` is already loaded. They track whether **this test** loaded the module and only unload their own instance in cleanup.
 
-- Lab03 can be built and loaded repeatedly;
-- its character-device and sysfs surfaces appear/disappear;
-- multiple userspace clients can exercise the shared state without an immediately observed shell/driver failure;
-- expected blocking-read contention is bounded by timeout;
-- all worker processes are reaped and the module unloads.
+This avoids destroying a developer's pre-existing debug state and prevents false evidence from an unknown module build/configuration.
 
-It does **not** prove:
-
-- no data race exists;
-- every worker read succeeded;
-- mmap lifetime is safe under unload;
-- all kernel warnings were absent unless dmesg is reviewed;
-- Lab05–07 IRQ/DMA teardown is safe;
-- failure labels were executed;
-- performance targets are met.
-
-## Regressions added by the 2026-08 audit
-
-The Lab03 smoke test now directly checks:
-
-- writable mmap is rejected;
-- empty poll times out rather than returning a false event;
-- two blocking readers awakened by one message do not both return;
-- the second reader remains waiting for a second message;
-- no blocking reader reports a false EOF.
-
-See [`../03-ioctl-poll-mmap/test.sh`](../03-ioctl-poll-mmap/test.sh).
-
-## Next fault-injection work
-
-### Lab03
-
-- Add deterministic concurrent writer/mmap-reader snapshot tests.
-- Keep a mapping open during unload attempts and verify the documented lifetime behavior.
-- Run with KASAN, KCSAN and lockdep configurations.
-- Add targeted allocation failure around page/cdev/class/device acquisition.
-
-### Lab05
-
-- Bind/resource conflict.
-- BAR type/length failure.
-- Liveness mismatch and repeated bind/unbind.
-
-### Lab06
-
-- IRQ allocation/request failure.
-- Missing/incorrect ACK in an isolated VM.
-- Timeout plus a deliberately late event.
-- Remove while status is pending.
-
-### Lab07
-
-- DMA mask/allocation failure.
-- Wrong address/count/direction and data mismatch.
-- Timeout followed by successful function reset.
-- Timeout with failed reset: verify the mapping is intentionally **not freed**.
-- IOMMU on/off and SWIOTLB environments.
-- Repeated DMA round-trips and unload after a failed transfer.
-
-## Test discipline
-
-For each run, record:
+## Reload stress
 
 ```text
-kernel release/config
-repository commit
-QEMU/device version where applicable
-IOMMU and sanitizer state
-exact command/iteration count/random seed
-stdout/stderr and full dmesg
-resource/IRQ state before and after
+build Lab03
+→ record kernel-log baseline
+→ repeat N times:
+     insmod
+     verify /dev + sysfs + /proc/devices
+     rmmod
+     verify /dev + sysfs disappear
+→ isolate new dmesg lines
+→ fail on warning/sanitizer signatures
 ```
 
-A useful bug diary format is:
+This is most useful for:
+
+- init/exit symmetry;
+- leaked cdev/class/devt/page references;
+- unload lifetime warnings;
+- state that survives unexpectedly across reload.
+
+It does not keep fds/VMAs active during unload; that needs separate targeted tests.
+
+## Parallel stress
 
 ```text
-symptom → hypothesis → experiment → evidence → root cause → fix → regression
+build Lab03 + runtime
+→ load/verify module
+→ start W workers
+→ each repeats:
+     ioctl-write unique record
+     status
+     mmap-read sequenced snapshot
+     bounded blocking read
+     trigger event
+→ propagate every worker failure
+→ clear/unload
+→ scan only new kernel logs
 ```
 
-## Safety
+The read path is record-oriented and another worker may consume the record first. Therefore a bounded read accepts only:
 
-- Run aggressive IRQ/DMA/fault injection in a disposable VM or test machine.
-- Do not use `rmmod -f` to hide open references or broken teardown.
-- Do not enable broad system-wide allocation failure without filters.
-- A userspace `timeout` only bounds the process; it is not a kernel/device cancellation protocol.
-- If DMA quiesce cannot be proven, leaking a mapping is safer than freeing memory a device may still address.
+- exit 0: it consumed a record;
+- exit 124: GNU `timeout` expired while another reader won.
 
-## References
+Any other status is a real failure. The script no longer uses broad `|| true` to hide crashes, `EIO`, invalid CLI arguments or permission errors.
 
-- Kernel fault injection: <https://docs.kernel.org/fault-injection/index.html>
-- KUnit: <https://docs.kernel.org/dev-tools/kunit/index.html>
-- kselftest: <https://docs.kernel.org/dev-tools/kselftest.html>
-- KASAN/KCSAN/KFENCE: <https://docs.kernel.org/dev-tools/index.html>
-- Audit scope: [`../../docs/reference/accuracy-audit-2026-08.md`](../../docs/reference/accuracy-audit-2026-08.md)
+The snapshot read adds pressure to the sequence-publication path while writers update state.
+
+## Kernel-log gate
+
+The scripts do not run `dmesg -C`. They record a line baseline and inspect messages added during the run for:
+
+```text
+BUG:
+WARNING:
+KASAN:
+KCSAN:
+Oops:
+use-after-free
+general protection fault
+```
+
+If the ring buffer wraps and the baseline cannot be isolated, the test fails honestly rather than presenting incomplete logs as evidence.
+
+On a busy non-isolated system, unrelated warnings can still cause a failure. Run kernel-driver validation in a controlled VM/guest and preserve the complete log.
+
+## What is still missing
+
+### Lab03 targeted fault/lifetime tests
+
+- active fd and VMA while attempting unload;
+- signal interruption of blocking read/poll;
+- continuous writer causing snapshot retry/EAGAIN;
+- allocation and usercopy fault injection;
+- compat ioctl and ABI-version regression.
+
+### Lab04
+
+- KCSAN run that observes the intentional unsafe data race;
+- lockdep/KASAN repeated reload;
+- controlled transition/reset concurrency.
+
+### Lab05–07
+
+- repeated QEMU EDU bind/unbind/load/unload;
+- IRQ no-ACK and late-handler tests;
+- DMA IRQ timeout, command timeout, reset success/failure;
+- IOMMU on/off and SWIOTLB scenarios;
+- no-free guarantee when DMA quiescence cannot be proven.
+
+### Test frameworks
+
+- KUnit for pure kernel helpers/state machines;
+- kselftest-style userspace ABI tests;
+- fault-injection config/fixtures;
+- matrix across kernel/QEMU versions, architectures and configs;
+- long soak/performance/tail-latency runs.
+
+## Evidence to save
+
+```text
+kernel version/config
+QEMU version and command line
+both repository commit SHAs
+sanitizer/IOMMU state
+exact stress parameters
+stdout/stderr + full new dmesg
+resource/IRQ state before/after
+first failure, hypothesis, experiment, fix, regression
+```
+
+Do not record only the final “passed” line.
+
+## Debug order
+
+### Reload failure
+
+1. first failing iteration;
+2. first kernel warning/error;
+3. filesystem surface that remained or failed to appear;
+4. module ownership/refcount/open fd/VMA;
+5. init/error-unwind/exit dependency order.
+
+### Parallel worker failure
+
+1. worker exit status and command;
+2. distinguish accepted read timeout 124 from other errors;
+3. inspect CLI/runtime validation error;
+4. inspect Lab03 record/poll/mmap state;
+5. inspect new dmesg before rerunning.
+
+## Self-check
+
+1. Why is a stress pass not proof that no race exists?
+2. Why do scripts refuse a pre-loaded module?
+3. Why is read timeout 124 accepted but arbitrary `|| true` forbidden?
+4. Why add `mmap-read` to parallel workers?
+5. Why avoid `dmesg -C`, and what happens if the ring wraps?
+6. Which tests would turn the directory into real fault injection rather than stress only?
+
+<details>
+<summary>Reference answers</summary>
+
+1. Stress samples a finite set of schedules/states; unobserved interleavings and formal invariant violations may remain.
+2. The test cannot claim ownership/version/state and must not unload or destroy someone else's debugging session.
+3. Another worker legitimately may consume the single record, so bounded waiting can expire. Other errors indicate a broken command/path and must propagate.
+4. It exercises the sequence snapshot concurrently with writers rather than stressing only syscall control/data paths.
+5. Kernel log is global diagnostic state. Tests isolate new lines; if wrapping makes isolation unreliable, they fail instead of deleting or misattributing evidence.
+6. Deliberately force allocation/usercopy/IRQ/DMA/reset failures and assert exact unwind/quiesce behavior, ideally through KUnit/kselftest/fault-injection fixtures.
+
+</details>
