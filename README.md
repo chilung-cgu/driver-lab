@@ -3,87 +3,101 @@
 > Linux host-driver learning labs: module lifecycle → debugfs → char-device UAPI → concurrency → PCI MMIO → IRQ → DMA → userspace runtime → stress.
 
 > [!IMPORTANT]
-> A technical accuracy audit is in progress on branch `review/accuracy-audit-2026-08`.
-> Read [`docs/reference/accuracy-audit-2026-08.md`](docs/reference/accuracy-audit-2026-08.md) before using companion documents. **Current `.c/.h/.sh` source and observed test results are authoritative; older `.c.md/.h.md/.sh.md` companions may still describe pre-audit behavior until they are regenerated/reviewed.**
+> Technical accuracy audit branch: `review/accuracy-audit-2026-08`.
+> Read [`docs/reference/accuracy-audit-2026-08.md`](docs/reference/accuracy-audit-2026-08.md). Current source and reproduced behavior are authoritative; generated/line-by-line `.c.md/.h.md/.sh.md` companions may still describe pre-audit code.
+
+## Current integration status
+
+The useful material from the earlier `codex/lab05-study-order` branch has been reviewed and selectively integrated here rather than merged wholesale. In particular:
+
+- [`docs/concepts/pcie-primer.md`](docs/concepts/pcie-primer.md) now distinguishes DMA address from CPU/physical address and separates ordering, posted-write arrival, device completion and payload correctness.
+- [`docs/guides/lab-04-study-order.md`](docs/guides/lab-04-study-order.md) and [`docs/guides/lab-05-study-order.md`](docs/guides/lab-05-study-order.md) preserve the study-order idea with corrected concurrency, hotplug, BAR and MMIO details.
+- [`qemu/arm-host-x86-guest.md`](qemu/arm-host-x86-guest.md) keeps the cross-architecture workflow with corrected TCG/KVM/HVF, image-format, BDF, headers and sync-path caveats.
+
+The original branch remains useful as history/backup until this PR is merged, but it should not be merged separately into `main` afterward.
 
 ## What this repository is
 
-This is a sequence of deliberately small labs. Each lab should answer:
+A sequence of deliberately small labs. Each lab should answer:
 
 1. Who calls the code path?
 2. Which resources become live, and when?
-3. Which contexts can access the state concurrently?
-4. What observable result proves the path worked?
+3. Which contexts can access state concurrently?
+4. What observable evidence proves the path worked?
 5. How does every partial failure unwind?
 6. How are producers and in-flight users stopped before resources are freed?
 
-It is not a production PCIe driver. The QEMU EDU labs teach the Linux PCI software model, not real-board signal integrity, LTSSM equalization, vendor firmware, hot-plug, SR-IOV, or production reset recovery.
+This is not a production PCIe driver. QEMU EDU teaches the Linux PCI software model, not real-board signal integrity, LTSSM/equalization, vendor firmware, hotplug, SR-IOV or production reset recovery.
 
 ## Authority order
 
-When files disagree, use this order:
+When files disagree:
 
-1. Current source plus behavior reproduced on the target kernel.
-2. Current Linux kernel and QEMU EDU documentation.
-3. Lab README and audited reference documents.
-4. Companion walkthroughs and generated summaries.
+1. Reproduced behavior on the target kernel and current source.
+2. Current Linux kernel/QEMU official documentation and relevant in-tree drivers.
+3. Current Lab README, reviewed guides and audit documents.
+4. Generated summaries and source companions.
 
-Do not copy a code line solely because a companion calls it a “rule.” Check the API contract and the current source.
+Do not copy a line solely because a companion calls it a rule; identify the API/context/device contract.
 
 ## Environment model
 
 ```text
 Host
-  └─ runs QEMU and owns the guest image
+  └─ runs QEMU and owns guest image/network
 
 Linux guest
   ├─ sees QEMU EDU (1234:11e8)
-  ├─ has the running kernel's matching build tree
+  ├─ has build tree matching uname -r
   ├─ builds/loads Labs05–07
   └─ runs lspci, dmesg, smoke/stress tests
 ```
 
 - Labs00–04 can run on a suitable Linux host or guest.
-- Labs05–07 must run in a Linux environment whose PCI hierarchy contains QEMU EDU.
-- macOS can be the QEMU/editor host, but cannot load Linux `.ko` files.
-- Cross-architecture QEMU often needs TCG; do not assume HVF/KVM can accelerate a guest of another CPU architecture.
+- Labs05–07 require a Linux PCI hierarchy containing EDU.
+- macOS can be editor/QEMU host but cannot load Linux `.ko` files.
+- Cross-architecture QEMU normally uses TCG; do not assume KVM/HVF accelerates another ISA.
 
 ## Recommended first pass
 
 1. [`docs/onboarding/reading-map.md`](docs/onboarding/reading-map.md)
 2. [`docs/onboarding/learning-dashboard.md`](docs/onboarding/learning-dashboard.md)
 3. [`docs/onboarding/linux-host-setup.md`](docs/onboarding/linux-host-setup.md)
-4. Lab00, then Lab01–04
-5. [`qemu/README.md`](qemu/README.md) and [`qemu/launch-edu-vm.sh`](qemu/launch-edu-vm.sh)
-6. Lab05 → Lab06 → Lab07
-7. Runtime/CLI and Lab09 stress
+4. Lab00–03
+5. [`docs/guides/lab-04-study-order.md`](docs/guides/lab-04-study-order.md) → Lab04
+6. [`docs/concepts/pcie-primer.md`](docs/concepts/pcie-primer.md)
+7. [`docs/guides/lab-05-study-order.md`](docs/guides/lab-05-study-order.md) + [`qemu/README.md`](qemu/README.md)
+8. Lab05 → Lab06 → Lab07
+9. Runtime/CLI and Lab09 stress
 
-Use the companion after reading the source, not instead of reading it.
+Read companions after reading source, not instead of source.
 
 ## Lab matrix
 
 | Lab | Main concept | Current first-pass validation | Important boundary |
 |---|---|---|---|
-| 00 | External module build/load/unload | init/exit, parameters, logs | Init failure must unwind itself; exit is not called for a failed load |
-| 01 | debugfs, seq_file, dynamic debug | trigger/status/atomic knobs | debugfs is not a stable product UAPI; helper access must share synchronization with driver paths |
-| 02 | cdev + read/write | global text-like buffer | Each open file has its own `f_pos`; this is not a multi-client message queue |
-| 03 | ioctl/poll/blocking read/mmap | read-only page snapshot with sequence retry | Wake-up only re-evaluates readiness; mutex cannot protect a userspace mmap reader |
-| 04 | lost update and mutex | unsafe/safe counter comparison | The sleep only widens the race window; state is initialized before the worker starts |
-| 05 | PCI match/BAR/MMIO | BAR validation, ident, liveness | Pure host MMIO does not require bus mastering; read-back is not device-command completion |
-| 06 | IRQ vectors/status/ack | one EDU event with timeout | Quiesce/ack and synchronize the handler before MMIO/state teardown |
-| 07 | coherent DMA round-trip | 28-bit mask, RAM→EDU→RAM, `memcmp` | CPU pointer is not DMA address; timeout requires quiesce/reset before freeing a possibly active mapping |
-| 08 | userspace runtime/CLI | POSIX syscall wrappers and UAPI packaging | Library is not a trust boundary; handle copying, partial I/O and ABI versioning remain design issues |
-| 09 | stress scaffold | Lab03 reload + parallel workers | Not yet a complete failslab/KUnit/kselftest or Labs05–07 fault-injection suite |
+| 00 | external module lifecycle | init/exit, parameters, logs | failed init must unwind itself; exit is not called |
+| 01 | debugfs, seq_file, dynamic debug | trigger/status/atomic knobs | debugfs is not stable product UAPI; helper/driver access needs shared synchronization |
+| 02 | cdev + read/write | global text-like buffer | each open has its own `f_pos`; not a multi-client queue |
+| 03 | ioctl/poll/blocking read/mmap | read-only sequenced page snapshot | wake only re-evaluates readiness; mutex cannot protect userspace mmap loads |
+| 04 | lost update and mutex | unsafe/safe comparison | timing demo is probabilistic; initialize before worker start and synchronize stop |
+| 05 | PCI match/BAR/MMIO | BAR validation, ident, liveness | request vs map differ; read-back is not device-command completion |
+| 06 | IRQ vector/status/ack | one EDU event with timeout | quiesce/ack and synchronize handler before teardown |
+| 07 | coherent DMA round-trip | truthful 28-bit mask, RAM→EDU→RAM, compare | CPU pointer ≠ DMA address; prove quiesce before free |
+| 08 | userspace runtime/CLI | POSIX wrappers/UAPI packaging | partial I/O, handle copying, ABI/version/lifetime still matter |
+| 09 | stress scaffold | Lab03 reload + parallel workers | not a complete KUnit/kselftest/fault-injection suite |
 
-## Build and quality checks
-
-Repository/static checks:
+## Static/build gates
 
 ```sh
 ./scripts/quality.sh .
 ./scripts/check-kernel-env.sh
 make -C runtime clean all
 ```
+
+GitHub Actions on this PR is configured to run shell syntax/ShellCheck, Markdown local-link checks, runtime/CLI build, Labs00–07 external-module compile and whitespace checks. A green compile/static run is necessary but not runtime proof.
+
+## Runtime gates
 
 Labs00–04 on Linux:
 
@@ -98,7 +112,7 @@ for lab in \
 done
 ```
 
-Labs05–07 inside the QEMU EDU guest:
+Labs05–07 inside EDU guest:
 
 ```sh
 lspci -Dnn | grep '1234:11e8'
@@ -111,45 +125,44 @@ for lab in \
 done
 ```
 
-The current audit environment could review and modify source through GitHub, but could not compile modules or boot the guest. A PR must not be described as runtime-verified until the commands above actually run and their logs are attached.
+Do not describe this PR as runtime-verified until these commands have run on the intended kernel/QEMU setup and logs are attached.
 
-## High-value regression tests to add
+## High-value regression/fault tests
 
-- Lab03: two blocking readers, one message; only one consumes, the other keeps waiting.
-- Lab03: writable mmap and `mprotect(PROT_WRITE)` are rejected.
-- Lab03: concurrent writer/readers never accept an odd or changing snapshot sequence.
-- Lab04: safe mode never loses successful increments; startup does not overwrite a worker update.
-- Lab06: pending IRQ is cleared before handler registration; repeated teardown has no late handler.
-- Lab07: timeout/reset path never frees a mapping while the device may still access it.
+- Lab03: two blocking readers/one message; one consumes, the other remains waiting.
+- Lab03: writable mmap and `mprotect(PROT_WRITE)` rejected.
+- Lab03: concurrent snapshots never accept odd/changing sequence.
+- Lab04: startup does not erase worker updates; use KCSAN/lockdep to supplement probabilistic demo.
+- Lab06: pending source cleared before request; repeated teardown has no late handler.
+- Lab07: timeout/reset failure never frees mapping while device may still access it.
 - All labs: repeated load/unload under lockdep/KASAN where practical.
 
-See [`labs/09-stress-and-fault-injection/README.md`](labs/09-stress-and-fault-injection/README.md) for the current scaffold and missing work.
+See [`labs/09-stress-and-fault-injection/README.md`](labs/09-stress-and-fault-injection/README.md) for current scaffold and gaps.
 
-## Debugging evidence
-
-Keep a bug diary with:
+## Bug diary evidence
 
 ```text
 kernel/QEMU/repository commit
-kernel config and sanitizer/IOMMU state
+kernel config + sanitizer/IOMMU state
 exact command sequence
 expected vs observed
-full dmesg / stdout / stderr
-resource and IRQ state before/after
+full dmesg/stdout/stderr
+resource/IRQ state before and after
 hypothesis → experiment → evidence → fix → regression
 ```
 
-A single “passed” log line is not sufficient evidence for IRQ or DMA correctness. Verify status/acknowledgement and payload integrity.
+A single “passed” line is not enough for IRQ/DMA correctness; verify status/ack and payload integrity.
 
-## Technical references
+## Direct references
 
-- Linux PCI driver guide: <https://docs.kernel.org/PCI/pci.html>
-- Device I/O accessors: <https://docs.kernel.org/driver-api/device-io.html>
+- [`docs/reference/source-index.md`](docs/reference/source-index.md)
+- Linux PCI guide: <https://docs.kernel.org/PCI/pci.html>
+- Device I/O: <https://docs.kernel.org/driver-api/device-io.html>
 - DMA API HOWTO: <https://docs.kernel.org/core-api/dma-api-howto.html>
-- Generic IRQ API: <https://docs.kernel.org/core-api/genericirq.html>
-- Locking rules: <https://docs.kernel.org/locking/locktypes.html>
+- Generic IRQ: <https://docs.kernel.org/core-api/genericirq.html>
+- Lock types: <https://docs.kernel.org/locking/locktypes.html>
 - QEMU EDU: <https://www.qemu.org/docs/master/specs/edu.html>
 
-## Scope beyond these labs
+## Beyond these labs
 
-A production accelerator driver would additionally need device-specific queue and reset state machines, hot-unplug/error recovery, ABI compatibility, security/permissions, pinned-user-memory policy, IOMMU isolation, multi-queue MSI-X/NUMA, power management, comprehensive fault injection and upstream-compatible coding/testing practices.
+A production accelerator driver additionally needs device-specific queue/reset state machines, hot-unplug/error recovery, stable/security-reviewed UAPI, pinned-user-memory policy, IOMMU isolation, multi-queue MSI-X/NUMA, PM, comprehensive fault injection and upstream-compatible design/testing.
