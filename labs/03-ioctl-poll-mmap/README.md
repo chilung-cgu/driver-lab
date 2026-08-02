@@ -1,27 +1,28 @@
-# 03 - ioctl / poll / read-only mmap snapshot
+# 03 — ioctl / poll / record read / read-only mmap snapshot
 
 ## 目標
 
-把 `02-char-device` 的最小 `read/write` 介面，擴成四條常見 driver ABI 路徑：
+把Lab02的最小char device擴成四條常見driver ABI路徑：
 
-| 路徑 | userspace 呼叫 | driver callback | 本 lab 用途 |
+| 路徑 | userspace | callback | 本lab用途 |
 |---|---|---|---|
-| data | `read/write` | `.read/.write` | 傳遞 message |
-| control | `ioctl` | `.unlocked_ioctl` | 設定、查狀態、觸發事件 |
-| event | `poll` | `.poll` + waitqueue | 沒事件時睡眠等待 |
-| shared snapshot | `mmap` | `.mmap` | 讀取 kernel 發布的狀態快照 |
+| data | `read/write` | `.read/.write` | 發布/消費一筆global message record |
+| control | `ioctl` | `.unlocked_ioctl` | 設定message、查status、trigger/clear |
+| event | `poll` | `.poll` + waitqueue | 等readable data或pending event |
+| shared snapshot | `mmap` | `.mmap` | 讀kernel發布的sequenced snapshot |
 
-這一關仍是教學 ABI，不是產品級介面。
+這仍是teaching ABI，不是產品級multi-client queue/ring。
 
-## 先備條件
+## 先備
 
-- 已理解 `/dev/...`、VFS 與 `file_operations`。
-- 已完成 `02-char-device` 的 read/write round-trip。
-- 知道 userspace pointer 必須經 `copy_*_user` 或相應 helper。
+- 理解`/dev`、VFS、`file_operations`；
+- 完成Lab02 read/write；
+- 知道userspace pointer需`copy_*_user`或相應helper；
+- 能區分mutex保護kernel callbacks，不能直接鎖住userspace mmap loads。
 
-## 提供的介面
+## 介面
 
-模組載入後建立：
+載入後建立：
 
 ```text
 /dev/driver_lab_ctl0
@@ -29,84 +30,109 @@
 
 支援：
 
-- `write()`：發布一筆 message。
-- `read()`：以消費型語意讀出目前 message；完整讀完後清空。
-- `DL_IOC_SET_MESSAGE`：經 ioctl 發布 message。
-- `DL_IOC_GET_STATUS`：取得 buffer/event 狀態與實際 `PAGE_SIZE`。
-- `DL_IOC_TRIGGER_EVENT`：只建立事件，不建立可讀 message。
-- `DL_IOC_CLEAR_BUFFER`：清空 message 與 pending event。
-- `poll()`：等待 readable data 或 pending event。
-- `mmap()`：建立 **read-only** shared-page mapping。
+- `write()`：發布一筆NUL-terminated internal message record；最大255 bytes。
+- `read()`：blocking/nonblocking消費完整record；destination太小回`EMSGSIZE`，record保持pending。
+- `DL_IOC_SET_MESSAGE`：固定256-byte struct，必須在陣列內含NUL，否則`EMSGSIZE`。
+- `DL_IOC_GET_STATUS`：buffer/event狀態與實際`PAGE_SIZE`。
+- `DL_IOC_TRIGGER_EVENT`：只建立event，不建立readable record。
+- `DL_IOC_CLEAR_BUFFER`：清record與pending event，不重置累積event count。
+- `poll()`：`POLLIN|POLLRDNORM`表示record可讀，`POLLPRI`表示event pending。
+- `mmap()`：恰好一頁、read-only且non-executable snapshot；禁止後續`mprotect()`升級write/exec。
 
-## 關鍵修正後的語意
+## 關鍵語意
 
-### 1. blocking read 必須「醒來後再檢查」
-
-Waitqueue condition 成立到取得 mutex 之間，另一個 reader 可能先消費 message。因此 driver 在拿到 `dl_lock` 後會再次檢查 `dl_buffer_len`：
+### 1. Blocking reader醒來後仍要重新檢查
 
 ```text
-wait_event_interruptible()
-        ↓
-mutex_lock()
-        ↓
-重新確認 buffer 是否仍有資料
-        ↓
-有資料才 copy；否則 blocking reader 回去等
+wait_event_interruptible(buffer_len > 0)
+→ mutex_lock
+→ 再檢查buffer_len
 ```
 
-這避免第二個 reader 把競爭結果誤當成 EOF。
+另一reader可能在wait condition成立與拿lock之間先消費record。第二reader應回去睡，不是回EOF。
 
-### 2. wake-up 不代表 `poll()` 一定返回
+### 2. Read採record semantics，不使用per-open offset做跨message partial stream
 
-`wake_up_interruptible()` 只讓 poll core 重新評估 readiness。若重評估後 mask 仍是 0，blocking `poll()` 會繼續等待，不會因為一次 wake-up 就成功返回 `revents=0`。
+舊text-buffer風格用`simple_read_from_buffer(..., ppos, ...)`會留下per-open `f_pos`。若reader A只讀一部分、reader B消費/清掉record，再發布新record，A的舊offset可能跳過新record前綴。
 
-因此本 lab 只在狀態變成 ready 時喚醒：
+Current lab明確定義一筆global record：
 
-| 操作 | `dl_read_wq` | `dl_event_wq` | 可能的 readiness |
+```text
+count < message length → -EMSGSIZE，record不變
+count >= message length → copy整筆 → clear record/event
+```
+
+這是簡化的message device，不是POSIX byte stream。產品介面可改用per-open queue、framed UAPI或ring，但需明確設計。
+
+### 3. Wake-up不等於`poll()`必定返回
+
+`wake_up_interruptible()`只讓wait/poll重新評估predicate。若mask仍0，blocking poll繼續等。
+
+| 操作 | read WQ | event WQ | readiness |
 |---|---:|---:|---|
-| `write` / `ioctl-write` | ✓ | ✓ | `POLLIN` + `POLLPRI` |
-| `trigger` | — | ✓ | `POLLPRI` |
-| `clear` | — | — | 狀態由 ready 變 not-ready，不需喚醒 |
-| read 完整消費 | — | — | 狀態由 ready 變 not-ready，不需喚醒 |
+| write/ioctl-write | ✓ | ✓ | `POLLIN` + `POLLPRI`（non-empty record） |
+| trigger | — | ✓ | `POLLPRI` |
+| clear | — | — | ready→not-ready，不需wake |
+| successful read consume | — | — | ready→not-ready，不需wake |
 
-### 3. mmap 是 read-only snapshot，不是任意共享寫入
+空字串ioctl可產生event但不產生`POLLIN`；以`POLLPRI`觀察，或clear。
 
-本 lab 的 shared page 是 kernel 發布給 userspace 觀測的 snapshot：
+### 4. Copy user data不要無必要地持有shared-state mutex
 
-- userspace 以 `PROT_READ` 映射；要求 writable mapping 會失敗；
-- kernel 用 `alloc_page()` 配一個正常 RAM page；
-- `.mmap` 用 `vm_insert_page()` 映射該 page；
-- mapping 長度由 `DL_IOC_GET_STATUS.mmap_size` 回報，不能假設所有平台都是 4096-byte page。
+`write()`先把userspace bytes copy進stack local buffer，再取得`dl_lock`原子發布。Page fault/copy可能睡，沒必要在那段時間阻塞status/poll/ioctl。
 
-### 4. mutex 不能保護 userspace reader
+Read則在lock內copy，因為它需要保證copy成功後才清掉同一global record。Buffer只有256 bytes，這是本lab的明確簡化；產品高吞吐設計不應長時間持lock做user copy。
 
-Kernel 的 `dl_lock` 只能序列化 kernel callbacks；userspace 直接讀 mmap page 時不會拿到這把鎖。為避免讀到半更新資料，shared layout 有 `seq`：
+### 5. Mmap是kernel→userspace snapshot
+
+- `alloc_page()`配置normal RAM page；
+- `.mmap`要求`vm_pgoff==0`與VMA恰好`PAGE_SIZE`；
+- reject `VM_WRITE|VM_EXEC`；
+- clear `VM_MAYWRITE|VM_MAYEXEC`，阻止`mprotect`升級；
+- `vm_insert_page()`插入page；
+- `VM_DONTEXPAND|VM_DONTDUMP`降低非預期VMA操作/泄漏。
+
+Mapping size由ioctl回報，不假設所有平台4096 bytes。
+
+### 6. Sequence snapshot
+
+Kernel writers在`dl_lock`下：
 
 ```text
-偶數 seq：穩定 snapshot
-奇數 seq：kernel 正在更新
+seq → odd
+write fields/buffer
+seq → next even
 ```
 
-runtime 的 `dl_runtime_read_shared_snapshot()` 會：
+Userspace helper：
 
-1. 讀起始 `seq`；
-2. 若是奇數就重試；
-3. 複製整份 snapshot；
-4. 再讀一次 `seq`；
-5. 只有兩次相同且為偶數才接受。
+```text
+acquire-load begin seq
+→ odd則重試
+→ copy snapshot
+→ read fence
+→ acquire-load end seq
+→ begin == end且even才接受
+```
 
-這是教學版 sequence-counter publication protocol；真實 ABI 還要考慮版本相容、權限與更完整的 lifetime 管理。
+Kernel mutex不會被userspace arbitrary loads取得，因此需要publication protocol。這只是固定layout snapshot，不可用來發布會被free的pointer。
 
-## Source 旁讀
+### 7. UAPI字串契約
 
-| Source | Companion |
+`DL_IOC_SET_MESSAGE`的`text[256]`必須含NUL。Current driver不再把未終止的256 bytes默默截成255；它回`EMSGSIZE`。這讓caller知道資料未被接受，避免「返回成功但內容被改短」。
+
+## Source旁讀
+
+| Source | Companion（可能需重新生成） |
 |---|---|
 | [`driver_lab_ioctl_poll_mmap.c`](driver_lab_ioctl_poll_mmap.c) | [`driver_lab_ioctl_poll_mmap.c.md`](driver_lab_ioctl_poll_mmap.c.md) |
 | [`../../runtime/include/driver_lab_uapi.h`](../../runtime/include/driver_lab_uapi.h) | [`../../runtime/include/driver_lab_uapi.h.md`](../../runtime/include/driver_lab_uapi.h.md) |
 | [`../../runtime/src/driver_lab_runtime.c`](../../runtime/src/driver_lab_runtime.c) | [`../../runtime/src/driver_lab_runtime.c.md`](../../runtime/src/driver_lab_runtime.c.md) |
 | [`../../tests/driver_lab_char_cli.c`](../../tests/driver_lab_char_cli.c) | [`../../tests/driver_lab_char_cli.c.md`](../../tests/driver_lab_char_cli.c.md) |
 
-## 使用方式
+Companion與current source不同時，以current source與audit為準。
+
+## 使用
 
 ```sh
 make
@@ -120,47 +146,64 @@ sudo insmod ./driver_lab_ioctl_poll_mmap.ko
 
 # terminal A
 ../../tests/driver_lab_char_cli /dev/driver_lab_ctl0 poll 3000
-# terminal B（在 timeout 前）
+# terminal B
 ../../tests/driver_lab_char_cli /dev/driver_lab_ctl0 trigger
 
 sudo rmmod driver_lab_ioctl_poll_mmap
 ```
 
-## 自動化 smoke test
+## Automated test
 
 ```sh
 ./test.sh
 ```
 
-最低驗收：
+Current regressions涵蓋：
 
-- `/dev/driver_lab_ctl0` 存在；
-- ioctl/write 發布的資料可 read；
-- `poll` 能被 message 或 trigger 喚醒；
-- `mmap-read` 取得 magic/version 正確且穩定的 snapshot；
-- writable mmap 被拒絕；
-- unload 後 device/class/page 都被清理。
+- basic ioctl/read/status/mmap；
+- writable mmap拒絕；
+- read-only mapping無法`mprotect(PROT_WRITE)`；
+- empty poll timeout；
+- two blocking readers/one record；
+- undersized read回`EMSGSIZE`且record仍可完整讀；
+- unload後device/sysfs消失；
+- test不卸載它沒有載入的pre-existing module。
 
-## 建議追加的併發測試
+仍建議追加：
 
-同時啟動兩個 blocking reader，再發布一筆 message：
-
-- 只有一個 reader 應消費該 message；
-- 另一個 reader 應繼續等待下一筆，而不是錯誤回 EOF。
-
-另外可在 writer 高頻更新時重複執行 `mmap-read`，確認 sequence retry 不會接受奇數或變動中的 snapshot。
-
-## 完成後應該能回答
-
-1. `poll_wait()` 做了什麼？為什麼它本身不是「在 callback 裡睡著」？
-2. 為什麼 waitqueue condition 在拿 mutex 後還要再檢查？
-3. 為什麼 kernel mutex 無法直接保證 userspace mmap reader 看到一致 snapshot？
-4. 為什麼 UAPI 不能把 mmap size 永久寫死為 4096？
-5. 為什麼本 lab 的 mapping 應是 read-only，而不是讓 userspace 改 kernel state？
+- high-frequency writer + mmap snapshot retry；
+- `mprotect(PROT_EXEC)`拒絕；
+- nonblocking read empty/undersized cases；
+- compat ioctl；
+- KASAN/KCSAN/lockdep與repeated reload。
 
 ## 限制
 
-- 這個 shared page 只是狀態快照，不是高吞吐 ring buffer。
-- 沒有 per-open state、權限模型、compat ioctl、ABI negotiation 或 hot-unplug。
-- sequence protocol 不適合包含可被 writer 釋放的 pointer。
-- 真實硬體資料路徑通常還要處理 DMA ownership、cache coherency、memory ordering 與 reset。
+- 一個global record，沒有per-open queue/fairness/backpressure。
+- Reader在copy_to_user期間持mutex；只適合小teaching payload。
+- 無權限模型、compat ioctl、ABI negotiation、hot-unplug。
+- Sequence protocol不處理pointer lifetime。
+- 真實hardware data path還有DMA ownership/cache/order/reset。
+
+## Self-check
+
+1. 為什麼拿mutex後要重查wait predicate？
+2. 為什麼本lab拒絕partial read而回`EMSGSIZE`？
+3. Wake event為何可能不讓poll返回？
+4. 為什麼write先copy local再lock，read卻在lock內copy？
+5. Mutex為什麼不能保證mmap reader的一致性？
+6. `VM_MAYWRITE/VM_MAYEXEC`為什麼也要清？
+7. 256-byte ioctl payload沒有NUL時，為什麼不應默默truncate？
+
+<details>
+<summary>參考答案</summary>
+
+1. Predicate成立到拿lock之間可能有另一consumer改掉state；需要同一同步domain下重新判斷。
+2. Global record配per-open offset會在跨reader/跨message時產生stale offset與skip；all-or-nothing明確定義message semantics並保留undersized record。
+3. Wake只觸發重新評估；若readiness仍false，blocking poll繼續睡到event/timeout/signal/error。
+4. Write copy不需shared state，可縮短lock hold；read若先unlock再copy，另一path可能覆蓋/清除record，所以本小buffer設計在lock內copy後才consume。
+5. Userspace直接load mapping不會取得kernel mutex，需要sequence/barrier protocol辨識concurrent update。
+6. 只拒絕初始`VM_WRITE/EXEC`不夠，userspace可能用`mprotect`請求後續升級；清may flags阻止。
+7. 成功返回卻改變payload會隱藏資料丟失；嚴格回`EMSGSIZE`讓caller修正contract。
+
+</details>
