@@ -1,251 +1,232 @@
-# 04 - Locking and Races
+# 04 — Locking, races, and worker lifetime
 
-## 目標
+> Read [`../../docs/guides/lab-04-study-order.md`](../../docs/guides/lab-04-study-order.md) first.
 
-在沒有硬體的情況下，先把 driver 最容易出事的同步與 lifetime 問題練掉。
+## Goal
 
-> [!NOTE]
-> 這是進階關卡。你還沒把 `00-03` 做熟之前，不需要急著碰這一關。
+Demonstrate a lost-update race, fix the increment with a mutex, and keep experiment phase changes and teardown deterministic:
 
-## 開始前先看
+```text
+multiple userspace ioctl threads + one kernel thread
+→ shared counter
+→ unsafe read/sleep/write loses updates
+→ safe mutex path preserves successful increments
+→ mode/reset wait for old increments to finish
+→ kthread_stop synchronizes exit
+```
 
-- [`../../docs/onboarding/03-to-05-concurrency-pci-bridge.md`](../../docs/onboarding/03-to-05-concurrency-pci-bridge.md)
-- [`../../docs/concepts/concurrency-primer.md`](../../docs/concepts/concurrency-primer.md)
-- [`../../docs/guides/lab-04-walkthrough.md`](../../docs/guides/lab-04-walkthrough.md)
+This lab does not implement every synchronization primitive listed in the broader concurrency primer. The current executable lesson is specifically:
 
-## 先備條件
+- unsafe vs mutex-protected increment;
+- startup ordering;
+- quiescent mode/reset boundaries;
+- worker lifetime and module cleanup;
+- probabilistic test evidence vs proof.
 
-- 你已經寫過至少一支會被 userspace 反覆呼叫的 driver
-- 你已經知道 `read/write/ioctl` 會共享同一份 kernel state
+## Interface
 
-## 這一關要練什麼
-
-- mutex
-- spinlock
-- atomic
-- completion
-- waitqueue
-- workqueue
-- kthread
-- KASAN / KCSAN / lockdep
-
-## 建議輸出
-
-- 一個刻意可重現 race 的版本
-- 一個修正後版本
-- 測試腳本可證明修正前後差異
-
-## 這一關最小白話情境
-
-你可以先把這一關想成：
-
-- thread A 在 `write()`
-- thread B 在 `ioctl()`
-- 兩邊都碰同一份 shared state
-
-如果沒有同步機制，就可能出現：
-
-- counter 不一致
-- buffer 內容錯亂
-- cleanup 太早發生
-
-## 第一次不要急著寫完整 driver
-
-對新手最合理的步驟是：
-
-1. 先做一個「故意會壞」的版本
-2. 用多執行緒 userspace 測試把它踩爆
-3. 再用 `mutex` 修到穩
-4. 最後才加更進階的 waitqueue / completion / worker
-
-## 如果你完全看不懂 source code，先看這 5 行/區塊
-
-1. `dl_counter`：這是被多條路徑共享的 counter。
-2. `dl_safe_mode`：這個開關決定目前示範 unsafe 還是 safe。
-3. `dl_race_increment_unlocked()`：故意不加鎖，讓 lost update 容易出現。
-4. `dl_race_increment_locked()`：用 `mutex` 保護同一段 increment。
-5. `driver_lab_race_exit()`：先停背景 worker，再清 device resource。
-
-## 這一關現在已實作的介面
-
-module 載入後會建立：
+Loading creates:
 
 ```text
 /dev/driver_lab_race0
 ```
 
-## Source 旁讀文件
+The fixed-width UAPI supports:
 
-讀 source 時可以直接打開同目錄的 companion doc，不需要回到 `docs/` 裡找對應解釋：
+```text
+status
+reset
+safe-mode 0|1
+inc <count>
+race <threads> <loops>
+```
 
-| Source | 旁讀文件 | 建議用途 |
+`struct dl_race_status` uses 32-bit fields and a reserved field; it contains no pointers or native-width `unsigned long` ABI.
+
+## Shared actors
+
+| Actor | Path | Shared state |
 |---|---|---|
-| [`driver_lab_race.c`](driver_lab_race.c) | [`driver_lab_race.c.md`](driver_lab_race.c.md) | 逐段理解 unsafe/safe increment、mutex、kthread、ioctl control path 與 cleanup。 |
-| [`driver_lab_race_uapi.h`](driver_lab_race_uapi.h) | [`driver_lab_race_uapi.h.md`](driver_lab_race_uapi.h.md) | 理解 `struct dl_race_status` 與 `DL_RACE_IOC_*` ABI。 |
-| [`Makefile`](Makefile) | [`Makefile.md`](Makefile.md) | 理解 Lab04 external module kbuild 與 CLI build 分工。 |
-| [`test.sh`](test.sh) | [`test.sh.md`](test.sh.md) | 理解 smoke test 如何對照 unsafe/safe mode。 |
-| [`../../tests/driver_lab_race_cli.c`](../../tests/driver_lab_race_cli.c) | [`../../tests/driver_lab_race_cli.c.md`](../../tests/driver_lab_race_cli.c.md) | 理解 userspace pthread 如何對 driver ioctl 施壓。 |
+| userspace CLI threads | `ioctl(INC_COUNTER)` | `dl_counter` |
+| background kthread | `dl_race_worker_fn()` | `dl_counter` |
+| control client | set mode/reset/status | counter/mode/worker state |
+| module exit | stop worker then destroy resources | worker lifetime |
 
-## 這一關會出現哪些 filesystem 入口
+## Unsafe mode
 
-`04` 的重點是 race，不是新 device model；filesystem 入口仍沿用 `02` 的 char device 模型。
+```c
+snapshot = READ_ONCE(dl_counter);
+usleep_range(1000, 2000);
+WRITE_ONCE(dl_counter, snapshot + 1);
+```
 
-| 路徑 | 第一輪用途 |
-|---|---|
-| `/dev/driver_lab_race0` | CLI 對 driver 做 `status/reset/safe-mode/inc/race` 的操作入口。 |
-| `/sys/class/driver_lab_race/driver_lab_race0` | 確認 race device 的 class/device entry 已建立。 |
-| `/sys/devices/virtual/driver_lab_race/driver_lab_race0` | 常見的 virtual device 實際 sysfs 位置。 |
-| `/proc/devices` | 輔助確認 `driver_lab_race` 的 major number 已註冊。 |
+`READ_ONCE/WRITE_ONCE` force individual accesses but do not make the read-modify-write atomic. Two actors can read the same old value and overwrite one another.
 
-如果 `/dev/driver_lab_race0` 沒出現，先看 `dmesg`；再查 `/sys/class/driver_lab_race/` 是否存在，用來分辨是 driver init 失敗，還是 `/dev` node 層問題。
+The sleep deliberately widens the race window. This function runs only in sleepable process/kthread context; it is not an IRQ example.
 
-搭配的 userspace 工具：
+## Safe mode
 
-- [`../../tests/driver_lab_race_cli.c`](../../tests/driver_lab_race_cli.c)
+```c
+mutex_lock(&dl_race_lock);
+dl_counter++;
+mutex_unlock(&dl_race_lock);
+```
 
-這支工具目前能做：
+The mutex protects the complete read-modify-write invariant. It is appropriate here because all increment paths may sleep.
 
-- `status`
-- `reset`
-- `safe-mode 0|1`
-- `inc <count>`
-- `race <threads> <loops>`
+Do not generalize this mutex directly to hard IRQ state. IRQ-shared data needs a design appropriate to its contexts, often short spinlock-based sections or per-queue state.
 
-## 第一版先只要求你做到
+## Why there is also a phase gate
 
-- 你能重現 race
-- 你能說出共享資料是什麼
-- 你知道為什麼 `mutex` 能先解掉第一層問題
+A subtle bug remains if `safe-mode` or `reset` changes while an old unsafe increment is sleeping:
 
-## 之後才補的東西
+```text
+unsafe operation reads old counter
+→ control path resets or switches mode
+→ old operation wakes and writes stale value into the new phase
+```
 
-- KCSAN / lockdep 實戰
-- 更進階的 lifetime 問題
-- 與 IRQ path 混合的同步問題
+Current source uses an `rw_semaphore` as an **experiment phase gate**:
 
-## 這一關的教學設計
+- every increment holds the read side;
+- many unsafe increments can still run concurrently and race;
+- mode/reset/status snapshot takes the write side;
+- write-side acquisition waits for all old increments and blocks new ones.
 
-這個 lab 刻意提供兩種模式：
+The gate does not fix the unsafe increment. It only gives mode/reset a quiescent boundary so one experiment cannot contaminate the next.
 
-1. `safe_mode = 0`
-   - 故意不用 lock 保護 increment
-   - 比較容易踩出 lost update
-2. `safe_mode = 1`
-   - 用 `mutex` 保護 increment
-   - 用來對照 race 被修掉後的結果
+## Startup order
 
-## 使用方式
+Current init:
+
+```text
+initialize counter/mode/worker state
+→ register cdev/class
+→ start kthread
+→ mark worker running
+→ publish device node
+```
+
+A thread can run immediately after `kthread_run()`. Initializing state afterward could erase its first updates. Publishing the device node last prevents userspace from entering before the worker setup succeeds.
+
+## Teardown
+
+```text
+kthread_stop()
+→ wait for worker function to return
+→ mark worker stopped
+→ destroy device/class/cdev/devt
+```
+
+Setting a boolean alone is not enough: the worker might not have observed it and could still execute while resources are freed. `kthread_stop()` supplies the stop request plus join-like synchronization.
+
+Open device descriptors hold a module reference because `.owner = THIS_MODULE`; normal `rmmod` should fail while clients still use the fops. The test does not use forced unload.
+
+## Userspace CLI safety
+
+The CLI now:
+
+- validates numeric syntax/ranges;
+- rejects `threads * loops` beyond the 32-bit teaching counter;
+- checks `pthread_create` and `pthread_join` errors;
+- propagates worker ioctl failures;
+- uses `O_CLOEXEC`;
+- rejects `safe-mode` values other than 0 or 1.
+
+## Test
+
+```sh
+cd labs/04-locking-and-races
+./test.sh
+```
+
+The test:
+
+1. refuses to unload a module it did not load;
+2. verifies the worker is running;
+3. runs unsafe mode and records the result as probabilistic evidence;
+4. switches mode/reset through quiescent boundaries;
+5. requires safe mode to observe at least every successful userspace increment;
+6. allows the background worker to make the count larger than the minimum;
+7. rejects invalid mode input;
+8. unloads and checks filesystem cleanup.
+
+### What the test does not prove
+
+- Unsafe mode may occasionally show no net deficit because the worker adds increments and scheduling varies.
+- A finite run cannot prove absence of a data race.
+- Safe counter correctness does not prove every possible lifetime/deadlock property.
+- KCSAN, lockdep, KASAN and stress answer different questions.
+
+Do not change the test into “retry until the desired unsafe number appears”; that hides nondeterminism instead of documenting it.
+
+## Useful manual sequence
 
 ```sh
 make
-cc -Wall -Wextra -Werror -pthread -o ../../tests/driver_lab_race_cli ../../tests/driver_lab_race_cli.c
+cc -Wall -Wextra -Werror -std=c11 -pthread \
+  -o ../../tests/driver_lab_race_cli \
+  ../../tests/driver_lab_race_cli.c
 sudo insmod ./driver_lab_race.ko
-../../tests/driver_lab_race_cli /dev/driver_lab_race0 status
-../../tests/driver_lab_race_cli /dev/driver_lab_race0 safe-mode 0
-../../tests/driver_lab_race_cli /dev/driver_lab_race0 reset
-../../tests/driver_lab_race_cli /dev/driver_lab_race0 race 8 50
-../../tests/driver_lab_race_cli /dev/driver_lab_race0 safe-mode 1
-../../tests/driver_lab_race_cli /dev/driver_lab_race0 reset
-../../tests/driver_lab_race_cli /dev/driver_lab_race0 race 8 50
+
+CLI=../../tests/driver_lab_race_cli
+DEV=/dev/driver_lab_race0
+sudo "$CLI" "$DEV" safe-mode 0
+sudo "$CLI" "$DEV" reset
+sudo "$CLI" "$DEV" race 8 50
+sudo "$CLI" "$DEV" safe-mode 1
+sudo "$CLI" "$DEV" reset
+sudo "$CLI" "$DEV" race 8 50
+
 sudo rmmod driver_lab_race
 ```
 
-## `test.sh` 逐段在驗什麼
+## Debug order
 
-1. 確認目前是 Linux，因為這關要載入 kernel module。
-2. `make` 建出 `driver_lab_race.ko`。
-3. 用 `cc -pthread` 建出 userspace race CLI。
-4. 如果前一次留下同名 module，先卸載，避免背景 worker 狀態混亂。
-5. 載入 module，檢查 `/dev/driver_lab_race0`、`/sys/class/driver_lab_race/driver_lab_race0`、`/proc/devices`。
-6. 先切到 `safe-mode 0`，reset 後跑 `race 8 50`。
-7. 再切到 `safe-mode 1`，reset 後跑同一組 `race 8 50`。
-8. 從兩份 log 抽出 `observed=`，確認 safe mode 不應比 unsafe 更差。
-9. 卸載 module，確認 sysfs class device 消失，清 build artifact 與暫存 CLI。
+Read [`debug-checklist.md`](debug-checklist.md). First distinguish:
 
-這支 test 不是要證明 mutex 讓數字永遠一模一樣，而是用同一組壓力條件對照 unsafe/safe 的差異。
+- race not exposed in this run;
+- wrong mode or missing reset;
+- stale operation crossing a phase boundary;
+- userspace thread/ioctl failure;
+- worker startup/stop problem;
+- module/device-node ownership issue.
 
-## 你應該觀察到什麼
+## Follow-up validation
 
-- 在 `safe_mode = 0` 時：
-  - `observed` 常常小於 `expected_at_least`
-- 在 `safe_mode = 1` 時：
-  - `observed` 會更接近預期值
+- KCSAN for unsynchronized memory-access evidence;
+- lockdep for lock-order/context mistakes;
+- KASAN for lifetime/UAF;
+- repeated load/unload;
+- signal/interruption tests around ioctl and module users;
+- PREEMPT_RT-specific review only when targeting RT.
 
-這就是最基本的 race 對照實驗。
+## Self-check
 
-## 第一輪閱讀界線
+1. Why do `READ_ONCE/WRITE_ONCE` not fix the lost update?
+2. What invariant does the mutex protect?
+3. Why can unsafe increments still race even though there is an `rw_semaphore`?
+4. Why must mode/reset take a quiescent boundary?
+5. Why initialize state before `kthread_run()` and publish the device node afterward?
+6. What does `kthread_stop()` guarantee that a boolean does not?
+7. Why is the unsafe test result informational rather than a hard “must be below expected” gate?
 
-| 分類 | 內容 |
-|---|---|
-| 第一輪必懂 | unsafe mode 故意示範 lost update；safe mode 用 mutex 保護共享 counter；背景 kthread 也是共享狀態的競爭來源。 |
-| 可以先略過 | spinlock、atomic、completion、workqueue 的完整使用時機；KASAN/KCSAN/lockdep 的實戰細節。 |
-| 之後再回來補 | process context vs IRQ context 的 lock 選擇、worker lifetime、卸載時如何避免背景工作碰已釋放資源。 |
+<details>
+<summary>Reference answers</summary>
 
-## 完成後你應該能回答
+1. They constrain each access, not the whole read-compute-write sequence; concurrent actors can still read the same value and overwrite one update.
+2. It makes the complete counter increment mutually exclusive in safe mode, so each successful increment is based on the latest value.
+3. Each increment takes the read side; multiple readers run concurrently. The write side is reserved for phase transitions, not for serializing increments.
+4. An old unsafe operation could wake after reset/mode switch and write a stale value into the next experiment. The write lock waits for all old increments.
+5. A new thread may execute immediately, and userspace may open immediately after the node appears. All state/worker resources must be ready before publication.
+6. It requests stop and waits until the kthread function returns, establishing that the worker no longer touches state/resources.
+7. Race manifestation depends on scheduling and the background worker also increments; finite absence of a deficit is not proof of safety.
 
-| 問題 | 標準答案 |
-|---|---|
-| 這一關的 userspace 入口在哪裡？ | `/dev/driver_lab_race0`；CLI 透過 ioctl 切換模式、reset、increment 與讀 status。 |
-| unsafe mode 在示範什麼？ | `safe_mode = 0` 時故意不保護 read-modify-write，讓多條路徑容易造成 lost update。 |
-| safe mode 怎麼修正第一層問題？ | `safe_mode = 1` 時用 `mutex` 包住共享 counter 的 increment，讓同一時間只有一條路徑修改它。 |
-| 背景 kthread 為什麼重要？ | 它模擬 driver 內部也可能同時碰共享 state；race 不只來自 userspace thread。 |
-| 第一個觀測點是什麼？ | `driver_lab_race_cli ... race <threads> <loops>` 的 `expected_at_least` 與 `observed` 差異。 |
-| 這一關主要拿到什麼 resource？ | char device resource 與一條背景 kthread。 |
-| cleanup 要先做什麼？ | 卸載時先停背景 worker，再移除 device/class/cdev/major-minor，避免 thread 繼續碰已拆掉的資源。 |
-| race 結果看起來怪時第一個看哪裡？ | 先確認目前 `safe_mode`，再回頭看 `expected_at_least` 的定義與 `dmesg`。 |
+</details>
 
-## 一次合理的示範輸出
+## References
 
-下面只是示意，不是唯一正確數字：
-
-```text
-$ ../../tests/driver_lab_race_cli /dev/driver_lab_race0 race 8 50
-expected_at_least=400 observed=237 safe_mode=0
-
-$ ../../tests/driver_lab_race_cli /dev/driver_lab_race0 race 8 50
-expected_at_least=400 observed=412 safe_mode=1
-```
-
-你第一次不用追求每次都一模一樣。
-
-這一關重點是：
-
-- unsafe 結果通常偏差更大
-- safe 結果通常更合理
-
-## 第一次卡住先看哪裡
-
-- 如果 `insmod` 失敗：
-  - 先看 [`../../docs/reference/common-failures.md`](../../docs/reference/common-failures.md)
-- 如果 `/dev/driver_lab_race0` 沒出現：
-  - 先看 `dmesg`
-- 如果 `race` 指令跑完數字很奇怪：
-  - 先回去看 [`../../docs/guides/lab-04-walkthrough.md`](../../docs/guides/lab-04-walkthrough.md) 裡對 `expected_at_least` 的解釋
-
-## 新手先記住這一關在補什麼
-
-- 單執行緒能跑，不代表多執行緒安全
-- driver 常死在 race、lifetime、cleanup，不是死在語法
-
-## 看 source code 時先抓哪幾個點
-
-這一關要刻意看到「錯」與「修正」的對照：
-
-1. `dl_counter`、`dl_safe_mode`、`dl_worker_running`：先找出哪些 state 被多條路徑共享
-2. `dl_race_increment_unlocked()`：故意拆開 read-modify-write，讓 race 容易重現
-3. `dl_race_increment_locked()`：用 `mutex` 保護同一個 counter 的最小修正版
-4. `dl_race_ioctl()`：userspace 如何切換 safe mode、reset、讀 status
-5. `dl_race_worker_fn()`：背景 kthread 如何模擬 driver 內部也會同時改 state
-6. `driver_lab_race_exit()`：卸載時為什麼要先停 worker，再清 device 資源
-
-遇到 kernel API 時，先套用「參數角色」模板，完整方法見 [`../../docs/onboarding/kernel-api-parameter-roles.md`](../../docs/onboarding/kernel-api-parameter-roles.md)。
-
-| API | 參數角色 | 第一輪理解 |
-|---|---|---|
-| `mutex_lock(&dl_race_lock)` | lock pointer | 取得保護共享 counter 的 lock；這關在 ioctl/kthread path 使用一般 mutex。 |
-| `kthread_run(dl_race_worker_fn, NULL, "dl_race_worker")` | thread function、private data、名稱 | 建一條背景 kernel thread；`NULL` 表示本 lab 沒傳 private data。 |
-| `copy_from_user(&safe_mode, (void __user *)arg, sizeof(safe_mode))` | kernel destination、userspace source、size | 從 ioctl arg 讀回 userspace 想設定的 safe mode。 |
-| `copy_to_user((void __user *)arg, &status, sizeof(status))` | userspace destination、kernel source、size | 把 counter/safe_mode/worker 狀態回傳給 CLI。 |
-| `struct dl_race_status` | UAPI struct | userspace CLI 和 kernel driver 都要同意欄位順序與型別。 |
-
-你不需要在第一輪就理解所有 kernel concurrency primitive。先把 `mutex` 解決 lost update 的原因講清楚。
+- Lock types: <https://docs.kernel.org/locking/locktypes.html>
+- Mutex design: <https://docs.kernel.org/locking/mutex-design.html>
+- Kthreads/driver basics: <https://docs.kernel.org/driver-api/basics.html>
+- KCSAN: <https://docs.kernel.org/dev-tools/kcsan.html>
