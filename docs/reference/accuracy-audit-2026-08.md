@@ -1,58 +1,130 @@
 # Accuracy audit — 2026-08
 
-> Status: static review in progress on branch `review/accuracy-audit-2026-08`.
+> Branch: `review/accuracy-audit-2026-08`
 >
-> This document records what was checked, what was corrected, and what still requires a real Linux/QEMU run. It is deliberately stricter than a normal tutorial review: statements are compared against current Linux kernel documentation and the current QEMU EDU specification.
+> Status: static/source audit plus CI work in progress. Runtime MMIO/IRQ/DMA validation still requires the intended Linux/QEMU guest.
 
-## Source hierarchy
+## Conclusion
 
-When documents disagree, use this order:
+The curriculum order is useful, but several original explanations and lab paths blurred important contracts: task/context switching, poll wake-up semantics, mmap consistency, MMIO ordering vs posted completion, MSI transaction type, DMA address/ownership, and quiesce-before-free.
 
-1. the current lab source and its observed behavior on the target kernel;
-2. current Linux kernel documentation and QEMU EDU documentation;
-3. the lab README and companion documents;
-4. generated summaries or external tutorials.
+This branch corrects the primary source and learner-facing entry points first. It remains a teaching project, not a production accelerator driver.
 
-A tutorial simplification is retained only when it does not imply an unsafe API use or a false portability guarantee.
+## Earlier `codex/lab05-study-order` branch
 
-## High-impact findings
+The branch exists remotely and contains eight commits not present in the old `main`. It was not merged wholesale because it diverged from this audit branch and includes both useful study-order material and pre-audit simplifications/test-style changes.
 
-### Lab03: `ioctl` / `poll` / `mmap`
+Reviewed integration performed here:
 
-- A wake-up only asks the poll core to re-evaluate readiness. Clearing a condition and calling `wake_up_interruptible()` does **not** make a blocking `poll()` return successfully with `revents == 0`; it normally goes back to sleep until a positive event, timeout, signal, or error.
-- Multiple blocking readers must re-check the protected condition after taking the mutex. Another reader can consume the message between the waitqueue condition and lock acquisition.
-- The shared page is a kernel-to-userspace snapshot, so the userspace mapping should be read-only.
-- A page allocated as normal RAM is mapped with `vm_insert_page()` instead of treating it as a raw I/O PFN.
-- A sequence field is used so userspace can retry when it races a kernel update; the mutex protects kernel writers but cannot lock an arbitrary userspace reader.
-- The actual mapping size is `PAGE_SIZE`; it is not hard-coded to 4096 bytes in the UAPI.
+- rewrote [`../concepts/pcie-primer.md`](../concepts/pcie-primer.md);
+- added [`../guides/lab-04-study-order.md`](../guides/lab-04-study-order.md);
+- added [`../guides/lab-05-study-order.md`](../guides/lab-05-study-order.md);
+- added/corrected [`../../qemu/arm-host-x86-guest.md`](../../qemu/arm-host-x86-guest.md);
+- aligned docs index, reading map, QEMU README, Lab04/05 debug guides and source index;
+- retained the original branch as backup/history until this PR is merged.
 
-### Lab04: locking demo
+Examples corrected during integration:
 
-- Shared state is initialized before starting the background kthread. Starting the worker first allowed it to increment the counter and then have the initialization path overwrite the result.
+- device receives a DMA address from the DMA API, not an arbitrary CPU physical address;
+- driver-first/device-first binding does not imply every physical PCIe device supports hotplug;
+- BDF is not stable or fixed across QEMU topologies;
+- normal MMIO ordering, PCI posted-write arrival and device command completion are separate;
+- shared kernel `dmesg` is not cleared by smoke tests;
+- cross-ISA arm64-host/x86_64-guest generally uses TCG, not KVM/HVF acceleration.
 
-### Labs05–07: PCI / MMIO / IRQ / DMA
+After this PR merges, `codex/lab05-study-order` should not be merged separately; doing so could reintroduce superseded versions of the same documents/tests.
 
-- BAR0 is checked for `IORESOURCE_MEM` and for the minimum register span before it is accessed.
-- MMIO bases use a byte-addressed `u8 __iomem *` so register offsets do not rely on GNU `void *` arithmetic.
-- Hard IRQ paths avoid an unconditional `dev_info()` per interrupt.
-- IRQ teardown first quiesces/acknowledges the EDU interrupt source, then synchronizes and frees the handler before MMIO is unmapped.
-- DMA ordering is explained as separate contracts: `dma_wmb()`/`dma_rmb()` order ownership data in coherent DMA memory; normal `iowrite32()`/`ioread32()` provide the default normal-memory↔MMIO ordering required by the Linux I/O accessor contract. A posted-write read-back is a separate completion issue.
+## Authority hierarchy
 
-## Validation performed in this review
+When material disagrees:
 
-- Static source review of labs 00–09, the userspace runtime, tests, QEMU launcher, onboarding documents, and the primary README files.
-- Cross-check against current Linux documentation for locking, IRQ APIs, DMA mappings, memory barriers, MMIO accessors, PCI driver lifecycle, MSI, and VFIO/IOMMUFD.
-- Cross-check against the current QEMU EDU register and DMA specification.
+1. observed behavior on the target kernel/QEMU setup and current source;
+2. current Linux kernel/QEMU official documentation and relevant in-tree examples;
+3. current Lab README, reviewed study-order guides and this audit;
+4. generated/line-by-line companions and external tutorials.
 
-## Validation still required after merge
+A simplification is retained only when it does not imply unsafe API use, false portability or a false validation claim.
 
-This environment cannot build or load kernel modules and cannot boot the repository's QEMU guest. The following checks must therefore run in a Linux environment before treating the branch as runtime-verified:
+## High-impact findings and corrections
+
+### Execution context / concurrency
+
+- A syscall entry or hard IRQ entry is not automatically a task context switch.
+- Hard IRQ cannot sleep because its execution-context contract forbids blocking/scheduling; the explanation is not “there is no `task_struct`.”
+- `READ_ONCE()`/`WRITE_ONCE()` control individual accesses; they are not locks and do not protect a multi-operation invariant.
+- Lab04 initializes worker-visible state before `kthread_run()` and uses `kthread_stop()` to synchronize exit before resource teardown.
+
+### Lab03: ioctl / poll / mmap
+
+- Wake-up asks poll/wait logic to re-evaluate readiness. Clearing readiness and waking does not make a blocking `poll()` successfully return `revents == 0`; it normally sleeps again until a positive event, timeout, signal or error.
+- Multiple readers re-check the protected predicate after acquiring the mutex; another reader may consume the message first.
+- The snapshot mapping is read-only and cannot be upgraded with `mprotect(PROT_WRITE)`.
+- Normal RAM is mapped through page-aware VM APIs rather than treated as arbitrary device PFN I/O memory.
+- A sequence publication protocol lets userspace detect/retry a concurrent snapshot update; a kernel mutex cannot directly lock arbitrary userspace loads.
+- UAPI fields use fixed-width types and the mapping size is the actual `PAGE_SIZE`, not universally 4096.
+
+### PCI/BAR/MMIO
+
+- Raw BAR encoding, PCI core resource and `__iomem` mapping are different address views.
+- BAR0 type and minimum register span are validated before access.
+- MMIO bases are byte-addressed `u8 __iomem *` so offsets mean bytes.
+- `pci_request_region()` claims ownership; `pci_iomap()` creates the I/O mapping.
+- Normal I/O accessor ordering, relaxed accessors, PCI posted-write read-back and device operation completion are explained separately.
+- A same-device read-back can provide a posted-write completion point; it does not prove a device command finished.
+
+### IRQ
+
+- MSI/MSI-X are Memory Write Requests, not generic PCIe Message TLPs.
+- Pending device sources are cleared before handler registration where required by the EDU protocol.
+- Hard IRQ avoids unconditional high-volume info logging.
+- Teardown masks/acknowledges the source, synchronizes in-flight handler execution and only then frees IRQ/vector and MMIO/state.
+- Shared IRQ `dev_id` requirements are not generalized incorrectly to every non-shared IRQ, although stable per-device/per-queue state remains the robust design.
+
+### DMA
+
+- CPU pointer, physical layout and `dma_addr_t` are separate views.
+- DMA mask truthfully declares hardware address bits; it is not “larger is safer.”
+- `dma_alloc_coherent()` provides coherent CPU/device views under the DMA API, not a universal promise that all underlying pages are physically contiguous/non-cached in a specific implementation.
+- Coherence does not remove ownership, ordering, completion or teardown lifetime.
+- `dma_wmb()`/`dma_rmb()` order coherent control data around ownership publication/consumption; they do not wait for hardware.
+- Lab07 timeout path attempts to stop new bus-master traffic, waits boundedly and uses a function reset fallback. If quiescence still cannot be proven, the teaching fail-safe prefers retaining the mapping over a DMA use-after-free. Real devices require device-specific stop/abort/reset and complete reinitialization.
+
+### Tests / scripts
+
+- PCI tests refuse to unload a module they did not load.
+- Tests isolate newly added kernel log lines instead of `dmesg -C`.
+- Stress scripts no longer hide arbitrary failures behind broad `|| true`; only documented expected timeout behavior is accepted.
+- Static checks cover shell syntax, ShellCheck, Markdown local links, userspace build, external-module compile and whitespace.
+
+## Validation layers
+
+### Source/static review completed
+
+- Labs00–09 source, runtime/CLI, tests, QEMU launcher and major onboarding/guide/reference files.
+- Cross-check against Linux locking, memory barrier, device I/O, generic IRQ, PCI, MSI, DMA, VFIO/IOMMUFD and QEMU EDU documentation.
+- Selective review/integration of the eight-commit `codex/lab05-study-order` branch.
+
+### CI/static/build gate
+
+GitHub Actions is configured to run:
 
 ```sh
 ./scripts/quality.sh .
-./scripts/check-kernel-env.sh
-
 make -C runtime clean all
+make -C labs/00-hello-module KDIR=<installed generic headers>
+...
+make -C labs/07-pci-edu-dma KDIR=<installed generic headers>
+git diff --check
+```
+
+A green run proves those static/build commands on the CI kernel headers; it does not load modules or exercise EDU runtime behavior. The final PR head must be checked for a green run after all integration commits.
+
+### Runtime still required before merge
+
+Labs00–04 on Linux:
+
+```sh
+./scripts/check-kernel-env.sh
 
 for lab in \
   labs/00-hello-module \
@@ -64,25 +136,35 @@ for lab in \
 done
 ```
 
-Inside the QEMU EDU Linux guest:
+Inside a Linux guest that sees EDU:
 
 ```sh
+uname -a
+lspci -Dnnvv -d 1234:11e8
+
 for lab in \
   labs/05-pci-edu-mmio \
   labs/06-pci-edu-irq \
   labs/07-pci-edu-dma; do
   (cd "$lab" && ./test.sh)
 done
+
+cat /proc/interrupts
+sudo dmesg
 ```
 
 Recommended additional checks:
 
-- run Lab03 with two simultaneous blocking readers and confirm only one consumes each published message while the other keeps waiting;
-- verify the Lab03 `mmap()` call fails for a writable mapping and succeeds for a read-only mapping;
-- repeat load/unload under KASAN and lockdep;
-- run Labs06–07 repeatedly and confirm IRQ counts stay bounded and no interrupt arrives after teardown;
-- inject or simulate DMA timeout/reset paths before extending Lab07 to real hardware.
+- Lab03 two blocking readers/one message and concurrent mmap snapshot readers;
+- read-only mapping plus attempted `mprotect(PROT_WRITE)`;
+- repeated load/unload under lockdep/KASAN;
+- Lab04 KCSAN/stress in addition to the probabilistic demo;
+- Lab06 repeated event/teardown with no late handler;
+- Lab07 controlled IRQ timeout, command timeout, reset success and reset failure;
+- IOMMU on/off or SWIOTLB scenarios where practical.
 
-## Non-goals
+## Non-goals / uncertainty
 
-This audit does not turn the teaching labs into production drivers. Production code would additionally require device-specific reset/error recovery, hot-unplug handling, ABI versioning, permissions, per-open lifetime management, comprehensive fault injection, and kernel-version compatibility policy.
+This audit does not prove behavior on real PCIe hardware or every kernel/architecture. Production code additionally needs device-specific firmware/queue/reset state machines, hot-unplug and PCI error recovery, security-reviewed UAPI/permissions, pinned-memory policy, PM, multi-queue MSI-X/NUMA and comprehensive fault injection.
+
+Generated companion documents not explicitly rewritten may still contain old line numbers or behavior. They should be regenerated/reviewed after both repository PRs merge and runtime results are recorded.
