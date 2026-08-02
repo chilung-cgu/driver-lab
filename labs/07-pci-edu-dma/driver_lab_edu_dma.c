@@ -159,17 +159,22 @@ static void dl_edu_dma_fill_pattern(struct dl_edu_dma_dev *dl)
 }
 
 /*
- * A timeout cannot be followed by blindly freeing a buffer that hardware may
- * still address. First clear bus mastering, then try to bring the function to
- * a known state. Real hardware normally needs a device-specific stop/reset
- * sequence; the generic reset is only the safest available fallback for EDU.
+ * Return true only when it is safe to release the DMA mapping.
+ *
+ * A timeout cannot be followed by blindly freeing memory that hardware may
+ * still address. Clearing Bus Master Enable blocks new bus-master requests,
+ * but a real device still needs a device-specific stop/abort/reset protocol.
+ * EDU has no richer stop command, so a generic function reset is the final
+ * teaching fallback. If even that fails, leaking the mapping is safer than a
+ * DMA use-after-free; production hardware needs a stronger recovery design.
  */
-static void dl_edu_dma_quiesce(struct dl_edu_dma_dev *dl)
+static bool dl_edu_dma_quiesce(struct dl_edu_dma_dev *dl)
 {
+	bool safe_to_free = true;
 	int ret;
 
 	if (!dl)
-		return;
+		return true;
 
 	pci_clear_master(dl->pdev);
 
@@ -177,13 +182,18 @@ static void dl_edu_dma_quiesce(struct dl_edu_dma_dev *dl)
 		ret = dl_edu_dma_wait_for_cmd_clear(dl, "teardown");
 		if (ret) {
 			ret = pci_reset_function(dl->pdev);
-			if (ret)
-				dev_warn(&dl->pdev->dev,
+			if (ret) {
+				safe_to_free = false;
+				dev_crit(&dl->pdev->dev,
 					 "generic function reset failed: %d; "
-					 "real hardware needs a device-specific stop path\n",
+					 "DMA quiesce is unproven, so the coherent mapping "
+					 "will be intentionally leaked\n",
 					 ret);
+			}
 		}
-		WRITE_ONCE(dl->dma_in_flight, false);
+
+		if (safe_to_free)
+			WRITE_ONCE(dl->dma_in_flight, false);
 	}
 
 	if (dl->bar0)
@@ -194,6 +204,30 @@ static void dl_edu_dma_quiesce(struct dl_edu_dma_dev *dl)
 		free_irq(dl->irq_vector, dl);
 		dl->irq_registered = false;
 	}
+
+	return safe_to_free;
+}
+
+static void dl_edu_dma_free_buffer(struct dl_edu_dma_dev *dl,
+						   bool safe_to_free)
+{
+	if (!dl || !dl->dma_buf)
+		return;
+
+	if (!safe_to_free) {
+		dev_crit(&dl->pdev->dev,
+			 "not freeing coherent buffer cpu=%p dma=%pad bytes=%u; "
+			 "reboot or platform-level recovery is required to reclaim it safely\n",
+			 dl->dma_buf, &dl->dma_handle,
+			 DL_EDU_DMA_BUFFER_BYTES * 2);
+		return;
+	}
+
+	dma_free_coherent(&dl->pdev->dev, DL_EDU_DMA_BUFFER_BYTES * 2,
+				  dl->dma_buf, dl->dma_handle);
+	dl->dma_buf = NULL;
+	dl->tx_buf = NULL;
+	dl->rx_buf = NULL;
 }
 
 static int dl_edu_dma_probe(struct pci_dev *pdev,
@@ -202,6 +236,7 @@ static int dl_edu_dma_probe(struct pci_dev *pdev,
 	struct dl_edu_dma_dev *dl;
 	dma_addr_t tx_dma;
 	dma_addr_t rx_dma;
+	bool safe_to_free = true;
 	int ret;
 
 	pr_info("probe start for %s\n", pci_name(pdev));
@@ -309,12 +344,11 @@ static int dl_edu_dma_probe(struct pci_dev *pdev,
 	return 0;
 
 err_quiesce:
-	dl_edu_dma_quiesce(dl);
+	safe_to_free = dl_edu_dma_quiesce(dl);
 err_free_vectors:
 	pci_free_irq_vectors(pdev);
 err_free_dma:
-	dma_free_coherent(&pdev->dev, DL_EDU_DMA_BUFFER_BYTES * 2,
-				  dl->dma_buf, dl->dma_handle);
+	dl_edu_dma_free_buffer(dl, safe_to_free);
 err_iounmap:
 	pci_iounmap(pdev, dl->bar0);
 err_release_region:
@@ -328,12 +362,11 @@ err_disable_device:
 static void dl_edu_dma_remove(struct pci_dev *pdev)
 {
 	struct dl_edu_dma_dev *dl = pci_get_drvdata(pdev);
+	bool safe_to_free;
 
-	dl_edu_dma_quiesce(dl);
+	safe_to_free = dl_edu_dma_quiesce(dl);
 	pci_free_irq_vectors(pdev);
-	if (dl && dl->dma_buf)
-		dma_free_coherent(&pdev->dev, DL_EDU_DMA_BUFFER_BYTES * 2,
-					  dl->dma_buf, dl->dma_handle);
+	dl_edu_dma_free_buffer(dl, safe_to_free);
 	if (dl && dl->bar0)
 		pci_iounmap(pdev, dl->bar0);
 	pci_release_region(pdev, DL_EDU_BAR_INDEX);
