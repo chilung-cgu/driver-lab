@@ -1,115 +1,150 @@
 # 閱讀地圖
 
-這份文件只回答一件事：
+> 這份文件只回答「現在先看什麼、做到什麼才能前進」。文件位置看[`../README.md`](../README.md)，能力gate看[`learning-dashboard.md`](learning-dashboard.md)。
 
-> 這個 repo 很大時，完全新手到底該先看什麼，什麼時候才需要看後面的東西？
+## 使用原則
 
-如果你只是想找文件位置，先看 [`../README.md`](../README.md)。如果你想判斷「我做到哪裡才可以前進」，看 [`learning-dashboard.md`](learning-dashboard.md)。這份只負責閱讀順序。
+每一關都走：
 
-## 先看哪幾份
+```text
+預覽目標
+→ 讀current README/source
+→ 實際執行
+→ 保存觀測證據
+→ 闔上文件回答問題
+→ 再看companion與延伸
+```
 
-先只看下面幾份，不要一開始就打開所有 lab：
+若source、README、companion不一致，以current source與accuracy audit為準。
+
+## 起步：Lab00～Lab02
+
+先讀：
 
 1. [`learning-dashboard.md`](learning-dashboard.md)
 2. [`beginner-primer.md`](beginner-primer.md)
 3. [`lab-file-roles.md`](lab-file-roles.md)
 4. [`linux-host-setup.md`](linux-host-setup.md)
+5. [`check-kernel-env-explained.md`](check-kernel-env-explained.md)
 
-這四份分別在補：
+第一個gate：
 
-- 你現在在整條學習路線的哪個階段
-- 你現在站在哪一層
-- lab 目錄裡每種檔案扮演什麼角色
-- Linux host 需要哪些條件
+- Lab00 build/load/unload/dmesg；
+- Lab01 debugfs與logging；
+- Lab02 `/dev`、VFS、`file_operations.read/write`；
+- 能解釋init/error/exit resource lifetime。
 
-接著再看 [`check-kernel-env-explained.md`](check-kernel-env-explained.md)，用來理解第一次環境檢查輸出。
+搭配：
 
-## 第一天只做到哪裡
+- [`00-to-01-debugfs-bridge.md`](00-to-01-debugfs-bridge.md)
+- [`01-to-03-user-kernel-abi-bridge.md`](01-to-03-user-kernel-abi-bridge.md)
+- [`kernel-filesystem-surfaces.md`](kernel-filesystem-surfaces.md)
+- [`kernel-api-parameter-roles.md`](kernel-api-parameter-roles.md)
 
-第一天只要求你做到：
+## Lab03：多條ABI path
 
-1. 能在 Linux 環境看懂 `scripts/check-kernel-env.sh` 的輸出
-2. 完成 `00-hello-module`
-3. 回答 `00` README 裡「完成後你應該能回答」的標準問題
-4. 知道 `insmod`、`rmmod`、`dmesg` 分別在扮演什麼角色
+先讀[`01-to-03-user-kernel-abi-bridge.md`](01-to-03-user-kernel-abi-bridge.md)，再讀Lab03 README/source/test。
 
-如果 `00` 都還沒穩，不要先讀 QEMU 文件。
+前進前要能說明：
 
-## 第一週做到哪裡
+- `read/write/ioctl/poll/mmap`各自從哪個syscall進來；
+- waitqueue wake只讓條件重新評估，不保證poll以`revents=0`返回；
+- 多reader為什麼在取得mutex後仍要重新檢查條件；
+- mmap page的permission、lifetime與consistent snapshot為什麼是ABI設計問題。
 
-第一週的合理目標是完成 `00-02`：
+## Lab04：先練concurrency與lifetime
 
-1. `00`：最小 build / load / unload / dmesg 閉環
-2. [`00 到 01：debugfs 過渡導讀`](00-to-01-debugfs-bridge.md)：先補 debugfs / VFS callback / dynamic debug 的最低心智模型
-3. `01`：debugfs 與 logging 觀測
-4. [`Lab 過渡地圖`](lab-transition-map.md)：確認每一關為什麼接下一關
-5. [`01 到 03：user-kernel ABI 過渡導讀`](01-to-03-user-kernel-abi-bridge.md)：先補 `/dev`、char device、`ioctl/poll/mmap` 的最低心智模型
-6. [`Kernel filesystem 入口導讀`](kernel-filesystem-surfaces.md)：先分清 `/dev`、`/sys`、`/proc`、debugfs 各自代表什麼
-7. [`Kernel API 參數角色導讀`](kernel-api-parameter-roles.md)：開始讀 `02` source 前，先學會分辨 input、output、resource、數量、名字、callback table
-8. `02`：`/dev`、`read/write`、`file_operations`
+入口：[`../guides/lab-04-study-order.md`](../guides/lab-04-study-order.md)
 
-每一關都要回到 README 的「完成後你應該能回答」。如果只會照抄命令，但答不出入口、觀測點、API 參數角色、cleanup 與失敗查證點，就先不要前進。
+不要只記「unsafe加mutex就好」。要能回答：
 
-`03` 開始不建議直接跳 source code。先讀 bridge，再回到 README 的 source reading order。
+- 哪些execution paths共享`dl_counter`；
+- lost update如何發生；
+- `READ_ONCE()`為何不是lock；
+- init為何先初始化再啟動kthread；
+- exit為何用`kthread_stop()`同步退出。
 
-## 什麼時候才看 QEMU
+Lab04 test是probabilistic teaching gate，不是data-race absence proof。
 
-請等到下面三件事至少成立兩件，再進 QEMU：
+## Lab05：進PCI前先切清host/guest
 
-- 你已完成 `00-02`
-- 你知道 `probe/remove` 是裝置生命週期入口
-- 你已接受 `05-07` 的實際驗證位置是 `Linux guest`，不是 `macOS`
-
-建議順序：
+入口順序：
 
 1. [`../concepts/pcie-primer.md`](../concepts/pcie-primer.md)
-2. [`03 到 05：併發與 PCI 過渡導讀`](03-to-05-concurrency-pci-bridge.md)
-3. [`05 到 07：PCI、IRQ、DMA 過渡導讀`](05-to-07-pci-irq-dma-bridge.md)
+2. [`03-to-05-concurrency-pci-bridge.md`](03-to-05-concurrency-pci-bridge.md)
+3. [`../guides/lab-05-study-order.md`](../guides/lab-05-study-order.md)
 4. [`../guides/qemu-edu-first-pass.md`](../guides/qemu-edu-first-pass.md)
 5. [`../../qemu/README.md`](../../qemu/README.md)
-6. [`../guides/linux-guest-05-to-07-walkthrough.md`](../guides/linux-guest-05-to-07-walkthrough.md)
+6. 跨architecture時看[`../../qemu/arm-host-x86-guest.md`](../../qemu/arm-host-x86-guest.md)
+7. [`../guides/linux-guest-05-to-07-walkthrough.md`](../guides/linux-guest-05-to-07-walkthrough.md)
 
-## Walkthrough 和 Checklist 差在哪裡
+進source前至少要成立：
 
-- [`../guides/linux-guest-05-to-07-walkthrough.md`](../guides/linux-guest-05-to-07-walkthrough.md)
-  - 給第一次進 guest 的人
-  - 會解釋每一步為什麼要做
-  - 適合你還不知道卡在哪一層時使用
-- [`../guides/linux-guest-05-to-07-checklist.md`](../guides/linux-guest-05-to-07-checklist.md)
-  - 給已經跑過一次的人
-  - 只保留最短的執行順序與成功訊號
-  - 適合第二次、第三次重跑時速查
+```sh
+uname -m
+uname -r
+lspci -Dnn | grep 1234:11e8
+test -e "/lib/modules/$(uname -r)/build"
+```
 
-不要把 checklist 當教學主文件。
+前進到Lab06前，要能分清：
 
-## 什麼時候看 runtime 與 stress
+- raw BAR、PCI resource、`__iomem` mapping；
+- request region與iomap；
+- normal MMIO accessor、posted write與read-back completion；
+- liveness pass能證明與不能證明的事。
 
-完成 `05-07` 或至少理解 `02/03` 的 ABI 後，再看：
+## Lab06：IRQ
 
-1. [`07 到 09：runtime 與驗證過渡導讀`](07-to-09-runtime-validation-bridge.md)
+先讀[`05-to-07-pci-irq-dma-bridge.md`](05-to-07-pci-irq-dma-bridge.md)，再讀Lab06 README/source/test。
+
+前進前要能說明：
+
+- vector allocation、Linux IRQ number與handler registration；
+- shared INTx時`IRQ_NONE`與unique `dev_id`；
+- request前清pending source；
+- handler的ack、短工作與non-sleeping contract；
+- remove為什麼先mask/ack/synchronize再free。
+
+## Lab07：DMA
+
+先重新讀[`../concepts/pcie-primer.md`](../concepts/pcie-primer.md)的DMA段，再讀Lab07 README/source/test。
+
+完成gate：
+
+- truthful DMA mask；
+- CPU pointer與`dma_addr_t`分離；
+- coherent不等於免ordering/completion；
+- RAM→EDU→RAM source/destination方向正確；
+- IRQ、command idle與`memcmp()`分別驗不同層；
+- timeout後不能在未證明quiesce時直接free mapping。
+
+## Lab08～Lab09
+
+完成Lab05～07或至少熟悉Lab03 ABI後，再讀：
+
+1. [`07-to-09-runtime-validation-bridge.md`](07-to-09-runtime-validation-bridge.md)
 2. [`../../runtime/README.md`](../../runtime/README.md)
-3. [`../../labs/08-runtime-library/README.md`](../../labs/08-runtime-library/README.md)
-4. [`../../labs/09-stress-and-fault-injection/README.md`](../../labs/09-stress-and-fault-injection/README.md)
+3. Lab08 README/source/test
+4. Lab09 README/stress scripts
 
-`08` 是 userspace 封裝層，不是新的 `.ko`。`09` 是驗證習慣，不代表 fault injection / KUnit / kselftest 都已完成。
+注意：
 
-## 哪些是學習主線，哪些只是 repo workflow
+- Lab08是userspace wrapper，不是新`.ko`；
+- partial I/O、errno、poll error bits、fd/mapping lifetime仍需處理；
+- Lab09目前主要是Lab03 reload/parallel stress，不等於完整KUnit/kselftest/fault-injection framework。
 
-### 學習主線
+## Walkthrough、Checklist、Companion差異
 
-- `docs/onboarding/`
-- `docs/concepts/`
-- `docs/guides/`
-- `labs/`
-- `runtime/`
-- `tests/`
-- `qemu/`
+- **Walkthrough**：第一次做，解釋因果。
+- **Checklist**：已跑過後速查，不取代理解。
+- **Companion `.c.md/.sh.md`**：貼source旁讀，可能落後current source。
+- **Accuracy audit**：記錄已知錯誤模型與runtime gap。
 
-### Workflow / Meta
+## Workflow / Meta
+
+以下不是driver主線，可晚看：
 
 - [`../workflow/ai-agent-git-checkpoint-policy.md`](../workflow/ai-agent-git-checkpoint-policy.md)
 - `.githooks/`
 - [`../../scripts/install-git-hooks.sh`](../../scripts/install-git-hooks.sh)
-
-這些 workflow 文件不是 driver 教學本體。
-如果你只是要學 driver，可以先略過。
