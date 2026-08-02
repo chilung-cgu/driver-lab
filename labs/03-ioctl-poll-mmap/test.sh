@@ -19,6 +19,7 @@ READER2_LOG=$(mktemp)
 poll_pid=
 reader1_pid=
 reader2_pid=
+loaded_by_test=0
 
 stop_pid() {
     pid=$1
@@ -33,7 +34,8 @@ cleanup() {
     stop_pid "$reader1_pid"
     stop_pid "$reader2_pid"
 
-    if lsmod | grep -q "^${MODULE_NAME} "; then
+    if [ "$loaded_by_test" -eq 1 ] &&
+       lsmod | grep -q "^${MODULE_NAME} "; then
         $SUDO rmmod "$MODULE_NAME" || true
     fi
 
@@ -48,15 +50,18 @@ fi
 FS_SUDO=$SUDO
 . "$ROOT_DIR/scripts/fs-surface-checks.sh"
 
+if lsmod | grep -q "^${MODULE_NAME} "; then
+    printf 'ERROR: %s 已在載入；test不會卸載非本次載入的module。\n' \
+        "$MODULE_NAME" >&2
+    exit 1
+fi
+
 cd "$SCRIPT_DIR"
 make
 make -C "$ROOT_DIR/runtime"
 
-if lsmod | grep -q "^${MODULE_NAME} "; then
-    $SUDO rmmod "$MODULE_NAME"
-fi
-
 $SUDO insmod "./${MODULE_NAME}.ko"
+loaded_by_test=1
 fs_expect_char_device "$DEVICE" \
     /sys/class/driver_lab_ctl/driver_lab_ctl0 \
     driver_lab_ctl
@@ -67,21 +72,25 @@ $SUDO "$CLI" "$DEVICE" status | grep 'buffer_len='
 $SUDO "$CLI" "$DEVICE" read | grep 'hello-ioctl'
 $SUDO "$CLI" "$DEVICE" mmap-read | grep 'magic=0x'
 
-# The published snapshot is kernel -> userspace and must reject a writable VMA.
 if command -v python3 >/dev/null 2>&1; then
+    # The snapshot must reject both an initially writable VMA and a later
+    # mprotect(PROT_WRITE) upgrade of a read-only mapping.
     $SUDO python3 - "$DEVICE" <<'PY'
+import ctypes
 import errno
 import mmap
 import os
 import sys
 
 path = sys.argv[1]
+page_size = os.sysconf("SC_PAGE_SIZE")
+
 fd = os.open(path, os.O_RDWR)
 try:
     try:
         mapping = mmap.mmap(
             fd,
-            os.sysconf("SC_PAGE_SIZE"),
+            page_size,
             flags=mmap.MAP_SHARED,
             prot=mmap.PROT_READ | mmap.PROT_WRITE,
         )
@@ -93,9 +102,71 @@ try:
         raise SystemExit("writable mmap unexpectedly succeeded")
 finally:
     os.close(fd)
+
+libc = ctypes.CDLL(None, use_errno=True)
+libc.mmap.argtypes = [
+    ctypes.c_void_p,
+    ctypes.c_size_t,
+    ctypes.c_int,
+    ctypes.c_int,
+    ctypes.c_int,
+    ctypes.c_long,
+]
+libc.mmap.restype = ctypes.c_void_p
+libc.mprotect.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_int]
+libc.mprotect.restype = ctypes.c_int
+libc.munmap.argtypes = [ctypes.c_void_p, ctypes.c_size_t]
+libc.munmap.restype = ctypes.c_int
+
+fd = os.open(path, os.O_RDONLY)
+addr = libc.mmap(
+    None,
+    page_size,
+    mmap.PROT_READ,
+    mmap.MAP_SHARED,
+    fd,
+    0,
+)
+os.close(fd)
+if addr == ctypes.c_void_p(-1).value:
+    err = ctypes.get_errno()
+    raise OSError(err, os.strerror(err))
+try:
+    ctypes.set_errno(0)
+    if libc.mprotect(addr, page_size, mmap.PROT_READ | mmap.PROT_WRITE) == 0:
+        raise SystemExit("mprotect(PROT_WRITE) unexpectedly succeeded")
+    err = ctypes.get_errno()
+    if err not in (errno.EPERM, errno.EACCES):
+        raise OSError(err, os.strerror(err))
+finally:
+    if libc.munmap(addr, page_size) != 0:
+        err = ctypes.get_errno()
+        raise OSError(err, os.strerror(err))
 PY
+
+    # Record semantics: an undersized read must fail with EMSGSIZE and leave the
+    # record pending for a later correctly sized reader.
+    $SUDO "$CLI" "$DEVICE" write undersized-record-regression
+    $SUDO python3 - "$DEVICE" <<'PY'
+import errno
+import os
+import sys
+
+fd = os.open(sys.argv[1], os.O_RDONLY)
+try:
+    try:
+        os.read(fd, 4)
+    except OSError as exc:
+        if exc.errno != errno.EMSGSIZE:
+            raise
+    else:
+        raise SystemExit("undersized read unexpectedly succeeded")
+finally:
+    os.close(fd)
+PY
+    $SUDO "$CLI" "$DEVICE" read | grep 'undersized-record-regression'
 else
-    printf 'SKIP: python3 not available; writable-mmap regression not run.\n' >&2
+    printf 'SKIP: python3 unavailable; mmap/mprotect/record regressions skipped.\n' >&2
 fi
 
 # A positive event wakes poll and returns a nonzero ready mask.
@@ -114,8 +185,8 @@ $SUDO "$CLI" "$DEVICE" poll 200 >"$EMPTY_POLL_LOG"
 grep 'poll ret=0' "$EMPTY_POLL_LOG"
 grep 'revents=0x0' "$EMPTY_POLL_LOG"
 
-# Regression: two blocking readers awakened for one message. Exactly one may
-# consume it; the other must keep waiting for the next publication, not return EOF.
+# Two blocking readers awakened for one record: exactly one consumes it; the
+# other keeps waiting for the next record instead of returning EOF.
 $SUDO timeout 5s "$CLI" "$DEVICE" read >"$READER1_LOG" 2>&1 &
 reader1_pid=$!
 $SUDO timeout 5s "$CLI" "$DEVICE" read >"$READER2_LOG" 2>&1 &
@@ -124,8 +195,6 @@ sleep 1
 
 $SUDO "$CLI" "$DEVICE" write reader-message-one
 
-# Wait until one reader has produced output. If both finish on a single message,
-# the post-wakeup condition was not rechecked correctly.
 i=0
 while [ "$i" -lt 50 ]; do
     out1=0
@@ -137,7 +206,7 @@ while [ "$i" -lt 50 ]; do
         break
     fi
     if [ $((out1 + out2)) -gt 1 ]; then
-        printf 'ERROR: both readers returned after one message.\n' >&2
+        printf 'ERROR: both readers returned after one record.\n' >&2
         cat "$READER1_LOG" "$READER2_LOG" >&2
         exit 1
     fi
@@ -147,7 +216,7 @@ while [ "$i" -lt 50 ]; do
 done
 
 if [ "$i" -ge 50 ]; then
-    printf 'ERROR: no blocking reader consumed the first message.\n' >&2
+    printf 'ERROR: no blocking reader consumed the first record.\n' >&2
     exit 1
 fi
 
@@ -167,14 +236,23 @@ if [ "$reader1_status" -ne 0 ] || [ "$reader2_status" -ne 0 ]; then
     exit 1
 fi
 
-cat "$READER1_LOG" "$READER2_LOG" | grep -c 'reader-message-one' | grep '^1$'
-cat "$READER1_LOG" "$READER2_LOG" | grep -c 'reader-message-two' | grep '^1$'
-if cat "$READER1_LOG" "$READER2_LOG" | grep -q 'read 0 bytes'; then
+one_count=$(grep -h 'reader-message-one' "$READER1_LOG" "$READER2_LOG" |
+    wc -l | tr -d ' ')
+two_count=$(grep -h 'reader-message-two' "$READER1_LOG" "$READER2_LOG" |
+    wc -l | tr -d ' ')
+if [ "$one_count" -ne 1 ] || [ "$two_count" -ne 1 ]; then
+    printf 'ERROR: message counts: first=%s second=%s\n' \
+        "$one_count" "$two_count" >&2
+    cat "$READER1_LOG" "$READER2_LOG" >&2
+    exit 1
+fi
+if grep -q 'read 0 bytes' "$READER1_LOG" "$READER2_LOG"; then
     printf 'ERROR: a blocking reader incorrectly returned EOF.\n' >&2
     exit 1
 fi
 
 $SUDO rmmod "$MODULE_NAME"
+loaded_by_test=0
 fs_expect_absent "$DEVICE" "device node"
 fs_expect_absent /sys/class/driver_lab_ctl/driver_lab_ctl0 "sysfs class device"
 make clean
