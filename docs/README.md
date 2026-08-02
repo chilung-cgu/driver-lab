@@ -1,34 +1,42 @@
 # Docs Index
 
-`docs/` 現在依用途分成五類，目的是讓新手先找到該看的文件，再決定要不要深入後面的材料。
+`docs/`依用途分成 onboarding、concepts、guides、reference、workflow。第一次閱讀時，先走入口文件，不要把所有companion docs一次打開。
 
-## 這份索引和其他入口差在哪
+## 權威順序
 
-| 文件 | 你什麼時候看 | 它回答什麼 |
+若文件互相衝突：
+
+1. Linux/QEMU官方文件與實際觀測；
+2. current source與current tests；
+3. Lab README、reviewed guides與[`reference/accuracy-audit-2026-08.md`](reference/accuracy-audit-2026-08.md)；
+4. generated或line-by-line companion `.c.md/.h.md/.sh.md`。
+
+Companion適合旁讀，但可能尚未隨source同步。
+
+## 入口文件
+
+| 文件 | 何時看 | 回答什麼 |
 |---|---|---|
-| 這份 `docs/README.md` | 不知道文件放哪裡時 | `docs/` 目錄有哪些類別、各自放什麼 |
-| [`onboarding/reading-map.md`](onboarding/reading-map.md) | 準備開始讀 repo 時 | 今天到底先看哪幾份、什麼時候才看後面章節 |
-| [`onboarding/learning-dashboard.md`](onboarding/learning-dashboard.md) | 每完成一關要判斷能否前進時 | 每個階段要跑什麼、成功訊號是什麼、前進條件是什麼 |
-| [`onboarding/beginner-glossary.md`](onboarding/beginner-glossary.md) | 遇到陌生名詞時 | 單一查詢表，不需要從頭背完 |
-| [`onboarding/kernel-filesystem-surfaces.md`](onboarding/kernel-filesystem-surfaces.md) | 開始分不清 `/dev`、`/sys`、`/proc`、debugfs 時 | driver 建立或暴露的 filesystem 入口各自代表什麼 |
-| [`onboarding/kernel-api-parameter-roles.md`](onboarding/kernel-api-parameter-roles.md) | 開始讀 `.c` 裡的 kernel API 呼叫時 | 每個參數是 input、output、resource、數量、名字、callback，還是 cleanup 對象 |
-| [`reference/companion-docs-index.md`](reference/companion-docs-index.md) | 正在 trace 某份 source 時 | 哪些 source 檔旁邊有可直接閱讀的 companion doc |
-| [`reference/companion-docs-rollout-plan.md`](reference/companion-docs-rollout-plan.md) | 想知道 companion docs 會怎麼分段補齊時 | 哪些檔案需要長篇旁讀、哪些先不需要 |
+| [`onboarding/reading-map.md`](onboarding/reading-map.md) | 準備開始 | 今天先讀哪裡、何時進下一階段 |
+| [`onboarding/learning-dashboard.md`](onboarding/learning-dashboard.md) | 每完成一關 | 成功訊號與前進條件 |
+| [`onboarding/beginner-primer.md`](onboarding/beginner-primer.md) | 完全新手 | kernel/module/driver最低心智模型 |
+| [`onboarding/kernel-filesystem-surfaces.md`](onboarding/kernel-filesystem-surfaces.md) | 分不清 `/dev`、sysfs、procfs、debugfs | filesystem入口角色 |
+| [`onboarding/kernel-api-parameter-roles.md`](onboarding/kernel-api-parameter-roles.md) | 開始讀kernel API | input/output/resource/callback/cleanup參數角色 |
+| [`concepts/pcie-primer.md`](concepts/pcie-primer.md) | 進Lab05前 | PCI/BAR/MMIO/IRQ/DMA的correctness-first地圖 |
+| [`guides/lab-04-study-order.md`](guides/lab-04-study-order.md) | 進Lab04 | race、mutex、kthread、lifetime閱讀順序 |
+| [`guides/lab-05-study-order.md`](guides/lab-05-study-order.md) | 進Lab05 | host/guest、bind、BAR validation、MMIO閱讀順序 |
+| [`reference/companion-docs-index.md`](reference/companion-docs-index.md) | trace某份source | companion doc位置 |
+| [`reference/source-index.md`](reference/source-index.md) | 要查官方定義 | kernel/QEMU直接來源 |
 
 ## 目錄分類
 
-- [`onboarding/`](onboarding/)
-  - 新手起步、環境、術語、閱讀順序
-- [`concepts/`](concepts/)
-  - 核心概念前導，例如併發、PCIe、AI 加速卡 driver 心智模型
-- [`guides/`](guides/)
-  - 操作 runbook、學習路線、walkthrough、checklist
-- [`reference/`](reference/)
-  - 除錯圖鑑、閱讀索引、companion docs index、playbook、參考資料
-- [`workflow/`](workflow/)
-  - agent / Git workflow 規範，不是 driver 學習主線
+- [`onboarding/`](onboarding/)：起步、環境、術語、lab transition。
+- [`concepts/`](concepts/)：核心概念前導。
+- [`guides/`](guides/)：study order、walkthrough、runbook、checklist。
+- [`reference/`](reference/)：audit、來源、除錯、companion索引。
+- [`workflow/`](workflow/)：agent/Git流程，不是driver學習主線。
 
-## 完全新手建議順序
+## 完全新手順序
 
 1. [`onboarding/reading-map.md`](onboarding/reading-map.md)
 2. [`onboarding/learning-dashboard.md`](onboarding/learning-dashboard.md)
@@ -36,17 +44,23 @@
 4. [`onboarding/lab-file-roles.md`](onboarding/lab-file-roles.md)
 5. [`onboarding/linux-host-setup.md`](onboarding/linux-host-setup.md)
 6. [`onboarding/check-kernel-env-explained.md`](onboarding/check-kernel-env-explained.md)
-7. 回到 repo 根目錄，開始做 `labs/00-hello-module`
-8. 完成 `00` 後，先讀 [`onboarding/00-to-01-debugfs-bridge.md`](onboarding/00-to-01-debugfs-bridge.md)，再進 `labs/01-debugfs-logging`
-9. 完成 `01` 後，讀 [`onboarding/lab-transition-map.md`](onboarding/lab-transition-map.md) 與 [`onboarding/01-to-03-user-kernel-abi-bridge.md`](onboarding/01-to-03-user-kernel-abi-bridge.md)
-10. 開始讀 `02` source 前，讀 [`onboarding/kernel-filesystem-surfaces.md`](onboarding/kernel-filesystem-surfaces.md) 與 [`onboarding/kernel-api-parameter-roles.md`](onboarding/kernel-api-parameter-roles.md)
-11. 進 `04/05` 前，讀 [`onboarding/03-to-05-concurrency-pci-bridge.md`](onboarding/03-to-05-concurrency-pci-bridge.md)
-12. 進 `06/07` 前，讀 [`onboarding/05-to-07-pci-irq-dma-bridge.md`](onboarding/05-to-07-pci-irq-dma-bridge.md)
-13. 進 `08/09` 前，讀 [`onboarding/07-to-09-runtime-validation-bridge.md`](onboarding/07-to-09-runtime-validation-bridge.md)
+7. Lab00 → [`onboarding/00-to-01-debugfs-bridge.md`](onboarding/00-to-01-debugfs-bridge.md) → Lab01
+8. [`onboarding/01-to-03-user-kernel-abi-bridge.md`](onboarding/01-to-03-user-kernel-abi-bridge.md) → Lab02/03
+9. [`guides/lab-04-study-order.md`](guides/lab-04-study-order.md) → Lab04
+10. [`concepts/pcie-primer.md`](concepts/pcie-primer.md) + [`guides/lab-05-study-order.md`](guides/lab-05-study-order.md) → Lab05
+11. [`onboarding/05-to-07-pci-irq-dma-bridge.md`](onboarding/05-to-07-pci-irq-dma-bridge.md) → Lab06/07
+12. [`onboarding/07-to-09-runtime-validation-bridge.md`](onboarding/07-to-09-runtime-validation-bridge.md) → Lab08/09
 
-## QEMU 相關文件在哪裡
+## QEMU文件
 
-- 概念前導：[`guides/qemu-edu-first-pass.md`](guides/qemu-edu-first-pass.md)
-- guest 操作手冊：[`guides/linux-guest-05-to-07-walkthrough.md`](guides/linux-guest-05-to-07-walkthrough.md)
-- guest 速查單：[`guides/linux-guest-05-to-07-checklist.md`](guides/linux-guest-05-to-07-checklist.md)
-- host 端 QEMU 入口：[`../qemu/README.md`](../qemu/README.md)
+- Host入口：[`../qemu/README.md`](../qemu/README.md)
+- ARM host / x86_64 guest：[`../qemu/arm-host-x86-guest.md`](../qemu/arm-host-x86-guest.md)
+- 第一次概觀：[`guides/qemu-edu-first-pass.md`](guides/qemu-edu-first-pass.md)
+- Guest runbook：[`guides/linux-guest-05-to-07-walkthrough.md`](guides/linux-guest-05-to-07-walkthrough.md)
+- Guest速查：[`guides/linux-guest-05-to-07-checklist.md`](guides/linux-guest-05-to-07-checklist.md)
+
+## Review邊界
+
+- Audit branch已新增static/build CI與更嚴格tests。
+- 真正`insmod/rmmod`、MMIO、IRQ、DMA與sanitizer證據仍需Linux/QEMU guest執行。
+- 不要因為Markdown完整或module可compile，就宣稱runtime correctness已證明。
