@@ -23,7 +23,7 @@ static DEFINE_MUTEX(dl_message_lock);
 
 /*
  * debugfs_create_atomic_t() 會直接讀寫 atomic_t，因此 scalar state 也用
- * atomic API 存取。last_message 是多 byte object，仍由 mutex 保護。
+ * atomic API 存取。last_message 是 multi-byte object，仍由 mutex 保護。
  */
 static atomic_t dl_trigger_count = ATOMIC_INIT(0);
 static atomic_t dl_emit_debug = ATOMIC_INIT(1);
@@ -31,10 +31,19 @@ static char dl_last_message[DL_LAST_MESSAGE_LEN] = "not-triggered-yet";
 
 static int dl_status_show(struct seq_file *m, void *unused)
 {
-	seq_printf(m, "trigger_count=%d\n", atomic_read(&dl_trigger_count));
-	seq_printf(m, "emit_debug=%d\n", atomic_read(&dl_emit_debug));
+	int trigger_count;
+	int emit_debug;
 
+	/*
+	 * trigger_count 和 last_message 由 trigger path 在同一把 mutex 下發布；
+	 * show 也在同一把 mutex 下取 snapshot，避免顯示新 count + 舊 message。
+	 * emit_debug 可由獨立 debugfs atomic helper 修改，與 message 沒有 invariant。
+	 */
 	mutex_lock(&dl_message_lock);
+	trigger_count = atomic_read(&dl_trigger_count);
+	emit_debug = atomic_read(&dl_emit_debug);
+	seq_printf(m, "trigger_count=%d\n", trigger_count);
+	seq_printf(m, "emit_debug=%d\n", emit_debug);
 	seq_printf(m, "last_message=%s\n", dl_last_message);
 	mutex_unlock(&dl_message_lock);
 	return 0;
@@ -50,17 +59,22 @@ static ssize_t dl_trigger_write(struct file *file, const char __user *buf,
 {
 	char local[DL_LAST_MESSAGE_LEN];
 	char *trimmed;
-	size_t copy_len;
 	int trigger_count;
 
 	if (count == 0)
 		return 0;
 
-	copy_len = min(count, sizeof(local) - 1);
-	if (copy_from_user(local, buf, copy_len))
+	/*
+	 * Do not silently copy a prefix and return the original count. That would
+	 * tell userspace the complete write was consumed even though the diagnostic
+	 * payload was truncated. Leave one byte for the terminating NUL.
+	 */
+	if (count >= sizeof(local))
+		return -E2BIG;
+	if (copy_from_user(local, buf, count))
 		return -EFAULT;
 
-	local[copy_len] = '\0';
+	local[count] = '\0';
 	trimmed = strim(local);
 
 	if (mutex_lock_interruptible(&dl_message_lock))
@@ -115,6 +129,7 @@ static int __init driver_lab_debugfs_logging_init(void)
 		goto err_remove_debugfs;
 	}
 
+	/* These helpers return void on current kernels and tolerate bad parents. */
 	debugfs_create_atomic_t("trigger_count", 0444, dl_root,
 					&dl_trigger_count);
 	debugfs_create_atomic_t("emit_debug", 0644, dl_root,
