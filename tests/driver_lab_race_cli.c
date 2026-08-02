@@ -1,3 +1,5 @@
+#define _POSIX_C_SOURCE 200809L
+
 // SPDX-License-Identifier: GPL-2.0-only
 #include "../labs/04-locking-and-races/driver_lab_race_uapi.h"
 
