@@ -38,17 +38,16 @@ static size_t dl_buffer_len;
 static dl_u32 dl_event_count;
 static bool dl_event_pending;
 
-/* 正常 RAM page；mmap 時以 vm_insert_page() 映射給 userspace。 */
+/* Normal RAM page; mmap inserts it into a read-only userspace VMA. */
 static struct page *dl_shared_page;
 static struct dl_shared_page *dl_shared;
 
 /*
- * 呼叫者必須持有 dl_lock。
+ * Caller holds dl_lock.
  *
- * Kernel mutex 只能序列化 kernel writers，無法讓任意 userspace reader 一起
- * 拿鎖。因此 shared page 使用簡化的 sequence publication protocol：
- * odd seq 代表 writer 正在更新，even seq 代表穩定。userspace 要複製後再
- * 確認 seq 沒有改變。
+ * Kernel mutexes serialize kernel writers but cannot be acquired by an
+ * arbitrary userspace load from the mmap. The page therefore uses a small
+ * sequence publication protocol: odd = update in progress, even = stable.
  */
 static void dl_sync_shared_page_locked(void)
 {
@@ -119,11 +118,7 @@ static ssize_t dl_read(struct file *file, char __user *buf,
 		if (mutex_lock_interruptible(&dl_lock))
 			return -ERESTARTSYS;
 
-		/*
-		 * Waitqueue condition 和 mutex acquisition 之間，另一個 reader 可能
-		 * 已經把 message 消費掉。拿鎖後必須重新檢查，不能錯把競爭結果
-		 * 當成 EOF。
-		 */
+		/* Another reader may have consumed the record before we got the lock. */
 		if (dl_buffer_len == 0) {
 			mutex_unlock(&dl_lock);
 			if (file->f_flags & O_NONBLOCK)
@@ -131,16 +126,28 @@ static ssize_t dl_read(struct file *file, char __user *buf,
 			continue;
 		}
 
-		ret = simple_read_from_buffer(buf, count, ppos,
-								  dl_buffer, dl_buffer_len);
-		if (ret > 0 && *ppos >= dl_buffer_len) {
-			memset(dl_buffer, 0, sizeof(dl_buffer));
-			dl_buffer_len = 0;
-			dl_event_pending = false;
-			*ppos = 0;
-			dl_sync_shared_page_locked();
+		/*
+		 * This lab exposes one global message record, not a byte stream with
+		 * per-open offsets. Refuse an undersized destination and leave the record
+		 * pending; otherwise a partial reader could retain an old f_pos while a
+		 * different reader consumes the record and a new message is published.
+		 */
+		if (count < dl_buffer_len) {
+			mutex_unlock(&dl_lock);
+			return -EMSGSIZE;
 		}
 
+		ret = dl_buffer_len;
+		if (copy_to_user(buf, dl_buffer, dl_buffer_len)) {
+			mutex_unlock(&dl_lock);
+			return -EFAULT;
+		}
+
+		memset(dl_buffer, 0, sizeof(dl_buffer));
+		dl_buffer_len = 0;
+		dl_event_pending = false;
+		*ppos = 0;
+		dl_sync_shared_page_locked();
 		mutex_unlock(&dl_lock);
 		return ret;
 	}
@@ -150,28 +157,28 @@ static ssize_t dl_write(struct file *file, const char __user *buf,
 						size_t count, loff_t *ppos)
 {
 	char local[DL_MESSAGE_BYTES];
-	ssize_t ret;
 	loff_t pos = 0;
+	ssize_t ret;
 
 	if (count == 0)
 		return 0;
 	if (count > DL_MESSAGE_BYTES - 1)
 		return -EMSGSIZE;
+
+	/* Copy may fault/sleep; do it before taking the shared-state mutex. */
+	ret = simple_write_to_buffer(local, sizeof(local) - 1, &pos, buf, count);
+	if (ret < 0)
+		return ret;
+	local[ret] = '\0';
+
 	if (mutex_lock_interruptible(&dl_lock))
 		return -ERESTARTSYS;
-
-	ret = simple_write_to_buffer(local, sizeof(local) - 1, &pos, buf, count);
-	if (ret >= 0) {
-		local[ret] = '\0';
-		dl_publish_message_locked(local, ret);
-		*ppos = 0;
-	}
+	dl_publish_message_locked(local, ret);
+	*ppos = 0;
 	mutex_unlock(&dl_lock);
 
-	if (ret >= 0) {
-		wake_up_interruptible(&dl_read_wq);
-		wake_up_interruptible(&dl_event_wq);
-	}
+	wake_up_interruptible(&dl_read_wq);
+	wake_up_interruptible(&dl_event_wq);
 	return ret;
 }
 
@@ -204,12 +211,12 @@ static long dl_unlocked_ioctl(struct file *file, unsigned int cmd,
 
 		if (copy_from_user(&msg, (void __user *)arg, sizeof(msg)))
 			return -EFAULT;
-		if (mutex_lock_interruptible(&dl_lock))
-			return -ERESTARTSYS;
-
 		len = strnlen(msg.text, sizeof(msg.text));
 		if (len == sizeof(msg.text))
-			len = sizeof(msg.text) - 1;
+			return -EMSGSIZE;
+
+		if (mutex_lock_interruptible(&dl_lock))
+			return -ERESTARTSYS;
 		dl_publish_message_locked(msg.text, len);
 		mutex_unlock(&dl_lock);
 		wake_up_interruptible(&dl_read_wq);
@@ -247,10 +254,7 @@ static long dl_unlocked_ioctl(struct file *file, unsigned int cmd,
 		dl_event_pending = false;
 		dl_sync_shared_page_locked();
 		mutex_unlock(&dl_lock);
-		/*
-		 * readiness 由 true 變 false 不需要喚醒 poll waiter；wake-up 只會讓
-		 * poll 重新評估，條件仍為 false 時它會繼續等待。
-		 */
+		/* A ready->not-ready transition does not need a wake-up. */
 		break;
 
 	default:
@@ -265,13 +269,13 @@ static int dl_mmap(struct file *file, struct vm_area_struct *vma)
 {
 	unsigned long size = vma->vm_end - vma->vm_start;
 
-	if (vma->vm_pgoff != 0 || size > PAGE_SIZE)
+	if (vma->vm_pgoff != 0 || size != PAGE_SIZE)
 		return -EINVAL;
-	if (vma->vm_flags & VM_WRITE)
+	if (vma->vm_flags & (VM_WRITE | VM_EXEC))
 		return -EPERM;
 
-	/* 防止之後用 mprotect() 把 snapshot 升級成 writable mapping。 */
-	vm_flags_clear(vma, VM_MAYWRITE);
+	/* Prevent later mprotect() upgrades to writable/executable. */
+	vm_flags_clear(vma, VM_MAYWRITE | VM_MAYEXEC);
 	vm_flags_set(vma, VM_DONTEXPAND | VM_DONTDUMP);
 	return vm_insert_page(vma, vma->vm_start, dl_shared_page);
 }
