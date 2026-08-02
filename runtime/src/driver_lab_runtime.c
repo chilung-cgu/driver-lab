@@ -12,23 +12,33 @@
 
 int dl_runtime_open(struct dl_runtime_handle *handle, const char *path)
 {
-	return dl_runtime_open_flags(handle, path, O_RDWR);
+	return dl_runtime_open_flags(handle, path, O_RDWR | O_CLOEXEC);
 }
 
 int dl_runtime_open_flags(struct dl_runtime_handle *handle, const char *path, int flags)
 {
+	int fd;
+
 	if (!handle || !path) {
 		errno = EINVAL;
 		return -1;
 	}
+	if (handle->fd >= 0) {
+		errno = EBUSY;
+		return -1;
+	}
 
-	handle->fd = open(path, flags);
-	return handle->fd < 0 ? -1 : 0;
+	fd = open(path, flags);
+	if (fd < 0)
+		return -1;
+
+	handle->fd = fd;
+	return 0;
 }
 
 int dl_runtime_close(struct dl_runtime_handle *handle)
 {
-	int ret;
+	int fd;
 
 	if (!handle) {
 		errno = EINVAL;
@@ -37,17 +47,19 @@ int dl_runtime_close(struct dl_runtime_handle *handle)
 	if (handle->fd < 0)
 		return 0;
 
-	ret = close(handle->fd);
-	if (ret < 0)
-		return -1;
-
+	/*
+	 * Linux releases the descriptor early in close(). Invalidate ownership
+	 * before calling it so a reported close error cannot cause a dangerous retry
+	 * that closes a newly reused descriptor number.
+	 */
+	fd = handle->fd;
 	handle->fd = -1;
-	return 0;
+	return close(fd);
 }
 
 ssize_t dl_runtime_write(struct dl_runtime_handle *handle, const void *buf, size_t count)
 {
-	if (!handle || handle->fd < 0 || !buf) {
+	if (!handle || handle->fd < 0 || (!buf && count != 0)) {
 		errno = EINVAL;
 		return -1;
 	}
@@ -56,7 +68,7 @@ ssize_t dl_runtime_write(struct dl_runtime_handle *handle, const void *buf, size
 
 ssize_t dl_runtime_read(struct dl_runtime_handle *handle, void *buf, size_t count)
 {
-	if (!handle || handle->fd < 0 || !buf) {
+	if (!handle || handle->fd < 0 || (!buf && count != 0)) {
 		errno = EINVAL;
 		return -1;
 	}
@@ -90,6 +102,7 @@ int dl_runtime_ioctl_get_status(struct dl_runtime_handle *handle,
 		errno = EINVAL;
 		return -1;
 	}
+	memset(status, 0, sizeof(*status));
 	return ioctl(handle->fd, DL_IOC_GET_STATUS, status);
 }
 
@@ -117,6 +130,8 @@ int dl_runtime_poll_readable(struct dl_runtime_handle *handle, int timeout_ms,
 	struct pollfd pfd;
 	int ret;
 
+	if (revents)
+		*revents = 0;
 	if (!handle || handle->fd < 0) {
 		errno = EINVAL;
 		return -1;
@@ -150,6 +165,18 @@ int dl_runtime_munmap_shared(void *addr, size_t length)
 	return munmap(addr, length);
 }
 
+static void dl_copy_shared_volatile(struct dl_shared_page *dst,
+								const struct dl_shared_page *src)
+{
+	const volatile unsigned char *source =
+		(const volatile unsigned char *)src;
+	unsigned char *destination = (unsigned char *)dst;
+	size_t i;
+
+	for (i = 0; i < sizeof(*dst); ++i)
+		destination[i] = source[i];
+}
+
 int dl_runtime_read_shared_snapshot(const struct dl_shared_page *mapped,
 									struct dl_shared_page *snapshot)
 {
@@ -157,30 +184,29 @@ int dl_runtime_read_shared_snapshot(const struct dl_shared_page *mapped,
 	dl_u32 begin;
 	dl_u32 end;
 
-	if (!mapped || !snapshot) {
+	if (!mapped || !snapshot || mapped == snapshot) {
 		errno = EINVAL;
 		return -1;
 	}
 
 	for (attempt = 0; attempt < 1000; ++attempt) {
-		/* Acquire keeps the following snapshot loads after the first seq read. */
+		/* Acquire keeps the following shared-page loads after this seq read. */
 		begin = __atomic_load_n(&mapped->seq, __ATOMIC_ACQUIRE);
 		if (begin & 1U) {
 			sched_yield();
 			continue;
 		}
 
-		memcpy(snapshot, mapped, sizeof(*snapshot));
+		/* Force actual loads from the mapping; do not let memcpy reuse/cache it. */
+		dl_copy_shared_volatile(snapshot, mapped);
 
-		/*
-		 * A read barrier is required before the second sequence read so the
-		 * snapshot loads cannot be accepted after a stale final seq value.
-		 * Use a portable GCC full fence in this userspace helper.
-		 */
+		/* Order every copied byte before the final sequence observation. */
 		__atomic_thread_fence(__ATOMIC_SEQ_CST);
 		end = __atomic_load_n(&mapped->seq, __ATOMIC_ACQUIRE);
-		if (begin == end && !(end & 1U))
+		if (begin == end && !(end & 1U) && snapshot->seq == begin) {
+			snapshot->seq = end;
 			return 0;
+		}
 	}
 
 	errno = EAGAIN;
