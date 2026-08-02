@@ -3,22 +3,21 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <pthread.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
 
-/*
- * 這支 CLI 的目的不是漂亮，而是讓多條 userspace thread 同時打同一個 driver。
- * 這樣 04 lab 才能觀察 unsafe/safe mode 的 race 差異。
- */
+#define DL_MAX_RACE_THREADS 1024UL
+#define DL_MAX_RACE_LOOPS 1000000UL
+
 struct worker_args {
-	/* 多條 userspace thread 共用同一個 device fd。 */
 	int fd;
-	/* 每條 thread 要重複送多少次 ioctl increment。 */
-	int loops;
+	unsigned long loops;
 };
 
 static void usage(const char *prog)
@@ -31,164 +30,211 @@ static void usage(const char *prog)
 	fprintf(stderr, "  %s <device> race <threads> <loops>\n", prog);
 }
 
-/*
- * userspace worker。
- * 每條 pthread 都反覆送同一個 ioctl，故意製造 shared counter 的競爭壓力。
- */
+static int parse_ulong(const char *text, unsigned long min,
+					   unsigned long max, unsigned long *value)
+{
+	char *end = NULL;
+	unsigned long parsed;
+
+	if (!text || !value || text[0] == '\0') {
+		errno = EINVAL;
+		return -1;
+	}
+
+	errno = 0;
+	parsed = strtoul(text, &end, 10);
+	if (errno != 0 || !end || *end != '\0' || parsed < min || parsed > max) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	*value = parsed;
+	return 0;
+}
+
 static void *worker_thread(void *opaque)
 {
-	struct worker_args *args = opaque;
-	int i;
+	const struct worker_args *args = opaque;
+	unsigned long i;
 
-	/* 故意狂送 ioctl，讓 kernel 端更容易踩出 lost update。 */
 	for (i = 0; i < args->loops; ++i) {
 		if (ioctl(args->fd, DL_RACE_IOC_INC_COUNTER) != 0) {
 			perror("DL_RACE_IOC_INC_COUNTER");
-			return (void *)1;
+			return (void *)(intptr_t)1;
 		}
 	}
 
 	return NULL;
 }
 
-/*
- * CLI 入口。
- * status/reset/safe-mode 是實驗控制；inc/race 是製造 counter 更新壓力。
- */
+static int close_with_status(int fd, int status)
+{
+	if (close(fd) != 0 && status == 0) {
+		perror("close");
+		return 1;
+	}
+	return status;
+}
+
 int main(int argc, char **argv)
 {
 	struct dl_race_status status;
 	int fd;
+	int exit_status = 0;
 
 	if (argc < 3) {
 		usage(argv[0]);
 		return 1;
 	}
 
-	fd = open(argv[1], O_RDWR);
+	fd = open(argv[1], O_RDWR | O_CLOEXEC);
 	if (fd < 0) {
 		perror("open");
 		return 1;
 	}
 
 	if (strcmp(argv[2], "status") == 0) {
-		/* 結構化讀回 driver 的共享 state。 */
+		if (argc != 3) {
+			usage(argv[0]);
+			exit_status = 1;
+			goto out;
+		}
 		if (ioctl(fd, DL_RACE_IOC_GET_STATUS, &status) != 0) {
 			perror("DL_RACE_IOC_GET_STATUS");
-			close(fd);
-			return 1;
+			exit_status = 1;
+			goto out;
 		}
 
 		printf("counter=%u safe_mode=%u worker_running=%u\n",
 			   status.counter, status.safe_mode, status.worker_running);
 	} else if (strcmp(argv[2], "reset") == 0) {
-		/* 每次 race 實驗前先 reset，避免上一輪數字干擾觀察。 */
+		if (argc != 3) {
+			usage(argv[0]);
+			exit_status = 1;
+			goto out;
+		}
 		if (ioctl(fd, DL_RACE_IOC_RESET_COUNTER) != 0) {
 			perror("DL_RACE_IOC_RESET_COUNTER");
-			close(fd);
-			return 1;
+			exit_status = 1;
+			goto out;
 		}
 	} else if (strcmp(argv[2], "safe-mode") == 0) {
-		unsigned int value;
+		unsigned long parsed;
+		dl_race_u32 value;
 
-		if (argc != 4) {
+		if (argc != 4 || parse_ulong(argv[3], 0, 1, &parsed) != 0) {
 			usage(argv[0]);
-			close(fd);
-			return 1;
+			if (argc == 4)
+				perror("safe-mode argument");
+			exit_status = 1;
+			goto out;
 		}
-
-		/* safe-mode=0 示範 race；safe-mode=1 使用 mutex 修正。 */
-		value = (unsigned int)strtoul(argv[3], NULL, 10);
+		value = (dl_race_u32)parsed;
 		if (ioctl(fd, DL_RACE_IOC_SET_SAFE_MODE, &value) != 0) {
 			perror("DL_RACE_IOC_SET_SAFE_MODE");
-			close(fd);
-			return 1;
+			exit_status = 1;
+			goto out;
 		}
 	} else if (strcmp(argv[2], "inc") == 0) {
-		int count;
-		int i;
+		unsigned long count;
+		unsigned long i;
 
-		if (argc != 4) {
+		if (argc != 4 ||
+		    parse_ulong(argv[3], 1, DL_MAX_RACE_LOOPS, &count) != 0) {
 			usage(argv[0]);
-			close(fd);
-			return 1;
+			if (argc == 4)
+				perror("inc argument");
+			exit_status = 1;
+			goto out;
 		}
 
-		/* 單執行緒重複 increment，適合先確認 ioctl path 可用。 */
-		count = atoi(argv[3]);
 		for (i = 0; i < count; ++i) {
 			if (ioctl(fd, DL_RACE_IOC_INC_COUNTER) != 0) {
 				perror("DL_RACE_IOC_INC_COUNTER");
-				close(fd);
-				return 1;
+				exit_status = 1;
+				goto out;
 			}
 		}
 	} else if (strcmp(argv[2], "race") == 0) {
-		int threads;
-		int loops;
-		pthread_t *ids;
+		unsigned long threads;
+		unsigned long loops;
+		unsigned long created = 0;
+		unsigned long i;
+		unsigned long long expected;
+		pthread_t *ids = NULL;
 		struct worker_args args;
-		int i;
+		int create_error = 0;
+		int worker_error = 0;
 
-		if (argc != 5) {
+		if (argc != 5 ||
+		    parse_ulong(argv[3], 1, DL_MAX_RACE_THREADS, &threads) != 0 ||
+		    parse_ulong(argv[4], 1, DL_MAX_RACE_LOOPS, &loops) != 0) {
 			usage(argv[0]);
-			close(fd);
-			return 1;
+			if (argc == 5)
+				perror("race arguments");
+			exit_status = 1;
+			goto out;
 		}
 
-		/* 多執行緒同時 increment，才是這個 lab 要觀察的重點。 */
-		threads = atoi(argv[3]);
-		loops = atoi(argv[4]);
-		if (threads <= 0 || loops <= 0) {
-			errno = EINVAL;
-			perror("race arguments");
-			close(fd);
-			return 1;
+		expected = (unsigned long long)threads * loops;
+		if (expected > UINT32_MAX) {
+			fprintf(stderr,
+				"ERROR: threads * loops exceeds the 32-bit teaching counter.\n");
+			exit_status = 1;
+			goto out;
 		}
 
-		/* 建多條 thread，同時對同一個 driver state 施壓。 */
-		ids = calloc((size_t)threads, sizeof(*ids));
+		ids = calloc(threads, sizeof(*ids));
 		if (!ids) {
 			perror("calloc");
-			close(fd);
-			return 1;
+			exit_status = 1;
+			goto out;
 		}
 
 		args.fd = fd;
 		args.loops = loops;
-
 		for (i = 0; i < threads; ++i) {
-			if (pthread_create(&ids[i], NULL, worker_thread, &args) != 0) {
-				perror("pthread_create");
-				free(ids);
-				close(fd);
-				return 1;
+			int rc = pthread_create(&ids[i], NULL, worker_thread, &args);
+
+			if (rc != 0) {
+				fprintf(stderr, "pthread_create: %s\n", strerror(rc));
+				create_error = 1;
+				break;
 			}
+			created++;
 		}
 
-		for (i = 0; i < threads; ++i)
-			pthread_join(ids[i], NULL);
+		for (i = 0; i < created; ++i) {
+			void *thread_result = NULL;
+			int rc = pthread_join(ids[i], &thread_result);
 
+			if (rc != 0) {
+				fprintf(stderr, "pthread_join: %s\n", strerror(rc));
+				worker_error = 1;
+			} else if (thread_result != NULL) {
+				worker_error = 1;
+			}
+		}
 		free(ids);
+
+		if (create_error || worker_error || created != threads) {
+			exit_status = 1;
+			goto out;
+		}
 
 		if (ioctl(fd, DL_RACE_IOC_GET_STATUS, &status) != 0) {
 			perror("DL_RACE_IOC_GET_STATUS");
-			close(fd);
-			return 1;
+			exit_status = 1;
+			goto out;
 		}
 
-		/*
-		 * expected_at_least 只計算 userspace 自己送出的 increment。
-		 * 背景 worker 也會加 counter，所以實際 observed 可能更高。
-		 */
-		printf("expected_at_least=%d observed=%u safe_mode=%u\n",
-			   threads * loops, status.counter, status.safe_mode);
+		printf("expected_at_least=%llu observed=%u safe_mode=%u\n",
+			   expected, status.counter, status.safe_mode);
 	} else {
 		usage(argv[0]);
-		close(fd);
-		return 1;
+		exit_status = 1;
 	}
 
-	close(fd);
-	return 0;
+out:
+	return close_with_status(fd, exit_status);
 }
