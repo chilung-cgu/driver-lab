@@ -138,7 +138,6 @@ void *dl_runtime_mmap_shared(struct dl_runtime_handle *handle, size_t length)
 		return MAP_FAILED;
 	}
 
-	/* Snapshot 是 kernel -> userspace 的觀測介面，不開放 userspace 寫回。 */
 	return mmap(NULL, length, PROT_READ, MAP_SHARED, handle->fd, 0);
 }
 
@@ -164,6 +163,7 @@ int dl_runtime_read_shared_snapshot(const struct dl_shared_page *mapped,
 	}
 
 	for (attempt = 0; attempt < 1000; ++attempt) {
+		/* Acquire keeps the following snapshot loads after the first seq read. */
 		begin = __atomic_load_n(&mapped->seq, __ATOMIC_ACQUIRE);
 		if (begin & 1U) {
 			sched_yield();
@@ -171,6 +171,13 @@ int dl_runtime_read_shared_snapshot(const struct dl_shared_page *mapped,
 		}
 
 		memcpy(snapshot, mapped, sizeof(*snapshot));
+
+		/*
+		 * A read barrier is required before the second sequence read so the
+		 * snapshot loads cannot be accepted after a stale final seq value.
+		 * Use a portable GCC full fence in this userspace helper.
+		 */
+		__atomic_thread_fence(__ATOMIC_SEQ_CST);
 		end = __atomic_load_n(&mapped->seq, __ATOMIC_ACQUIRE);
 		if (begin == end && !(end & 1U))
 			return 0;
