@@ -29,6 +29,18 @@ stop_pid() {
     fi
 }
 
+count_matches() {
+    pattern=$1
+    shift
+    total=0
+
+    for file do
+        count=$(grep -c "$pattern" "$file" || true)
+        total=$((total + count))
+    done
+    printf '%s\n' "$total"
+}
+
 cleanup() {
     stop_pid "$poll_pid"
     stop_pid "$reader1_pid"
@@ -236,10 +248,8 @@ if [ "$reader1_status" -ne 0 ] || [ "$reader2_status" -ne 0 ]; then
     exit 1
 fi
 
-one_count=$(grep -h 'reader-message-one' "$READER1_LOG" "$READER2_LOG" |
-    wc -l | tr -d ' ')
-two_count=$(grep -h 'reader-message-two' "$READER1_LOG" "$READER2_LOG" |
-    wc -l | tr -d ' ')
+one_count=$(count_matches 'reader-message-one' "$READER1_LOG" "$READER2_LOG")
+two_count=$(count_matches 'reader-message-two' "$READER1_LOG" "$READER2_LOG")
 if [ "$one_count" -ne 1 ] || [ "$two_count" -ne 1 ]; then
     printf 'ERROR: message counts: first=%s second=%s\n' \
         "$one_count" "$two_count" >&2
