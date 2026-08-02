@@ -1,189 +1,199 @@
-# 09 - Stress and Fault Injection
+# 09 — Stress and fault-injection roadmap
 
-## 目標
+## Current scope
 
-把前面做出的 driver 從「能跑」提升到「能驗證」。
+The repository currently implements two repeatable **Lab03 stress gates**:
 
-> [!NOTE]
-> 這一關目前 repo 已有的是 `03-ioctl-poll-mmap` 專用 stress 腳本。
-> `KUnit`、`kselftest`、`failslab`、`fail_page_alloc`、`fail_usercopy` 仍屬後續擴充題。
+1. repeated module load/unload;
+2. parallel ioctl/status/mmap/read/trigger activity.
 
-## 先備條件
+It does **not** yet implement a complete KUnit/kselftest/failslab/fail_page_alloc/fail_usercopy framework, nor dedicated Lab05–07 IRQ/DMA fault injection. The directory name is a roadmap as well as a current test suite.
 
-- 你已經讀過 [`../../docs/onboarding/07-to-09-runtime-validation-bridge.md`](../../docs/onboarding/07-to-09-runtime-validation-bridge.md)
-- 前面至少已經有一個真正可用的 driver lab
-- 你知道正常路徑與 error path 是兩件不同的事
+## Why stress is different from proof
 
-## 這一關要練什麼
+- Smoke: one intended path works once.
+- Stress: increases the chance of exposing timing/lifetime/resource bugs.
+- Regression: the same gates run after every change.
+- Fault injection: deliberately forces a specific failure/error path.
+- Static reasoning/sanitizers: answer different correctness questions.
 
-- repeated load / unload
-- parallel open / close
-- long-running stress
-- `failslab`
-- `fail_page_alloc`
-- `fail_usercopy`
-- regression 紀律
+A stress pass is evidence, not proof that no race exists. A failure must preserve its first error and evidence rather than be retried until green.
 
-## 成功標準
+## Run
 
-- 有 smoke / stress / regression 分層
-- 有故障注入腳本
-- 有 cleanup path 驗證
+```sh
+cd labs/09-stress-and-fault-injection
+./test.sh
+```
 
-## 現在 repo 已有的東西
+The suite runs reload first, then parallel stress. Environment variables can scale the individual scripts:
 
-- `stress-03-reload.sh`
-  - 針對 `03` 做 repeated load / unload
-- `stress-03-parallel.sh`
-  - 針對 `03` 做 parallel access
-- `test.sh`
-  - 先把上述兩支腳本串成最小 stress 套件
+```sh
+ITERATIONS=100 ./stress-03-reload.sh
 
-## Source 旁讀文件
+WORKERS=8 \
+ITERATIONS=100 \
+READ_TIMEOUT_SECONDS=2 \
+./stress-03-parallel.sh
+```
 
-讀 source 時可以直接打開同目錄的 companion doc，不需要回到 `docs/` 裡找對應解釋：
+All values must be positive integers.
 
-| Source | 旁讀文件 | 建議用途 |
-|---|---|---|
-| [`test.sh`](test.sh) | [`test.sh.md`](test.sh.md) | 理解 Lab09 目前如何串起 reload 與 parallel stress suite。 |
-| [`stress-03-reload.sh`](stress-03-reload.sh) | [`stress-03-reload.sh.md`](stress-03-reload.sh.md) | 理解 repeated load/unload 如何驗 Lab03 cleanup 對稱性。 |
-| [`stress-03-parallel.sh`](stress-03-parallel.sh) | [`stress-03-parallel.sh.md`](stress-03-parallel.sh.md) | 理解 parallel workers 如何透過 CLI/runtime 對 Lab03 施壓。 |
-| [`Makefile`](Makefile) | [`Makefile.md`](Makefile.md) | 理解目前 scaffold Makefile 為什麼不直接跑 stress。 |
-| [`../03-ioctl-poll-mmap/driver_lab_ioctl_poll_mmap.c`](../03-ioctl-poll-mmap/driver_lab_ioctl_poll_mmap.c) | [`../03-ioctl-poll-mmap/driver_lab_ioctl_poll_mmap.c.md`](../03-ioctl-poll-mmap/driver_lab_ioctl_poll_mmap.c.md) | 回頭理解 stress target driver 的 read/write/ioctl/poll/mmap path。 |
+## Module ownership
 
-## 這一關會使用哪些 filesystem 入口
+Both scripts refuse to start if `driver_lab_ioctl_poll_mmap` is already loaded. They track whether **this test** loaded the module and only unload their own instance in cleanup.
 
-`09` 目前不是新的 driver。它主要反覆操作 `03` 的入口：
+This avoids destroying a developer's pre-existing debug state and prevents false evidence from an unknown module build/configuration.
 
-| 入口 | 第一輪用途 |
-|---|---|
-| `/dev/driver_lab_ctl0` | parallel stress workers 反覆做 `ioctl-write/status/read/trigger` 的 device node。 |
-| `/sys/class/driver_lab_ctl/driver_lab_ctl0` | 可用來確認 repeated load/unload 後 device model entry 是否正常消失又重建。 |
-| `dmesg` | 失敗時第一個看 kernel log，尤其是 cleanup、warning、oops。 |
-| script stdout/stderr | 觀察 `stress-03-reload passed.`、`stress-03-parallel passed.`。 |
+## Reload stress
 
-未來加入 failslab、fail_page_alloc、fail_usercopy 時，才會更大量使用 debugfs 裡的 fault injection controls。
+```text
+build Lab03
+→ record kernel-log baseline
+→ repeat N times:
+     insmod
+     verify /dev + sysfs + /proc/devices
+     rmmod
+     verify /dev + sysfs disappear
+→ isolate new dmesg lines
+→ fail on warning/sanitizer signatures
+```
 
-## `test.sh` 與兩支 stress script 在做什麼
+This is most useful for:
 
-`test.sh` 目前只負責串接：
+- init/exit symmetry;
+- leaked cdev/class/devt/page references;
+- unload lifetime warnings;
+- state that survives unexpectedly across reload.
 
-1. `stress-03-reload.sh`
-2. `stress-03-parallel.sh`
+It does not keep fds/VMAs active during unload; that needs separate targeted tests.
 
-`stress-03-reload.sh` 的重點：
+## Parallel stress
 
-- build `03` module
-- 連續 load/unload 20 次
-- 每次 load 後檢查 `/dev`、`/sys/class`、`/proc/devices`
-- 每次 unload 後檢查 sysfs class device 已移除
-- 如果 cleanup 不對稱，這類測試通常比單次 smoke test 更容易暴露問題
+```text
+build Lab03 + runtime
+→ load/verify module
+→ start W workers
+→ each repeats:
+     ioctl-write unique record
+     status
+     mmap-read sequenced snapshot
+     bounded blocking read
+     trigger event
+→ propagate every worker failure
+→ clear/unload
+→ scan only new kernel logs
+```
 
-`stress-03-parallel.sh` 的重點：
+The read path is record-oriented and another worker may consume the record first. Therefore a bounded read accepts only:
 
-- build `03` module 與 runtime CLI
-- 載入 `03` module
-- 先確認 filesystem surface 已出現，再啟動 parallel workers
-- 啟動 4 個 worker 反覆做 `ioctl-write`、`status`、`read`、`trigger`
-- 提高 read/write/ioctl/poll 共享狀態被同時碰到的機率
+- exit 0: it consumed a record;
+- exit 124: GNU `timeout` expired while another reader won.
 
-這些不是完整 fault injection。它們是第一批可重複的壓力驗證習慣。
+Any other status is a real failure. The script no longer uses broad `|| true` to hide crashes, `EIO`, invalid CLI arguments or permission errors.
 
-## 現在 repo 還沒有的東西
+The snapshot read adds pressure to the sequence-publication path while writers update state.
 
-- `KUnit` 測試
-- `kselftest` 整合
-- `failslab` / `fail_page_alloc` / `fail_usercopy` 自動化
-- `05-07` 專用 stress / regression matrix
+## Kernel-log gate
 
-## 新手先記住這一關在補什麼
+The scripts do not run `dmesg -C`. They record a line baseline and inspect messages added during the run for:
 
-- 「能跑一次」不等於「driver 寫對了」
-- 真正難的是 repeated load/unload、失敗注入、cleanup 對稱性
+```text
+BUG:
+WARNING:
+KASAN:
+KCSAN:
+Oops:
+use-after-free
+general protection fault
+```
 
-## 目前已完成的部分
+If the ring buffer wraps and the baseline cannot be isolated, the test fails honestly rather than presenting incomplete logs as evidence.
 
-- 針對 `03-ioctl-poll-mmap` 的 repeated load/unload 壓力腳本
-- 針對 `03-ioctl-poll-mmap` 的 parallel access 壓力腳本
+On a busy non-isolated system, unrelated warnings can still cause a failure. Run kernel-driver validation in a controlled VM/guest and preserve the complete log.
 
-## 目前還沒完成的部分
+## What is still missing
 
-- `failslab` / `fail_page_alloc` / `fail_usercopy` 的自動化腳本
-- 更長時間的 regression matrix
-- 針對 QEMU EDU labs 的專用 stress 套件
+### Lab03 targeted fault/lifetime tests
 
-## 這一關現在怎麼看待
+- active fd and VMA while attempting unload;
+- signal interruption of blocking read/poll;
+- continuous writer causing snapshot retry/EAGAIN;
+- allocation and usercopy fault injection;
+- compat ioctl and ABI-version regression.
 
-這一關現在比較像：
+### Lab04
 
-- 已經有第一批可執行的驗證習慣
-- 但還沒有進到完整 fault injection 與 regression framework
+- KCSAN run that observes the intentional unsafe data race;
+- lockdep/KASAN repeated reload;
+- controlled transition/reset concurrency.
 
-如果你目前是新手，這樣的成熟度是合理的。
-重點不是假裝全部都完成，而是清楚知道「已經有什麼」、「下一步還缺什麼」。
+### Lab05–07
 
-## 新手第一次不要追的東西
+- repeated QEMU EDU bind/unbind/load/unload;
+- IRQ no-ACK and late-handler tests;
+- DMA IRQ timeout, command timeout, reset success/failure;
+- IOMMU on/off and SWIOTLB scenarios;
+- no-free guarantee when DMA quiescence cannot be proven.
 
-- 一開始不要追非常長時間的 soak test
-- 先把「可以穩定重複 20 次」做好
-- 先把 repeated load/unload 與 parallel access 練熟
+### Test frameworks
 
-## 第一次理想上要做到的最小版本
+- KUnit for pure kernel helpers/state machines;
+- kselftest-style userspace ABI tests;
+- fault-injection config/fixtures;
+- matrix across kernel/QEMU versions, architectures and configs;
+- long soak/performance/tail-latency runs.
 
-第一次只要求你做到：
+## Evidence to save
 
-1. repeated load/unload 可以連跑 20 次
-2. parallel access 可以穩定重現與觀察結果
-3. 每次失敗時知道要回頭看哪一份 log
+```text
+kernel version/config
+QEMU version and command line
+both repository commit SHAs
+sanitizer/IOMMU state
+exact stress parameters
+stdout/stderr + full new dmesg
+resource/IRQ state before/after
+first failure, hypothesis, experiment, fix, regression
+```
 
-## 如果你完全看不懂 scripts，先看這 5 個點
+Do not record only the final “passed” line.
 
-1. `stress-03-reload.sh` 的 `while [ "$i" -lt 20 ]`：重複 load/unload。
-2. `stress-03-reload.sh` 的 `cleanup()`：失敗或中斷時仍嘗試卸載 module。
-3. `stress-03-parallel.sh` 的 `worker()`：每個 worker 都反覆打同一個 driver。
-4. `timeout 2s ... read || true`：parallel read 可能被別的 worker 先消費資料，所以避免永久卡住。
-5. `test.sh`：目前只是串接兩個 `03` stress scripts，不是 fault injection framework。
+## Debug order
 
-## script 參數第一輪怎麼讀
+### Reload failure
 
-`09` 主要是 shell stress scripts，不是新的 kernel API。這一關仍然沿用「參數角色」方法：看清楚哪些值控制次數、平行度、timeout、cleanup。
+1. first failing iteration;
+2. first kernel warning/error;
+3. filesystem surface that remained or failed to appear;
+4. module ownership/refcount/open fd/VMA;
+5. init/error-unwind/exit dependency order.
 
-完整模板見 [`../../docs/onboarding/kernel-api-parameter-roles.md`](../../docs/onboarding/kernel-api-parameter-roles.md)。
+### Parallel worker failure
 
-| 位置 | 參數角色 | 第一輪理解 |
-|---|---|---|
-| `stress-03-reload.sh` 的迴圈次數 | stress count | 控制 load/unload 重複幾次，用來驗 cleanup 對稱性。 |
-| `stress-03-parallel.sh` 的 worker 數 | parallelism | 控制同時有幾條 userspace 路徑打同一個 driver。 |
-| `timeout 2s` | timeout guard | 避免某條 userspace 操作永久卡住，讓測試能失敗收斂。 |
-| `cleanup()` | cleanup hook | script 中斷或失敗時仍嘗試卸載 module、清 build artifact。 |
-| CLI device path | resource input | 指向要施壓的 `/dev/driver_lab_ctl0`。 |
+1. worker exit status and command;
+2. distinguish accepted read timeout 124 from other errors;
+3. inspect CLI/runtime validation error;
+4. inspect Lab03 record/poll/mmap state;
+5. inspect new dmesg before rerunning.
 
-## 第一輪閱讀界線
+## Self-check
 
-| 分類 | 內容 |
-|---|---|
-| 第一輪必懂 | repeated load/unload 主要驗 cleanup 對稱性；parallel access 主要驗共享狀態壓力；目前已有 `03` 專用 stress 腳本。 |
-| 可以先略過 | KUnit、kselftest、`failslab`、`fail_page_alloc`、`fail_usercopy` 的完整框架與設定細節。 |
-| 之後再回來補 | fault injection 自動化、長時間 regression matrix、`05-07` QEMU EDU stress suite。 |
+1. Why is a stress pass not proof that no race exists?
+2. Why do scripts refuse a pre-loaded module?
+3. Why is read timeout 124 accepted but arbitrary `|| true` forbidden?
+4. Why add `mmap-read` to parallel workers?
+5. Why avoid `dmesg -C`, and what happens if the ring wraps?
+6. Which tests would turn the directory into real fault injection rather than stress only?
 
-## 完成後你應該能回答
+<details>
+<summary>Reference answers</summary>
 
-| 問題 | 標準答案 |
-|---|---|
-| 這一關目前完成到哪裡？ | 目前已有 `03-ioctl-poll-mmap` 專用 repeated reload 與 parallel access stress 腳本。 |
-| 這一關目前還沒完成什麼？ | 尚未完成 KUnit、kselftest、`failslab`、`fail_page_alloc`、`fail_usercopy` 自動化與完整 fault injection framework。 |
-| repeated load/unload 主要驗什麼？ | 驗 init/exit cleanup 是否對稱，避免多跑幾次才暴露的 resource 泄漏或狀態殘留。 |
-| parallel access 主要驗什麼？ | 對共享狀態施壓，讓 read/write/ioctl/poll 同時被碰到時的問題更容易出現。 |
-| stress 和 regression 差在哪裡？ | stress 是重複施壓；regression 是每次修改後固定重跑，避免舊功能壞掉。 |
-| 第一個觀測點是什麼？ | `stress-03-reload passed.`、`stress-03-parallel passed.`，以及失敗時的 `dmesg`。 |
-| 失敗時第一個看哪裡？ | repeated reload 先看 cleanup path；parallel access 先看是否有 process 還持有 fd，再看 `dmesg`。 |
+1. Stress samples a finite set of schedules/states; unobserved interleavings and formal invariant violations may remain.
+2. The test cannot claim ownership/version/state and must not unload or destroy someone else's debugging session.
+3. Another worker legitimately may consume the single record, so bounded waiting can expire. Other errors indicate a broken command/path and must propagate.
+4. It exercises the sequence snapshot concurrently with writers rather than stressing only syscall control/data paths.
+5. Kernel log is global diagnostic state. Tests isolate new lines; if wrapping makes isolation unreliable, they fail instead of deleting or misattributing evidence.
+6. Deliberately force allocation/usercopy/IRQ/DMA/reset failures and assert exact unwind/quiesce behavior, ideally through KUnit/kselftest/fault-injection fixtures.
 
-## 第一次卡住先看哪裡
-
-- repeated load/unload 偶發失敗
-  - 優先懷疑 cleanup path 不對稱
-- parallel 測試結果不穩
-  - 先分清楚這是教學上刻意示範 race，還是 module 本身壞掉
-- 不知道 stress 跟 regression 差在哪
-  - stress 是「重複施壓」
-  - regression 是「每次修改後都應該固定重跑的檢查」
+</details>

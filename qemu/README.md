@@ -1,80 +1,108 @@
 # QEMU Notes
 
-這個目錄是 `05-07` 的 QEMU EDU 操作入口。
+這個目錄是 Lab05～Lab07 的 QEMU EDU 操作入口。
 
 > [!NOTE]
-> 對完全沒學過 kernel module 的新手，這個目錄一開始可以先略過。
-> 你前面真正要先做的是 `00-02`，至少先把 `build / load / unload / debugfs / char device` 練穩。
+> 完全沒做過kernel module時，先完成Lab00～Lab04第一輪。QEMU環境不是用來取代module、VFS與concurrency基本功。
 
 ## 這個目錄負責什麼
 
-- 提供 `QEMU edu` 的 host 端啟動腳本
-- 提供 guest bring-up 的最小檢查表
-- 指向第一次做 `05-07` 時該讀的文件
+- 提供QEMU EDU的host啟動入口；
+- 說明host／guest與CPU architecture邊界；
+- 提供guest bring-up與Lab05～07檢查表；
+- 指向current source與smoke tests。
 
-## 這個目錄不負責什麼
+## 不負責什麼
 
-- 不在 `macOS` 直接 build / load Linux kernel module
-- 不取代 guest 內的 `05-07` lab README
-- 不保證你的 guest image、套件來源或 distro 流程完全相同
+- macOS不能直接build/load Linux kernel module；
+- Container不能取代一台能列舉QEMU EDU的Linux guest；
+- Generic QEMU流程不保證適用每個distro/image/network設定；
+- 通過EDU不代表真實card的PHY、firmware、reset與hotplug已驗證。
 
 ## 支援的執行模型
 
-- `Linux host + Linux guest`
-- `macOS host + Linux guest`
+- Linux host + Linux guest；
+- macOS host + Linux guest；
+- x86_64 host + x86_64 guest（常可用KVM）；
+- arm64 host + arm64 guest（平台支援時可用KVM/HVF）；
+- arm64 host + x86_64 guest（通常使用TCG軟體翻譯）。
 
-兩條路都可以拿來啟動 QEMU。
-真正的 driver build / load / smoke test 位置，仍然是 `Linux guest`。
+真正的driver build/load/smoke test位置是**能看見EDU且kernel headers匹配的Linux guest**。
 
-目前 repo 的 `05-07` 已在遠端 Linux host 啟動 QEMU EDU guest 實測通過；這代表流程可重複，但不代表 macOS 可以直接載入 Linux kernel module。換到你的機器時，仍要先確認 guest 內看得到 EDU device。
+> [!WARNING]
+> 本accuracy-audit branch已通過static checks與external-module compile gate，但尚未在你的Linux/QEMU guest完成MMIO、IRQ、DMA runtime驗證。不要把舊文件中的「已實測通過」當成這個branch的證據；合併前應保存本次test logs。
 
-## 為什麼是 QEMU EDU
+## 為什麼使用QEMU EDU
 
-QEMU 官方把 `edu` 定位成：
+QEMU官方提供`edu`作driver教育裝置，包含：
 
-- 教學用 PCI 裝置
-- 適合拿來寫 kernel driver
-- 明確支援 `MMIO + IRQ + DMA`
+- PCI configuration/BAR0；
+- MMIO identification/liveness與其他register；
+- interrupt；
+- 簡化DMA engine與device-local RAM。
 
-## 你在這個階段要做到的事
+它適合建立第一個host-driver閉環，但不是production PCIe accelerator模型。
 
-1. 在 host 上準備 `qemu-system-x86_64`
-2. 啟動一台 Linux guest，並把 `edu` 裝置掛進去
-3. 在 guest 內確認 `lspci -nn | grep 1234:11e8`
-4. 在 guest 內依序完成 `05`、`06`、`07`
+## 你要完成的gate
 
-## 目前已提供
+1. Host有正確architecture的QEMU system emulator。
+2. Launch arguments包含`-device edu`。
+3. Guest內：
 
-- [`launch-edu-vm.sh`](launch-edu-vm.sh)：最小可用的 QEMU 啟動腳本
-- [`launch-edu-vm.sh.md`](launch-edu-vm.sh.md)：逐行解釋啟動腳本、accelerator 選擇、`-device edu` 與 host/guest 分工
-- [`edu-bringup-checklist.md`](edu-bringup-checklist.md)：host 到 guest 的最小 bring-up 清單
-- [`../docs/guides/qemu-edu-first-pass.md`](../docs/guides/qemu-edu-first-pass.md)：第一次做 `05-07` 的白話導讀
-- [`../docs/guides/linux-guest-05-to-07-walkthrough.md`](../docs/guides/linux-guest-05-to-07-walkthrough.md)：第一次進 guest 的完整 runbook
-- [`../docs/guides/linux-guest-05-to-07-checklist.md`](../docs/guides/linux-guest-05-to-07-checklist.md)：第二次之後的速查單
+   ```sh
+   uname -m
+   uname -r
+   lspci -Dnn | grep 1234:11e8
+   test -e "/lib/modules/$(uname -r)/build"
+   ```
 
-## `launch-edu-vm.sh` 會怎麼選 accelerator
+4. 依序跑Lab05、Lab06、Lab07。
+5. 保存`dmesg`、`lspci -Dnnvv`與`/proc/interrupts`證據。
 
-- `Linux`：優先 `kvm`，不可用時退回 `tcg`
-- `macOS`：優先 `hvf`，不可用時退回 `tcg`
+## 文件地圖
 
-你也可以手動覆寫：
+- [`launch-edu-vm.sh`](launch-edu-vm.sh)：QEMU啟動腳本。
+- [`launch-edu-vm.sh.md`](launch-edu-vm.sh.md)：script companion；若與script不同，以script為準。
+- [`edu-bringup-checklist.md`](edu-bringup-checklist.md)：host到guest的最小gate。
+- [`arm-host-x86-guest.md`](arm-host-x86-guest.md)：arm64 host模擬x86_64 guest的可重建流程。
+- [`../docs/concepts/pcie-primer.md`](../docs/concepts/pcie-primer.md)：PCI/BAR/MMIO/IRQ/DMA正確最低模型。
+- [`../docs/guides/lab-05-study-order.md`](../docs/guides/lab-05-study-order.md)：Lab05閱讀順序。
+- [`../docs/guides/qemu-edu-first-pass.md`](../docs/guides/qemu-edu-first-pass.md)：第一次白話導讀。
+- [`../docs/guides/linux-guest-05-to-07-walkthrough.md`](../docs/guides/linux-guest-05-to-07-walkthrough.md)：完整runbook。
+- [`../docs/guides/linux-guest-05-to-07-checklist.md`](../docs/guides/linux-guest-05-to-07-checklist.md)：第二次後速查。
+
+## Accelerator選擇
+
+`launch-edu-vm.sh`會依host與可用backend選擇；實際結果以QEMU輸出為準：
+
+- Linux同architecture guest通常優先KVM；
+- macOS相容guest通常可用HVF；
+- 不支援時退回TCG；
+- arm64 host跑x86_64 guest通常只能TCG。
+
+可明確覆寫：
 
 ```sh
-QEMU_IMAGE=$HOME/vm/ubuntu.qcow2 \
+QEMU_IMAGE="$HOME/vm/driver-lab.qcow2" \
 QEMU_ACCEL=tcg \
-QEMU_EXTRA_ARGS="-monitor stdio" \
 ./qemu/launch-edu-vm.sh
 ```
+
+加入`QEMU_EXTRA_ARGS`前先讀script的argument handling；複雜quoted arguments較適合寫在本機wrapper或改成明確array，而不是假設任意字串展開都安全。
 
 ## 建議閱讀順序
 
 1. [`../docs/concepts/pcie-primer.md`](../docs/concepts/pcie-primer.md)
-2. [`../docs/guides/qemu-edu-first-pass.md`](../docs/guides/qemu-edu-first-pass.md)
-3. [`edu-bringup-checklist.md`](edu-bringup-checklist.md)
-4. [`../docs/guides/linux-guest-05-to-07-walkthrough.md`](../docs/guides/linux-guest-05-to-07-walkthrough.md)
+2. [`../docs/guides/lab-05-study-order.md`](../docs/guides/lab-05-study-order.md)
+3. [`../docs/guides/qemu-edu-first-pass.md`](../docs/guides/qemu-edu-first-pass.md)
+4. [`edu-bringup-checklist.md`](edu-bringup-checklist.md)
+5. 跨architecture時讀[`arm-host-x86-guest.md`](arm-host-x86-guest.md)
+6. [`../docs/guides/linux-guest-05-to-07-walkthrough.md`](../docs/guides/linux-guest-05-to-07-walkthrough.md)
 
-## 現在先不要追的東西
+## 現在不要混在一起追
 
-- 不要把 `05-07` 混成一支大 driver 一次做完
-- 不要一開始追 MSI-X、效能或 reset/AER
-- 不要把 Docker 當成 QEMU EDU 的替代方案
+- 不要在Lab05環境/bind未通時先追DMA；
+- 不要把MSI-X、AER、DPC、power/reset、hot-unplug一次塞進EDU第一輪；
+- 不要把QEMU的BDF寫死；
+- 不要把EDU generic reset fallback當成真實硬體recovery；
+- 不要以「module可以compile」宣稱IRQ/DMA runtime通過。

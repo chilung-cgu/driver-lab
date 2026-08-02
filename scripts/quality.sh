@@ -1,8 +1,8 @@
 #!/bin/sh
 set -eu
 
-# 這個腳本刻意保持簡單：
-# 先做語法檢查，再做可選的靜態檢查，最後在有 kernel tree 時跑 checkpatch。
+# 先做 shell 語法與靜態檢查、Markdown local-link 檢查，最後在有
+# kernel tree 時跑 checkpatch。這些是 static gates，不等於 module runtime test。
 
 ROOT_DIR=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 TARGET_DIR=${1:-$ROOT_DIR}
@@ -27,7 +27,21 @@ run_shellcheck() {
 
     find "$TARGET_DIR" -type f -name '*.sh' | while IFS= read -r file; do
         printf 'shellcheck %s\n' "$file"
-        shellcheck "$file"
+
+        # SC1007: repository scripts intentionally use the POSIX
+        #   CDPATH= cd -- <dir>
+        # idiom. New/edited scripts should prefer CDPATH='' for clarity, but do
+        # not hide unrelated diagnostics solely to normalize older files.
+        #
+        # Scripts sourcing fs-surface-checks.sh intentionally set FS_SUDO for
+        # the sourced helper. Because the source path is constructed from
+        # ROOT_DIR, ShellCheck cannot follow it statically and reports SC1091
+        # plus SC2034. Suppress those two only for the known cross-file pattern.
+        if grep -q 'fs-surface-checks\.sh' "$file"; then
+            shellcheck -e SC1007,SC1091,SC2034 "$file"
+        else
+            shellcheck -e SC1007 "$file"
+        fi
     done
 }
 
@@ -116,7 +130,7 @@ for markdown_file in sorted(target_dir.rglob('*.md')):
             target_path = markdown_file
             anchor = raw_dest[1:]
         else:
-            path_part, sep, anchor = raw_dest.partition('#')
+            path_part, _, anchor = raw_dest.partition('#')
             target_path = (markdown_file.parent / path_part).resolve()
 
             if not target_path.exists():

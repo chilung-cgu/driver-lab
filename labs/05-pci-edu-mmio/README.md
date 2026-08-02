@@ -1,228 +1,245 @@
-# 05 - PCI EDU MMIO
+# 05 — QEMU EDU PCI/MMIO
 
 ## 目標
 
-使用 QEMU `edu` 裝置完成第一個真正的 PCI driver 起手式。
+完成第一個最小PCI host driver閉環：
 
-> [!NOTE]
-> 這一關現在已經有第一版可 build 的 driver code 與 smoke test。
-> 真正的載入與驗證仍必須在 Linux guest 內完成。
-
-> [!NOTE]
-> 如果你現在還不熟 kernel module、debugfs、char device，先不要跳這一關。
-> 這一關是前面基礎都站穩後，才開始接近 PCIe host driver 的起點。
-
-## 開始前先看
-
-- [`../../docs/onboarding/03-to-05-concurrency-pci-bridge.md`](../../docs/onboarding/03-to-05-concurrency-pci-bridge.md)
-- [`../../docs/onboarding/05-to-07-pci-irq-dma-bridge.md`](../../docs/onboarding/05-to-07-pci-irq-dma-bridge.md)
-- [`../../docs/concepts/pcie-primer.md`](../../docs/concepts/pcie-primer.md)
-- [`../../docs/guides/qemu-edu-first-pass.md`](../../docs/guides/qemu-edu-first-pass.md)
-- [`../../qemu/edu-bringup-checklist.md`](../../qemu/edu-bringup-checklist.md)
-
-## 先備條件
-
-- 你已完成 `00-04` 至少前半
-- 你知道 `probe/remove` 是 driver 的裝置生命週期入口
-- 你接受這一關需要 QEMU 與更多 Linux 背景
-
-## 這一關要練什麼
-
-- `pci_register_driver()`
-- `probe/remove`
-- `pci_enable_device()`
-- BAR resource handling
-- `pci_iomap()`
-- 讀取裝置 identification / liveness register
-
-## 成功標準
-
-- driver 能 bind `1234:11e8`
-- probe 成功
-- BAR0 可存取
-- 可做基本 liveness check
-
-## 第一次只要先懂這張圖
-
-```mermaid
-flowchart LR
-    P["kernel PCI scan"] --> Q["driver probe()"]
-    Q --> B["BAR0 map"]
-    B --> M["read one register"]
+```text
+EDU被guest列舉
+→ PCI ID match / bind
+→ probe()
+→ validate、claim、map BAR0
+→ identification與liveness MMIO
+→ remove/error path釋放resource
 ```
 
-> **逐步說明：**
->
-> 1. **kernel 掃 PCI bus**：guest 內必須先真的有 QEMU EDU device，PCI core 才有東西可 match。
-> 2. **ID match 後呼叫 `probe()`**：driver 宣告支援 `1234:11e8`，match 後 PCI core 呼叫 `dl_edu_mmio_probe()`。
-> 3. **driver map BAR0**：`pci_iomap()` 把 EDU 的 BAR0 變成 driver 可用的 MMIO window。
-> 4. **讀寫 register**：driver 用 `ioread32()` / `iowrite32()` 做 identification 與 liveness check。
->
-> **白話總結**：`05` 像先確認你真的拿到裝置的控制面板，並能按下一個最小按鈕確認它有反應。
+這一關不做IRQ與DMA。先證明「裝置存在、driver接手、BAR正確、最小register path可用」。
 
-這一關的最小目標不是寫完整卡 driver，而只是：
+> [!IMPORTANT]
+> Current audit branch已通過static/build gate，但本branch的真正load/MMIO runtime仍需在你的Linux/QEMU guest執行`test.sh`並保存log。
 
-- 裝置有沒有被你接手
-- BAR 有沒有 map 成功
-- 你能不能讀到第一個 register
+## 先讀
 
-## 這一關會出現哪些 filesystem 入口
+1. [`../../docs/concepts/pcie-primer.md`](../../docs/concepts/pcie-primer.md)
+2. [`../../docs/guides/lab-05-study-order.md`](../../docs/guides/lab-05-study-order.md)
+3. [`../../qemu/README.md`](../../qemu/README.md)
+4. [`../../docs/guides/qemu-edu-first-pass.md`](../../docs/guides/qemu-edu-first-pass.md)
+5. [`../../qemu/edu-bringup-checklist.md`](../../qemu/edu-bringup-checklist.md)
+6. ARM host跑x86_64 guest時讀[`../../qemu/arm-host-x86-guest.md`](../../qemu/arm-host-x86-guest.md)
 
-`05` 不會建立 `/dev/driver_lab_*`。它是 PCI driver，所以第一個入口是 PCI bus 與 sysfs：
+## 先備gate
 
-| 入口 | 第一輪用途 |
+在guest內：
+
+```sh
+uname -m
+uname -r
+lspci -Dnn | grep 1234:11e8
+test -e "/lib/modules/$(uname -r)/build"
+```
+
+如果`lspci`看不到EDU，PCI core沒有可match的function，`probe()`不會進來。先修QEMU/guest，不要先改driver。
+
+## Driver與device誰先出現？
+
+兩種順序都可以：
+
+```text
+device先列舉，driver後註冊
+```
+
+或：
+
+```text
+driver先註冊，supported device後出現
+```
+
+Driver core在每一側出現時都可嘗試match/bind；只要function尚未被其他driver擁有且match/policy允許，便呼叫`probe()`。
+
+這不表示所有實體PCIe裝置都支援任意hotplug。實體熱插拔還需要slot、controller、firmware與OS支援；QEMU `device_add`也需machine/device model支援。
+
+## Current source流程
+
+主要檔案：[`driver_lab_edu_mmio.c`](driver_lab_edu_mmio.c)
+
+### 1. Match table
+
+```c
+static const struct pci_device_id dl_edu_mmio_ids[] = {
+    { PCI_DEVICE(0x1234, 0x11e8) },
+    { }
+};
+```
+
+`MODULE_DEVICE_TABLE(pci, ...)`匯出modalias資訊；`module_pci_driver()`包裝register/unregister。`probe()`由driver core呼叫，不是userspace syscall callback。
+
+### 2. Per-device state
+
+```c
+struct dl_edu_mmio_dev {
+    struct pci_dev *pdev;
+    u8 __iomem *bar0;
+    resource_size_t bar0_len;
+    ...
+};
+```
+
+`bar0`用byte-addressed `u8 __iomem *`，因此`bar0 + 0x04`明確表示4-byte offset。不要用普通pointer dereference。
+
+### 3. Enable與BAR validation
+
+```text
+pci_enable_device
+→ pci_resource_flags(BAR0)含IORESOURCE_MEM
+→ pci_resource_len(BAR0)至少涵蓋offset 0x04 + u32
+```
+
+Validation發生在mapping前，避免把I/O-port或過短resource當成可32-bit存取的MMIO window。
+
+### 4. Ownership與mapping
+
+```text
+pci_request_region(BAR0)
+→ pci_iomap(BAR0)
+```
+
+- `pci_request_region()`：claim resource ownership；
+- `pci_iomap()`：建立`__iomem` mapping。
+
+不要直接讀raw BAR register後自行當CPU address。Raw BAR encoding、PCI resource與kernel I/O mapping是三個不同view。
+
+### 5. Identification與liveness
+
+EDU register：
+
+| Offset | 用途 |
 |---|---|
-| `lspci -nn | grep 1234:11e8` | 確認 QEMU EDU device 真的在 guest PCI bus 上。 |
-| `/sys/bus/pci/devices/...` | 觀察 PCI device 是否存在，以及 driver bind 後的 sysfs 狀態。 |
-| `/sys/bus/pci/drivers/driver_lab_edu_mmio` | 觀察本 lab PCI driver 是否註冊到 PCI bus。 |
-| `dmesg` | 觀察 `probe start`、`BAR0 mapped`、`liveness check passed`。 |
+| `0x00` | identification |
+| `0x04` | liveness：讀回最近寫入值的bitwise inverse |
 
-如果 `lspci` 看不到 `1234:11e8`，先修 QEMU/guest 環境；不要先追 driver code。
-
-## 第一次實作順序
-
-1. 先在 guest 內確認 `lspci -nn | grep 1234:11e8`
-2. 再讓 driver bind 到 `1234:11e8`
-3. 再做 `probe()` log
-4. 再做 BAR map
-5. 最後才做 liveness register read
-
-## 目前已實作的內容
-
-- `pci_enable_device()`
-- `pci_request_region()` / `pci_release_region()`
-- `pci_iomap()` / `pci_iounmap()`
-- identification register 讀取
-- liveness register 的最小自我測試
-- Linux guest 用的 smoke test
-
-主要檔案：
-
-- [`driver_lab_edu_mmio.c`](driver_lab_edu_mmio.c)
-- [`test.sh`](test.sh)
-
-## Source 旁讀文件
-
-讀 source 時可以直接打開同目錄的 companion doc，不需要回到 `docs/` 裡找對應解釋：
-
-| Source | 旁讀文件 | 建議用途 |
-|---|---|---|
-| [`driver_lab_edu_mmio.c`](driver_lab_edu_mmio.c) | [`driver_lab_edu_mmio.c.md`](driver_lab_edu_mmio.c.md) | 逐段理解 PCI ID match、`probe/remove`、BAR0 request/map、MMIO liveness check 與 cleanup。 |
-| [`Makefile`](Makefile) | [`Makefile.md`](Makefile.md) | 理解 Lab05 external module kbuild 與 guest 驗證分工。 |
-| [`test.sh`](test.sh) | [`test.sh.md`](test.sh.md) | 理解 smoke test 如何確認 EDU device、driver bind、dmesg gate 與 teardown。 |
-
-## 第一次理想上要看到的輸出
+Current source：
 
 ```text
-$ lspci -nn | grep 1234:11e8
-00:04.0 Class 00ff: 1234:11e8
+ioread32(ident)
+→ iowrite32(pattern, liveness)
+→ ioread32(liveness)
+→ compare with ~pattern
 ```
 
-`dmesg` 裡第一版通常至少要看到：
+該read-back同時可讓先前PCI posted write推進到same-device read ordering point；它不代表所有一般device command都完成。產品driver仍依datasheet的status、IRQ、completion queue或其他protocol判斷操作完成。
+
+## Error與remove
+
+Lab05尚未啟動IRQ/DMA producer，resource dependency較單純：
 
 ```text
-driver_lab_edu_mmio: probe start
-driver_lab_edu_mmio: BAR0 mapped
-driver_lab_edu_mmio: ident=0x....
-driver_lab_edu_mmio: liveness check passed
+pci_iounmap
+→ pci_release_region
+→ pci_disable_device
 ```
 
-上面是教學示意，不是要求逐字完全相同。
+Probe每個失敗點只撤銷已成功取得的resource。到Lab06/07後，必須先mask/stop/synchronize IRQ與DMA，再釋放它們可能使用的memory/MMIO。
 
-## 現在怎麼跑
+## Filesystem與觀測點
+
+Lab05不建立`/dev/driver_lab_*`。主要觀測：
+
+| 入口 | 用途 |
+|---|---|
+| `lspci -Dnn -d 1234:11e8` | EDU是否被列舉 |
+| `lspci -Dnnk -d 1234:11e8` | 目前bind哪個driver |
+| `/sys/bus/pci/devices/<BDF>/` | resource、vendor/device、driver link |
+| `/sys/bus/pci/drivers/driver_lab_edu_mmio/` | driver registration/bind |
+| `dmesg` | probe、BAR、ident、liveness、remove |
+
+BDF是此次enumeration結果，不要寫死`00:03.0`或`00:04.0`。
+
+## 執行
 
 ```sh
 cd labs/05-pci-edu-mmio
 ./test.sh
 ```
 
-這支腳本會做：
+Current test會：
 
-1. 確認目前是在 Linux
-2. 確認 guest 內真的看得到 `1234:11e8`
-3. build module
-4. `insmod`
-5. 從 `dmesg` 檢查 `probe` / BAR map / liveness log
-6. `rmmod`
+1. 確認Linux guest與`lspci`；
+2. 以ID與sysfs確認EDU；
+3. 若同名module已載入則拒絕執行，不擅自卸載別人的state；
+4. build module；
+5. 記錄測試前kernel log行數；
+6. `insmod`、確認bind；
+7. `rmmod`、確認driver sysfs entry消失；
+8. 只擷取本次新增log；
+9. gate `probe start`、`BAR0 mapped`、`ident`、`liveness check passed`、`device removed`；
+10. 若本次log含BUG/WARNING/KASAN/KCSAN/Oops/UAF則失敗。
 
-`test.sh` 逐段在驗什麼：
+Test不執行`dmesg -C`，避免清除整台系統共享的kernel log。如果ring buffer在測試中wrap，test會明確失敗，不能可靠隔離本次訊息。
 
-1. 確認目前是 Linux。
-2. 確認有 `lspci`；沒有就提示安裝 `pciutils`。
-3. 用 `lspci -nn | grep 1234:11e8` 與 `/sys/bus/pci/devices/*/{vendor,device}` 確認 guest 看得到 EDU。
-4. `make` 建出 `driver_lab_edu_mmio.ko`。
-5. 如果前一次留下同名 module，先卸載，避免 bind 狀態混亂。
-6. 清本次 `dmesg` 後載入 module。
-7. 檢查 `/sys/bus/pci/drivers/driver_lab_edu_mmio` 存在，且 driver 已 bind 到 `1234:11e8`。
-8. 檢查 `probe start`、`BAR0 mapped`、`liveness check passed`。
-9. 卸載 module，確認 PCI driver sysfs directory 消失，並 `make clean`。
+## 成功訊號
 
-第一輪最重要的是：看不到 `1234:11e8` 時，先修 QEMU/guest 環境，不要先怪 `probe()`。
+類似：
 
-## 第一輪閱讀界線
+```text
+driver_lab_edu_mmio: probe start for 0000:00:04.0
+driver_lab_edu_mmio 0000:00:04.0: BAR0 mapped, len=1048576 bytes
+driver_lab_edu_mmio 0000:00:04.0: ident=0x...
+driver_lab_edu_mmio 0000:00:04.0: liveness check passed
+driver_lab_edu_mmio: device removed for 0000:00:04.0
+05-pci-edu-mmio smoke test passed.
+```
 
-| 分類 | 內容 |
-|---|---|
-| 第一輪必懂 | QEMU EDU 必須先出現在 guest 的 PCI bus；PCI ID match 後才會進 `probe()`；BAR0 map 後才能用 `ioread32()` / `iowrite32()` 讀寫 register。 |
-| 可以先略過 | PCI enumeration 的完整流程；BAR assignment 的平台細節；AER、reset、power management。 |
-| 之後再回來補 | `pci_request_region()` 的 resource ownership、MMIO ordering、不同 BAR 類型與 real hardware bring-up 差異。 |
+BDF與ident依環境/spec，不要求逐字相同。
 
-## 完成後你應該能回答
+## 失敗時
 
-| 問題 | 標準答案 |
-|---|---|
-| `probe()` 什麼時候會被呼叫？ | PCI core 掃到裝置，且 vendor/device ID match `dl_edu_mmio_ids` 後，才呼叫 `dl_edu_mmio_probe()`。 |
-| 這一關的硬體入口是什麼？ | QEMU EDU PCI device，PCI ID 是 `1234:11e8`。 |
-| BAR0 在這裡是什麼？ | BAR0 是 EDU 的 MMIO register window；`pci_iomap()` 後 driver 可用 `ioread32()` / `iowrite32()` 存取 register。 |
-| 第一個觀測點是什麼？ | `lspci -nn | grep 1234:11e8` 與 `dmesg` 裡的 `probe start`、`BAR0 mapped`、`liveness check passed`。 |
-| 這一關主要拿到什麼 resource？ | PCI device enable 狀態、BAR0 region、BAR0 MMIO mapping。 |
-| cleanup 要釋放哪些東西？ | `pci_iounmap()`、`pci_release_region()`、`pci_disable_device()`。 |
-| `probe()` 沒進來時第一個看哪裡？ | 先在 guest 內跑 `lspci -nn | grep 1234:11e8`，確認 QEMU EDU 真的存在。 |
+先讀[`debug-checklist.md`](debug-checklist.md)。順序：
 
-## 先不要急著碰的東西
+```text
+Linux/headers
+→ EDU enumeration
+→ existing driver ownership
+→ module registration/probe return
+→ BAR type/length
+→ request conflict
+→ iomap
+→ register offset/width/spec
+→ teardown
+```
 
-- MSI-X
-- DMA
-- reset / AER
-- 效能
+## 第一輪先略過
 
-## 參考
+- TLP header/credit細節；
+- MSI/MSI-X；
+- DMA/IOMMU；
+- AER/DPC；
+- power/reset/hot-unplug；
+- production device firmware與board-specific quirks。
 
-- [`../../qemu/README.md`](../../qemu/README.md)
-- [`../../docs/reference/source-index.md`](../../docs/reference/source-index.md)
+## Self-check
 
-## 新手先記住這一關在補什麼
+1. `lspci`看不到EDU時，為什麼`probe()`不可能靠改source被叫到？
+2. Raw BAR、PCI resource、`__iomem` mapping差在哪裡？
+3. `pci_request_region()`與`pci_iomap()`各做什麼？
+4. 為什麼map前要驗BAR type與length？
+5. Liveness read-back能證明什麼，不能證明什麼？
+6. Driver先載入與device先出現，match/bind行為如何收斂？
 
-- 前面你都在練「沒有真硬體時的共通 driver 技能」
-- 這一關開始，你才第一次真的碰到 PCI device discovery 與 MMIO register access
+<details>
+<summary>參考答案</summary>
 
-## 看 source code 時先抓哪幾個點
+1. `lspci`依PCI enumeration；沒有`pci_dev`就沒有match target，driver core不會呼叫probe。應先讓QEMU/guest列舉EDU。
+2. Raw BAR是config register encoding；PCI resource是core解析/轉換後管理的range；`__iomem` mapping是driver交給I/O accessor的kernel I/O virtual view。
+3. Request region取得resource ownership；iomap建立mapping。兩者不可互相取代。
+4. 防止用錯I/O-vs-memory resource或越界存取未涵蓋的register。
+5. 證明EDU最小BAR0 write/read與inverse語意；read可作posted-write completion point。它不驗IRQ/DMA，也不證明一般device operation已執行完成。
+6. Driver core在driver註冊和device出現時都嘗試match；只要match且unbound/policy允許就bind並呼叫probe。實體hotplug能力是另一問題。
 
-第一次讀 PCI driver，不要先追 PCI core 內部。先看這條最小生命週期：
+</details>
 
-1. `dl_edu_mmio_ids`：這支 driver 宣告自己要 match 哪個 PCI vendor/device ID
-2. `dl_edu_mmio_driver`：告訴 PCI core `probe/remove` 分別是哪個函式
-3. `dl_edu_mmio_probe()`：裝置 match 後，driver 如何 enable device、request BAR、map BAR
-4. `ioread32()` / `iowrite32()`：CPU 如何透過 MMIO 讀寫 QEMU EDU register
-5. `dl_edu_mmio_remove()`：裝置移除或 module 卸載時，如何反向釋放 BAR 與 disable device
+## 官方來源
 
-遇到 kernel API 時，先套用「參數角色」模板，完整方法見 [`../../docs/onboarding/kernel-api-parameter-roles.md`](../../docs/onboarding/kernel-api-parameter-roles.md)。
-
-| API | 參數角色 | 第一輪理解 |
-|---|---|---|
-| `pci_enable_device(pdev)` | PCI device | 啟用 PCI device；失敗時不能繼續碰 BAR/MMIO。 |
-| `pci_request_region(pdev, DL_EDU_BAR_INDEX, KBUILD_MODNAME)` | device、BAR index、owner name | 宣告這個 driver 要使用 BAR0 resource。 |
-| `pci_resource_len(pdev, DL_EDU_BAR_INDEX)` | device、BAR index | 查 BAR0 長度，供 log 與 sanity check。 |
-| `pci_iomap(pdev, DL_EDU_BAR_INDEX, 0)` | device、BAR index、max length | 把 BAR0 map 成 driver 可用的 MMIO window；`0` 表示 map 整個 BAR。 |
-| `ioread32(dl->bar0 + offset)` / `iowrite32(value, dl->bar0 + offset)` | MMIO address、value | 讀寫 EDU register，不是一般 RAM。 |
-
-這一關的重點是「先安全拿到 BAR0 並做一個最小 register round-trip」，不是設計完整 PCIe accelerator。
-
-## 第一次卡住先看哪裡
-
-- guest 裡看不到 `1234:11e8`
-  - 先看 [`../../docs/reference/common-failures.md`](../../docs/reference/common-failures.md)
-- `probe()` 沒進來
-  - 先檢查 PCI ID table
-- BAR map 失敗
-  - 先檢查 `pci_enable_device()` 與 BAR index
+- Linux PCI driver guide: <https://docs.kernel.org/PCI/pci.html>
+- PCI support library: <https://docs.kernel.org/driver-api/pci/pci.html>
+- Device I/O: <https://docs.kernel.org/driver-api/device-io.html>
+- QEMU EDU: <https://www.qemu.org/docs/master/specs/edu.html>

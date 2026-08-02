@@ -1,181 +1,310 @@
-# PCIe / MMIO / IRQ / DMA 白話前導
+# PCIe / BAR / MMIO / IRQ / DMA 白話前導
 
-## 這份文件是給誰的
-
-如果你現在對這些字還很抽象：
-
-- PCIe
-- BAR
-- MMIO
-- IRQ
-- DMA
-
-那在看 `05-07` 之前，先看這份。
+> 這份文件是 Lab05～Lab07 的最低共同地圖。它刻意不展開完整 PCIe 協定，但不以錯誤簡化交換易讀性。
 
 ## 先講結論
 
-`05-07` 真正要你學的，不是規格書細節，而是：
+Linux PCI host driver 的第一個完整閉環是：
 
-> Linux host driver 怎麼找到裝置、碰到 register、接中斷、和讓裝置搬資料。
+```text
+PCI core 列舉 function
+→ driver / device match
+→ probe() 取得並驗證資源
+→ BAR/MMIO 控制裝置
+→ IRQ 接收事件
+→ DMA 搬大量資料
+→ remove/error path 先 quiesce，再釋放資源
+```
 
-## 先建立最小圖像
+Lab05、Lab06、Lab07 分別把這條路徑切成 MMIO、IRQ、DMA 三個可驗證階段。
+
+## 最小互動圖
 
 ```mermaid
 flowchart LR
-    H["Host CPU / Linux driver"] --> R["MMIO registers (BAR)"]
-    D["PCIe device"] --> R
-    D --> I["interrupt"]
-    H --> B["DMA buffer"]
-    D --> B
+    CPU["CPU / Linux driver"]
+    MMIO["BAR MMIO register window"]
+    DEV["device engine"]
+    RAM["host memory / DMA mapping"]
+
+    CPU -->|"readl/writel：命令與狀態"| MMIO
+    MMIO --> DEV
+    DEV -->|"INTx / MSI / MSI-X"| CPU
+    DEV <-->|"DMA address，不是 CPU pointer"| RAM
 ```
 
-> **逐步說明：**
->
-> 1. **CPU 讀寫 MMIO register**：driver 透過 BAR 映射出的 register window 控制裝置。
-> 2. **裝置也連到 register block**：register 是 host 和 device 溝通控制資訊的窗口，不是一般 RAM。
-> 3. **裝置用 interrupt 通知 host**：事件完成或錯誤發生時，裝置不必等 CPU 一直輪詢。
-> 4. **CPU 準備 DMA buffer**：driver 配置一塊 device 可以看到的 memory。
-> 5. **裝置搬 DMA buffer**：大量 payload 由裝置搬運，CPU 負責設定、等待與驗證。
->
-> **白話總結**：MMIO 像控制面板，IRQ 像通知鈴，DMA buffer 像雙方都能取放資料的工作台。
+這三條路徑的角色不同：
 
-這張圖對應 3 個核心互動：
+- **MMIO**：低頻控制與狀態，不是大量 payload 通道。
+- **IRQ**：通知「有事件」，不自動證明 payload 正確。
+- **DMA**：裝置主動讀寫 host memory；driver 必須處理 address、ownership、ordering、completion 與 lifetime。
 
-1. CPU 透過 register 控制裝置
-2. 裝置透過 interrupt 通知 CPU
-3. CPU 與裝置透過 DMA buffer 交換大量資料
+---
 
-## 什麼是 PCIe device discovery
+## 1. PCI core 如何讓 driver 找到裝置
 
-白話：
+Firmware 與 Linux PCI core 會走訪 PCI hierarchy、讀 configuration space，為每個 PCI function 建立 `struct pci_dev`。Driver 透過 `struct pci_driver.id_table` 宣告可支援的 Vendor/Device ID 等條件。
 
-- 系統開機後，kernel 會掃描 PCI 裝置
-- 如果某個 driver 宣告「我支援這個 device ID」
-- kernel 就會把這顆裝置交給它的 `probe()`
+當下列條件同時成立時，driver core 才嘗試 bind 並呼叫 `probe()`：
 
-所以 `probe()` 的白話就是：
+- PCI function 已被列舉；
+- driver 已註冊；
+- ID／class 等 match；
+- function 尚未由其他 driver 擁有；
+- 沒有被 policy、deferred probe 或錯誤狀態阻擋。
 
-- `這顆裝置現在分配給你了，你要不要接手？`
+所以：
 
-## 什麼是 BAR
+```text
+lspci 看不到 device
+≠ probe 寫錯
+```
 
-先不要把它想太複雜。
+如果 guest 內看不到 QEMU EDU `1234:11e8`，問題發生在 driver bind 之前，應先查 QEMU 參數、guest PCI enumeration 與環境。
 
-你可以先把 BAR 理解成：
+Driver 先出現或 device 先出現都可以。兩者都就緒時，driver core 會執行 match/bind；但「所有 PCIe 裝置都支援任意實體熱插拔」不是通則，實體 hotplug 仍取決於 slot、controller、firmware 與平台支援。
 
-- PCIe 裝置暴露給 host 的一塊位址空間入口
+---
 
-driver 會先拿到 BAR，再把它 map 成可存取的 register 視角。
+## 2. Configuration space 與 BAR
 
-## 什麼是 MMIO
+Configuration space 是每個 PCI function 的標準化描述區，包含：
 
-白話：
+- Vendor/Device ID 與 class；
+- Command/Status；
+- BAR registers；
+- PCI、PM、MSI/MSI-X、PCIe、AER 等 capability。
 
-- Memory-Mapped I/O
-- 看起來像記憶體位址，但其實是在存取裝置 register
+BAR 是 configuration header 中的資源描述欄位。它描述 function 需要或已被配置的 I/O／memory resource window；BAR raw value 不是可以直接解參考的 CPU virtual address。
 
-對新手先記：
+Driver 應使用 PCI core 已解析的 resource view：
 
-- 不是一般 RAM
-- 讀寫它通常是在跟裝置對話
+```c
+pci_resource_flags(pdev, bar);
+pci_resource_start(pdev, bar);
+pci_resource_len(pdev, bar);
+pci_request_region(pdev, bar, name);
+base = pci_iomap(pdev, bar, 0);
+```
 
-## 什麼是 IRQ
+三個 view 不要混在一起：
 
-白話：
+1. **BAR raw register value**：含 type/prefetch/64-bit 等 encoding。
+2. **PCI resource**：kernel 經 host bridge translation 後管理的 address range。
+3. **`void __iomem *` mapping**：driver 最後交給 I/O accessor 的 kernel virtual I/O mapping。
 
-- 裝置對 CPU 說：「有事情了，你來看一下」
+---
 
-常見情境：
+## 3. MMIO
 
-- 命令完成
-- 錯誤發生
-- DMA 完成
+MMIO 把 device register 或 device memory window 放進 CPU 可存取的 I/O address space。它外觀看似 pointer，語意卻不是一般 RAM。
 
-所以 `06` 的本質是：
+正確用法：
 
-- 不是你一直去問裝置有沒有完成
-- 而是裝置主動叫你
+```c
+u32 value = ioread32(base + offset);
+iowrite32(value, base + offset);
+```
 
-## 什麼是 DMA
+不要使用：
 
-白話：
+```c
+*(u32 *)(base + offset)
+memcpy(base, buf, len)
+```
 
-- 裝置直接跟記憶體搬資料，不必每個 byte 都讓 CPU 親手 copy
+除非 device I/O API 明確提供相應 helper，例如 `memcpy_toio()`／`memcpy_fromio()`。
 
-對新手先記住：
+I/O accessor 負責 architecture-specific access、width、endianness 與 ordering contract；`__iomem` 也讓 sparse 能抓出錯誤 pointer 使用。
 
-- 少量控制資訊通常走 MMIO register
-- 大量 payload 比較常走 DMA
+### 正常 accessor、relaxed accessor、posted completion 是三件事
 
-## `05-07` 各自在補什麼
+- `readl()`／`writel()` 或 `ioread32()`／`iowrite32()`：使用 Linux 定義的正常 I/O ordering contract。
+- `readl_relaxed()`／`writel_relaxed()`：弱化與 normal memory 等操作的 ordering；只有在另有明確同步時才使用。
+- PCI memory write 通常是 **posted**：write accessor 返回，不等於裝置已收到，更不等於命令已執行完成。
 
-### `05-pci-edu-mmio`
+需要確認先前 posted write 已抵達同一裝置時，可依 datasheet 讀一個安全 register作 read-back。Read completion只能證明前面的write已推進到相應ordering point；裝置是否完成工作仍要看status bit、IRQ、completion queue或device-specific protocol。
 
-你在學：
+---
 
-- kernel 怎麼把這顆 PCI 裝置交給你的 driver
-- 你怎麼拿到 BAR，開始讀 register
+## 4. IRQ
 
-### `06-pci-edu-irq`
+IRQ 是裝置通知 host「狀態改變或工作完成」的事件路徑。PCI/PCIe 常見：
 
-你在學：
+- legacy INTx；
+- MSI；
+- MSI-X。
 
-- 裝置怎麼通知你一個事件
-- 你怎麼在 handler 裡接住它、清掉它
+MSI/MSI-X 不是實體中斷線，而是裝置向平台配置的message address發出Memory Write Request。Linux driver常用：
 
-### `07-pci-edu-dma`
+```c
+nvec = pci_alloc_irq_vectors(pdev, min, max, flags);
+irq = pci_irq_vector(pdev, index);
+request_irq(irq, handler, irq_flags, name, dev_id);
+```
 
-你在學：
+Hard IRQ handler 的基本規則：
 
-- 哪一塊 memory 可以給裝置安全地看到
-- DMA 搬運完成後怎麼驗證資料與 cleanup
+- 不能呼叫可能睡眠的API；
+- 先判斷是否為自己的事件，shared INTx不屬於自己時回`IRQ_NONE`；
+- 依device規格ack／mask source，避免interrupt storm；
+- 只做短而有界的工作，較重工作交給threaded IRQ、workqueue、tasklet/softirq或subsystem-specific mechanism；
+- teardown先阻止新IRQ source，再同步in-flight handler，最後free IRQ/vector。
 
-## 新手最容易卡住的地方
+「收到IRQ」只驗notification path。資料內容仍需status、length、sequence、checksum或compare等驗證。
 
-### 1. 把 register 跟一般記憶體混在一起
+---
 
-不要這樣想。
+## 5. DMA
 
-先分清楚：
+DMA讓裝置直接讀寫host memory，但device不能使用CPU virtual pointer。
 
-- 一般 RAM
-- MMIO register
-- DMA buffer
+Driver最少要區分：
 
-這三者不是一回事。
+| View | 使用者 |
+|---|---|
+| CPU virtual address | kernel CPU code |
+| physical page layout | memory subsystem／platform |
+| DMA address (`dma_addr_t`) | device |
 
-### 2. 還沒懂 `05` 就跳 `07`
+有IOMMU時，DMA address通常是IOVA；無IOMMU時也不能由driver自行假設它等於任意CPU physical address。必須使用DMA API。
 
-不行。
+### DMA mask
 
-因為：
+```c
+ret = dma_set_mask_and_coherent(dev, DMA_BIT_MASK(n));
+```
 
-- 你連 device 都還沒穩定接手
-- BAR / register / probe 都沒搞懂
-- 直接碰 DMA 只會一起糊掉
+這是driver據實宣告hardware可表示的DMA address bits，不是「設越大越好」。回傳失敗時不能繼續DMA。
 
-### 3. 一開始就想學產品級 PCIe 細節
+### Coherent 與 streaming
 
-現在不用。
+**Coherent allocation**：
 
-你先把：
+```c
+cpu_addr = dma_alloc_coherent(dev, size, &dma_handle, gfp);
+```
 
-- `probe/remove`
-- BAR map
-- IRQ
-- DMA buffer
+- CPU使用`cpu_addr`；
+- device使用`dma_handle`；
+- 免除per-transfer cache flush/invalidate；
+- 不免除ownership、ordering、completion與teardown lifetime。
 
-這些共通骨架學會，才是對的順序。
+**Streaming mapping**：
 
-## `05-07` 最適合新手的學法
+```c
+dma = dma_map_single(dev, cpu_addr, size, direction);
+```
 
-1. 先讀這份 primer
-2. 再看 [`../../qemu/edu-bringup-checklist.md`](../../qemu/edu-bringup-checklist.md)
-3. 先確認 guest 內真的看得到 `1234:11e8`
-4. 先做 `05`
-5. 再做 `06`
-6. 最後才做 `07`
+- direction是契約的一部分；
+- mapping交給device後，CPU不可任意同時讀寫；
+- 重用mapping時用`dma_sync_*_for_cpu/device()`交接ownership；
+- 用完`dma_unmap_*()`；
+- map/sync不會替你等待device完成。
 
-## 你現在只要先記住的話
+### Ordering 與 completion
 
-> `05-07` 不是在學「某顆特定卡」；是在學 PCIe accelerator host driver 的共通骨架。
+Descriptor/ring常見模式：
+
+```text
+CPU填欄位
+→ dma_wmb()
+→ publish OWN/VALID/index
+→ 用正常MMIO accessor敲doorbell
+```
+
+回收時：
+
+```text
+先由status/ownership/IRQ知道device已交還
+→ dma_rmb()
+→ CPU讀device寫入的欄位或payload
+```
+
+Barrier只建立order，不會等待device，也不會自動轉移ownership。
+
+---
+
+## 6. 五個容易混成一團的詞
+
+| 詞 | 問的問題 |
+|---|---|
+| **coherent / visible** | 對方能否看到最新值？ |
+| **ordered** | 多筆access被觀察的先後是否正確？ |
+| **arrived** | posted MMIO write是否已到達相應device/path？ |
+| **complete** | device operation是否真的做完？ |
+| **correct** | address、length、direction與payload結果是否正確？ |
+
+一個IRQ到了，不代表payload正確；一個read-back完成，不代表device operation做完；coherent buffer也不代表descriptor欄位順序正確。
+
+---
+
+## 7. Lab05～Lab07地圖
+
+### Lab05：PCI bind + BAR/MMIO
+
+```text
+EDU存在
+→ ID match
+→ probe
+→ validate/request/map BAR0
+→ identification/liveness
+→ remove/error unwind
+```
+
+### Lab06：IRQ
+
+```text
+Lab05資源
+→ clear stale pending source
+→ alloc vector/request handler
+→ trigger event
+→ handler判斷/ack/complete
+→ quiesce + synchronize + free
+```
+
+### Lab07：DMA
+
+```text
+Lab06資源
+→ set truthful DMA mask
+→ coherent CPU pointer + DMA handle
+→ program address/count/command
+→ wait completion + verify idle
+→ compare payload
+→ prove quiesce before free
+```
+
+通過Lab07代表完成第一個教學閉環，不代表已具備production multi-queue、streaming SG、hot-unplug、AER與firmware recovery設計。
+
+---
+
+## Self-check
+
+1. BAR raw value、PCI resource、`__iomem` mapping有什麼差別？
+2. 為什麼device不能使用kernel pointer做DMA？
+3. `writel()`返回、same-device read-back返回、status/IRQ完成各證明什麼？
+4. Coherent DMA免除了什麼？仍未免除什麼？
+5. 收到DMA completion IRQ後，為什麼還要驗證status與payload？
+
+<details>
+<summary>參考答案</summary>
+
+1. BAR raw value是config register encoding；PCI resource是core解析與host bridge轉換後管理的range；`__iomem` mapping是driver交給I/O accessor使用的kernel I/O virtual address。
+2. Kernel pointer只在CPU virtual address space有意義；device需要DMA API建立、限制並回傳的`dma_addr_t`，其中可能包含IOMMU translation、bounce或platform offset。
+3. `writel()`返回表示CPU完成該accessor的提交語意；same-device read-back可作posted-write completion point；status/IRQ/CQ才依device protocol表示operation完成，但仍不保證payload內容正確。
+4. Coherent allocation免除per-transfer cache maintenance並提供CPU/device互見；仍需truthful mask、CPU pointer與DMA handle分離、ownership、barrier、device completion、concurrency及quiesce-before-free。
+5. IRQ只證明notification發生；錯誤address、direction、count、device-local offset或資料損毀仍可能同時存在，因此要查status並以pattern、sequence、checksum或`memcmp()`驗payload。
+
+</details>
+
+## 官方查證入口
+
+- Linux PCI driver guide: <https://docs.kernel.org/PCI/pci.html>
+- PCI support library: <https://docs.kernel.org/driver-api/pci/pci.html>
+- Device I/O accessors: <https://docs.kernel.org/driver-api/device-io.html>
+- MSI guide: <https://docs.kernel.org/PCI/msi-howto.html>
+- DMA API HOWTO: <https://docs.kernel.org/core-api/dma-api-howto.html>
+- Memory barriers: <https://docs.kernel.org/core-api/wrappers/memory-barriers.html>
+- Generic IRQ: <https://docs.kernel.org/core-api/genericirq.html>
+- QEMU EDU: <https://www.qemu.org/docs/master/specs/edu.html>

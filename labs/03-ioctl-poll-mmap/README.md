@@ -1,244 +1,209 @@
-# 03 - ioctl / poll / mmap
+# 03 — ioctl / poll / record read / read-only mmap snapshot
 
 ## 目標
 
-把 `02-char-device` 的最小字元裝置，升級成比較像真正 driver ABI 的版本。
+把Lab02的最小char device擴成四條常見driver ABI路徑：
 
-## 先備條件
+| 路徑 | userspace | callback | 本lab用途 |
+|---|---|---|---|
+| data | `read/write` | `.read/.write` | 發布/消費一筆global message record |
+| control | `ioctl` | `.unlocked_ioctl` | 設定message、查status、trigger/clear |
+| event | `poll` | `.poll` + waitqueue | 等readable data或pending event |
+| shared snapshot | `mmap` | `.mmap` | 讀kernel發布的sequenced snapshot |
 
-- 你已經理解 `02-char-device` 的 `read/write`
-- 你知道 `/dev/...` 背後是 `file_operations`
-- 你已經能用自己的話解釋 userspace -> VFS -> driver callback
+這仍是teaching ABI，不是產品級multi-client queue/ring。
 
-## 這一關要補的能力
+## 先備
 
-- `ioctl` 命令編號設計
-- `poll` / waitqueue
-- blocking vs non-blocking path
-- 基本 `mmap`
-- runtime library 擴充
+- 理解`/dev`、VFS、`file_operations`；
+- 完成Lab02 read/write；
+- 知道userspace pointer需`copy_*_user`或相應helper；
+- 能區分mutex保護kernel callbacks，不能直接鎖住userspace mmap loads。
 
-## 建議輸出
+## 介面
 
-- kernel module
-- user-space runtime API
-- CLI / smoke test
-- 邊界條件測試
-
-## 這一關現在已實作的介面
-
-module 載入後會建立：
+載入後建立：
 
 ```text
 /dev/driver_lab_ctl0
 ```
 
-## 這一關會出現哪些 filesystem 入口
+支援：
 
-`03` 沿用 `02` 的 char device 建立流程，只是 callback 變多。若你忘了 `/dev`、`/sys/class`、devtmpfs/udev 的分工，先回頭看 [`../../docs/onboarding/kernel-filesystem-surfaces.md`](../../docs/onboarding/kernel-filesystem-surfaces.md)。
+- `write()`：發布一筆NUL-terminated internal message record；最大255 bytes。
+- `read()`：blocking/nonblocking消費完整record；destination太小回`EMSGSIZE`，record保持pending。
+- `DL_IOC_SET_MESSAGE`：固定256-byte struct，必須在陣列內含NUL，否則`EMSGSIZE`。
+- `DL_IOC_GET_STATUS`：buffer/event狀態與實際`PAGE_SIZE`。
+- `DL_IOC_TRIGGER_EVENT`：只建立event，不建立readable record。
+- `DL_IOC_CLEAR_BUFFER`：清record與pending event，不重置累積event count。
+- `poll()`：`POLLIN|POLLRDNORM`表示record可讀，`POLLPRI`表示event pending。
+- `mmap()`：恰好一頁、read-only且non-executable snapshot；禁止後續`mprotect()`升級write/exec。
 
-| 路徑 | 第一輪用途 |
-|---|---|
-| `/dev/driver_lab_ctl0` | userspace 對 `read/write/ioctl/poll/mmap` 的主要操作入口。 |
-| `/sys/class/driver_lab_ctl/driver_lab_ctl0` | 確認 `class_create()` / `device_create()` 已建立 device model entry。 |
-| `/sys/devices/virtual/driver_lab_ctl/driver_lab_ctl0` | 很多系統上 `/sys/class/...` 會指向的實際 virtual device 位置。 |
-| `/proc/devices` | 輔助確認 `driver_lab_ctl` 的 major number 已註冊。 |
+## 關鍵語意
 
-`mmap()` 不是建立一個新的檔案路徑；它是把 driver 維護的一頁 memory 映射進目前 process 的 address space。
+### 1. Blocking reader醒來後仍要重新檢查
 
-這個 device node 目前支援：
-
-- `read/write`
-- `ioctl`
-- `poll`
-- `mmap`
-
-## 這一關的 ABI
-
-### `write()`
-
-- 把 userspace 字串直接寫進 kernel buffer
-- 每次 write 都會覆蓋前一次訊息
-
-### `read()`
-
-- 從 kernel buffer 讀回目前訊息
-- 這一關的 `read()` 是消費型語意：完整讀完一次後，buffer 會被清空
-- 如果 buffer 為空：
-  - blocking fd 會等待
-  - non-blocking fd 會回 `-EAGAIN`
-
-### `ioctl`
-
-共用 header：
-
-- [`../../runtime/include/driver_lab_uapi.h`](../../runtime/include/driver_lab_uapi.h)
-
-目前支援：
-
-- `DL_IOC_SET_MESSAGE`
-- `DL_IOC_GET_STATUS`
-- `DL_IOC_TRIGGER_EVENT`
-- `DL_IOC_CLEAR_BUFFER`
-
-### `poll`
-
-- `poll()` 會等待：
-  - 有可讀資料
-  - 或 driver event 被 trigger
-
-### `mmap`
-
-- 映射一頁 shared page 到 userspace
-- 裡面放的是：
-  - magic
-  - version
-  - event count
-  - event pending
-  - buffer length
-  - buffer 內容
-
-## 資料流
-
-```mermaid
-flowchart LR
-    U["userspace CLI / test"] --> A["write() or ioctl()"]
-    A --> K["kernel state\nbuffer / event_count / event_pending"]
-    K --> P["poll waitqueue"]
-    K --> M["shared mmap page"]
-    K --> R["read()"]
+```text
+wait_event_interruptible(buffer_len > 0)
+→ mutex_lock
+→ 再檢查buffer_len
 ```
 
-> **逐步說明：**
->
-> 1. **CLI 發出不同操作**：同一支 CLI 可能呼叫 `write()`、`ioctl()`、`poll()` 或 `mmap()`。
-> 2. **driver 更新共享狀態**：不管是寫入訊息或觸發 event，最後都會改到 `buffer`、`event_count`、`event_pending` 這類 kernel state。
-> 3. **`read()` 讀 data path**：userspace 透過 `read()` 把目前 buffer 取回，這是最像 `02` 的路徑。
-> 4. **`poll()` 等 event path**：如果目前沒有資料或事件，userspace 可以睡著等 driver 喚醒，不需要一直輪詢。
-> 5. **`mmap()` 看 shared page**：userspace 讀到的是 driver 維護的一頁 snapshot，不是任意 kernel memory。
->
-> **白話總結**：`03` 像把同一個櫃台分成資料、控制、等待通知、公告欄四種服務；入口一樣是 device node，但用途變多了。
+另一reader可能在wait condition成立與拿lock之間先消費record。第二reader應回去睡，不是回EOF。
 
-## 成功標準
+### 2. Read採record semantics，不使用per-open offset做跨message partial stream
 
-- userspace 能透過 `ioctl` 控制 driver
-- `poll` 能等待事件
-- `mmap` 能暴露一塊受控 buffer
-- README 有清楚描述 ABI
+舊text-buffer風格用`simple_read_from_buffer(..., ppos, ...)`會留下per-open `f_pos`。若reader A只讀一部分、reader B消費/清掉record，再發布新record，A的舊offset可能跳過新record前綴。
 
-## 使用方式
+Current lab明確定義一筆global record：
+
+```text
+count < message length → -EMSGSIZE，record不變
+count >= message length → copy整筆 → clear record/event
+```
+
+這是簡化的message device，不是POSIX byte stream。產品介面可改用per-open queue、framed UAPI或ring，但需明確設計。
+
+### 3. Wake-up不等於`poll()`必定返回
+
+`wake_up_interruptible()`只讓wait/poll重新評估predicate。若mask仍0，blocking poll繼續等。
+
+| 操作 | read WQ | event WQ | readiness |
+|---|---:|---:|---|
+| write/ioctl-write | ✓ | ✓ | `POLLIN` + `POLLPRI`（non-empty record） |
+| trigger | — | ✓ | `POLLPRI` |
+| clear | — | — | ready→not-ready，不需wake |
+| successful read consume | — | — | ready→not-ready，不需wake |
+
+空字串ioctl可產生event但不產生`POLLIN`；以`POLLPRI`觀察，或clear。
+
+### 4. Copy user data不要無必要地持有shared-state mutex
+
+`write()`先把userspace bytes copy進stack local buffer，再取得`dl_lock`原子發布。Page fault/copy可能睡，沒必要在那段時間阻塞status/poll/ioctl。
+
+Read則在lock內copy，因為它需要保證copy成功後才清掉同一global record。Buffer只有256 bytes，這是本lab的明確簡化；產品高吞吐設計不應長時間持lock做user copy。
+
+### 5. Mmap是kernel→userspace snapshot
+
+- `alloc_page()`配置normal RAM page；
+- `.mmap`要求`vm_pgoff==0`與VMA恰好`PAGE_SIZE`；
+- reject `VM_WRITE|VM_EXEC`；
+- clear `VM_MAYWRITE|VM_MAYEXEC`，阻止`mprotect`升級；
+- `vm_insert_page()`插入page；
+- `VM_DONTEXPAND|VM_DONTDUMP`降低非預期VMA操作/泄漏。
+
+Mapping size由ioctl回報，不假設所有平台4096 bytes。
+
+### 6. Sequence snapshot
+
+Kernel writers在`dl_lock`下：
+
+```text
+seq → odd
+write fields/buffer
+seq → next even
+```
+
+Userspace helper：
+
+```text
+acquire-load begin seq
+→ odd則重試
+→ copy snapshot
+→ read fence
+→ acquire-load end seq
+→ begin == end且even才接受
+```
+
+Kernel mutex不會被userspace arbitrary loads取得，因此需要publication protocol。這只是固定layout snapshot，不可用來發布會被free的pointer。
+
+### 7. UAPI字串契約
+
+`DL_IOC_SET_MESSAGE`的`text[256]`必須含NUL。Current driver不再把未終止的256 bytes默默截成255；它回`EMSGSIZE`。這讓caller知道資料未被接受，避免「返回成功但內容被改短」。
+
+## Source旁讀
+
+| Source | Companion（可能需重新生成） |
+|---|---|
+| [`driver_lab_ioctl_poll_mmap.c`](driver_lab_ioctl_poll_mmap.c) | [`driver_lab_ioctl_poll_mmap.c.md`](driver_lab_ioctl_poll_mmap.c.md) |
+| [`../../runtime/include/driver_lab_uapi.h`](../../runtime/include/driver_lab_uapi.h) | [`../../runtime/include/driver_lab_uapi.h.md`](../../runtime/include/driver_lab_uapi.h.md) |
+| [`../../runtime/src/driver_lab_runtime.c`](../../runtime/src/driver_lab_runtime.c) | [`../../runtime/src/driver_lab_runtime.c.md`](../../runtime/src/driver_lab_runtime.c.md) |
+| [`../../tests/driver_lab_char_cli.c`](../../tests/driver_lab_char_cli.c) | [`../../tests/driver_lab_char_cli.c.md`](../../tests/driver_lab_char_cli.c.md) |
+
+Companion與current source不同時，以current source與audit為準。
+
+## 使用
 
 ```sh
 make
 make -C ../../runtime
 sudo insmod ./driver_lab_ioctl_poll_mmap.ko
+
 ../../tests/driver_lab_char_cli /dev/driver_lab_ctl0 ioctl-write hello-03
 ../../tests/driver_lab_char_cli /dev/driver_lab_ctl0 status
-../../tests/driver_lab_char_cli /dev/driver_lab_ctl0 read
 ../../tests/driver_lab_char_cli /dev/driver_lab_ctl0 mmap-read
+../../tests/driver_lab_char_cli /dev/driver_lab_ctl0 read
+
+# terminal A
 ../../tests/driver_lab_char_cli /dev/driver_lab_ctl0 poll 3000
+# terminal B
 ../../tests/driver_lab_char_cli /dev/driver_lab_ctl0 trigger
+
 sudo rmmod driver_lab_ioctl_poll_mmap
 ```
 
-命令逐行在做什麼：
-
-- `make`：建出 `driver_lab_ioctl_poll_mmap.ko`
-- `make -C ../../runtime`：重建 userspace runtime 與 CLI
-- `insmod`：載入這支 week-3 lab module
-- `ioctl-write`：改用 `ioctl` 而不是純 `write` 來設定訊息
-- `status`：讀回目前 driver 狀態
-- `read`：從 device node 讀回 kernel buffer
-- `mmap-read`：直接從 shared page 觀察 driver 狀態
-- `poll`：等待 driver event
-- `trigger`：主動觸發一個 event 來喚醒 poll
-- `rmmod`：卸載 module
-
-## 自動化 smoke test
+## Automated test
 
 ```sh
 ./test.sh
 ```
 
-`test.sh` 逐段在驗什麼：
+Current regressions涵蓋：
 
-1. 確認目前是 Linux，並進入本 lab 目錄。
-2. `make` 建 module，`make -C ../../runtime` 建 userspace runtime 與 CLI。
-3. 若前一次留下 module，先卸載，避免 device node 狀態混亂。
-4. `insmod` 載入 `driver_lab_ioctl_poll_mmap.ko`。
-5. 檢查 `/dev/driver_lab_ctl0`、`/sys/class/driver_lab_ctl/driver_lab_ctl0`、`/proc/devices`。
-6. `ioctl-write hello-ioctl` 驗 control path 可以設定訊息。
-7. `status` 驗 `DL_IOC_GET_STATUS` 能回報 driver 狀態。
-8. `read` 驗 data path 能讀回剛設定的訊息。
-9. `mmap-read` 驗 shared page 可被 userspace 讀到。
-10. 背景啟動 `poll 3000`，主流程再 `trigger`，確認 waitqueue event path 真的會醒。
-11. `clear`、`rmmod`，確認 sysfs class device 消失，再 `make clean` 收尾。
+- basic ioctl/read/status/mmap；
+- writable mmap拒絕；
+- read-only mapping無法`mprotect(PROT_WRITE)`；
+- empty poll timeout；
+- two blocking readers/one record；
+- undersized read回`EMSGSIZE`且record仍可完整讀；
+- unload後device/sysfs消失；
+- test不卸載它沒有載入的pre-existing module。
 
-第一輪重點不是 shell 技巧，而是確認四條 ABI 路徑都有被跑到。
+仍建議追加：
 
-## 第一輪閱讀界線
+- high-frequency writer + mmap snapshot retry；
+- `mprotect(PROT_EXEC)`拒絕；
+- nonblocking read empty/undersized cases；
+- compat ioctl；
+- KASAN/KCSAN/lockdep與repeated reload。
 
-| 分類 | 內容 |
-|---|---|
-| 第一輪必懂 | `03` 把 `02` 的 read/write 擴成四條路：data path、control path、event path、shared memory path；每條路都有對應 CLI subcommand 可觀測。 |
-| 可以先略過 | `_IOW/_IOR` macro 的所有位元編碼細節；`poll_table` 內部；page fault 與 VMA 的完整 memory-management 流程。 |
-| 之後再回來補 | ABI versioning、blocking/non-blocking 的完整錯誤語意、runtime 如何把 ioctl/poll/mmap 包成穩定 API。 |
+## 限制
 
-## Source companion docs
+- 一個global record，沒有per-open queue/fairness/backpressure。
+- Reader在copy_to_user期間持mutex；只適合小teaching payload。
+- 無權限模型、compat ioctl、ABI negotiation、hot-unplug。
+- Sequence protocol不處理pointer lifetime。
+- 真實hardware data path還有DMA ownership/cache/order/reset。
 
-如果你正在 trace 某一份 source，優先打開原檔旁邊的 companion doc，不需要先回到 `docs/` 裡找對應解釋：
+## Self-check
 
-| Source | 旁讀文件 |
-|---|---|
-| [`driver_lab_ioctl_poll_mmap.c`](driver_lab_ioctl_poll_mmap.c) | [`driver_lab_ioctl_poll_mmap.c.md`](driver_lab_ioctl_poll_mmap.c.md) |
-| [`test.sh`](test.sh) | [`test.sh.md`](test.sh.md) |
-| [`Makefile`](Makefile) | [`Makefile.md`](Makefile.md) |
-| [`../../runtime/src/driver_lab_runtime.c`](../../runtime/src/driver_lab_runtime.c) | [`../../runtime/src/driver_lab_runtime.c.md`](../../runtime/src/driver_lab_runtime.c.md) |
-| [`../../runtime/include/driver_lab_runtime.h`](../../runtime/include/driver_lab_runtime.h) | [`../../runtime/include/driver_lab_runtime.h.md`](../../runtime/include/driver_lab_runtime.h.md) |
-| [`../../runtime/include/driver_lab_uapi.h`](../../runtime/include/driver_lab_uapi.h) | [`../../runtime/include/driver_lab_uapi.h.md`](../../runtime/include/driver_lab_uapi.h.md) |
-| [`../../tests/driver_lab_char_cli.c`](../../tests/driver_lab_char_cli.c) | [`../../tests/driver_lab_char_cli.c.md`](../../tests/driver_lab_char_cli.c.md) |
+1. 為什麼拿mutex後要重查wait predicate？
+2. 為什麼本lab拒絕partial read而回`EMSGSIZE`？
+3. Wake event為何可能不讓poll返回？
+4. 為什麼write先copy local再lock，read卻在lock內copy？
+5. Mutex為什麼不能保證mmap reader的一致性？
+6. `VM_MAYWRITE/VM_MAYEXEC`為什麼也要清？
+7. 256-byte ioctl payload沒有NUL時，為什麼不應默默truncate？
 
-完整清單見 [`../../docs/reference/companion-docs-index.md`](../../docs/reference/companion-docs-index.md)。
+<details>
+<summary>參考答案</summary>
 
-## 完成後你應該能回答
+1. Predicate成立到拿lock之間可能有另一consumer改掉state；需要同一同步domain下重新判斷。
+2. Global record配per-open offset會在跨reader/跨message時產生stale offset與skip；all-or-nothing明確定義message semantics並保留undersized record。
+3. Wake只觸發重新評估；若readiness仍false，blocking poll繼續睡到event/timeout/signal/error。
+4. Write copy不需shared state，可縮短lock hold；read若先unlock再copy，另一path可能覆蓋/清除record，所以本小buffer設計在lock內copy後才consume。
+5. Userspace直接load mapping不會取得kernel mutex，需要sequence/barrier protocol辨識concurrent update。
+6. 只拒絕初始`VM_WRITE/EXEC`不夠，userspace可能用`mprotect`請求後續升級；清may flags阻止。
+7. 成功返回卻改變payload會隱藏資料丟失；嚴格回`EMSGSIZE`讓caller修正contract。
 
-| 問題 | 標準答案 |
-|---|---|
-| 這一關的 userspace 入口在哪裡？ | `/dev/driver_lab_ctl0`；同一個 device node 同時提供 `read/write`、`ioctl`、`poll`、`mmap`。 |
-| data path 是什麼？ | `write()` 更新 driver buffer，`read()` 從 driver buffer 讀回資料。 |
-| control path 是什麼？ | `ioctl` command，例如 `DL_IOC_SET_MESSAGE`、`DL_IOC_GET_STATUS`、`DL_IOC_TRIGGER_EVENT`、`DL_IOC_CLEAR_BUFFER`。 |
-| event path 是什麼？ | `poll()` 透過 waitqueue 等待可讀資料或 pending event，不需要 userspace busy loop。 |
-| shared memory path 是什麼？ | `mmap()` 映射 driver 維護的一頁 shared page，userspace 可讀到 magic、event count、buffer snapshot。 |
-| 這一關主要拿到什麼 resource？ | char device resource、waitqueue、共享狀態 buffer，以及一頁用來 mmap 的 shared page。 |
-| cleanup 要釋放哪些東西？ | 先移除 `/dev`/class/cdev/major-minor，再 `free_page()` 釋放 shared page。 |
-| `poll` 沒醒時第一個看哪裡？ | 先確認是否真的執行了 `trigger` 或寫入資料，再看 `dmesg` 與 `driver_lab_char_cli ... status`。 |
-
-## 新手先記住這一關在補什麼
-
-- `read/write` 不夠時，要用 `ioctl` 放控制命令
-- 如果 userspace 要等事件，不應一直 busy loop，要有 `poll`
-- 如果資料量變大，可能不想每次都 `copy_to_user` / `copy_from_user`，這時才會碰到 `mmap`
-
-## 看 source code 時先抓哪幾個點
-
-這一關內容比 `02` 多很多，不建議第一次逐行硬讀。先把它拆成四條路徑：
-
-1. `driver_lab_ioctl_poll_mmap_init()`：建立 `/dev/driver_lab_ctl0` 與 shared page
-2. `dl_fops`：確認 `read/write/ioctl/poll/mmap` 分別接到哪個 callback
-3. `dl_publish_message_locked()`：所有寫入與事件觸發最後如何更新同一份 kernel state
-4. `dl_unlocked_ioctl()`：control path 如何依 `cmd` 分派不同動作
-5. `dl_poll()`：userspace 等事件時，driver 如何把 waitqueue 接進來
-6. `dl_mmap()`：userspace 如何看到一頁由 driver 維護的 shared page
-7. `driver_lab_ioctl_poll_mmap_exit()`：device node、cdev、class、page 如何被清掉
-
-讀這關時要一直問：這個 callback 是 control path、data path、event path，還是 shared memory path？
-
-遇到 kernel API 時，先套用「參數角色」模板，完整方法見 [`../../docs/onboarding/kernel-api-parameter-roles.md`](../../docs/onboarding/kernel-api-parameter-roles.md)。
-
-| API | 參數角色 | 第一輪理解 |
-|---|---|---|
-| `copy_from_user(&msg, (void __user *)arg, sizeof(msg))` | kernel destination、userspace source、size | `ioctl arg` 是 userspace pointer，必須安全複製進 kernel struct。 |
-| `copy_to_user((void __user *)arg, &status, sizeof(status))` | userspace destination、kernel source、size | 把 driver status struct 複製回 userspace。 |
-| `poll_wait(file, &dl_read_wq, wait)` | opened file、waitqueue、poll context | 把目前 fd 和 read waitqueue 接起來，之後狀態改變才能喚醒 poll。 |
-| `remap_pfn_range(vma, vma->vm_start, pfn, size, ...)` | VMA、userspace address、page frame、size、protection | 把 driver 控制的一頁 shared page 映射到 userspace。 |
-| `alloc_chrdev_region()` / `cdev_add()` / `device_create()` | char device resource pipeline | 和 `02` 同一套 `/dev` 建立流程，只是 callback 更多。 |
+</details>

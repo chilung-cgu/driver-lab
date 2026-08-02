@@ -4,27 +4,31 @@
 
 #ifdef __KERNEL__
 #include <linux/ioctl.h>
+#include <linux/types.h>
+typedef __u32 dl_race_u32;
 #else
+#include <stdint.h>
 #include <sys/ioctl.h>
+typedef uint32_t dl_race_u32;
 #endif
 
 /*
- * 這份 struct 是 userspace CLI 和 kernel driver 共同理解的 ABI。
- * 欄位順序與型別改變會影響相容性；不要把 kernel private pointer 放進來。
+ * This structure is shared by the kernel module and userspace CLI. Keep the
+ * layout fixed-width and pointer-free; changing it changes the ioctl ABI.
  */
 struct dl_race_status {
-	/* 目前共享 counter 的值。 */
-	unsigned int counter;
-	/* 0: 故意不加鎖，1: 用 mutex 保護。 */
-	unsigned int safe_mode;
-	/* 背景 worker thread 是否仍在運作。 */
-	unsigned int worker_running;
+	dl_race_u32 counter;
+	dl_race_u32 safe_mode;
+	dl_race_u32 worker_running;
+	dl_race_u32 reserved;
 };
 
 #define DL_RACE_IOCTL_TYPE 'R'
 
-#define DL_RACE_IOC_SET_SAFE_MODE _IOW(DL_RACE_IOCTL_TYPE, 0x01, unsigned int)
-#define DL_RACE_IOC_GET_STATUS _IOR(DL_RACE_IOCTL_TYPE, 0x02, struct dl_race_status)
+#define DL_RACE_IOC_SET_SAFE_MODE \
+	_IOW(DL_RACE_IOCTL_TYPE, 0x01, dl_race_u32)
+#define DL_RACE_IOC_GET_STATUS \
+	_IOR(DL_RACE_IOCTL_TYPE, 0x02, struct dl_race_status)
 #define DL_RACE_IOC_INC_COUNTER _IO(DL_RACE_IOCTL_TYPE, 0x03)
 #define DL_RACE_IOC_RESET_COUNTER _IO(DL_RACE_IOCTL_TYPE, 0x04)
 

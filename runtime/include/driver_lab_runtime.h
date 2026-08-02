@@ -12,32 +12,51 @@ extern "C" {
 #endif
 
 /*
- * runtime handle 是 userspace 端持有 driver fd 的最小包裝。
- * 對新手來說，可以先把它想成「已開啟的 /dev/...」。
+ * A handle owns exactly one file descriptor. Initialize it with
+ * DL_RUNTIME_HANDLE_INIT before the first open. Copying an open handle would
+ * duplicate the integer without duplicating ownership and is therefore invalid.
  */
 struct dl_runtime_handle {
 	int fd;
 };
 
-/* 開啟 lab driver 匯出的 device node，例如 /dev/driver_lab_char0。 */
+#define DL_RUNTIME_HANDLE_INIT { .fd = -1 }
+
+/* dl_runtime_open() uses O_RDWR | O_CLOEXEC. */
 int dl_runtime_open(struct dl_runtime_handle *handle, const char *path);
-/* 需要 O_NONBLOCK 這類額外 flag 時使用，例如 poll 測試。 */
+/* Caller-supplied flags are passed to open(); an already-open handle returns EBUSY. */
 int dl_runtime_open_flags(struct dl_runtime_handle *handle, const char *path, int flags);
-/* 關閉 fd，並把 handle 重設為無效狀態。 */
+/* Invalidates handle->fd before close(); never retry close() through the handle. */
 int dl_runtime_close(struct dl_runtime_handle *handle);
-/* data path：對應 02/03 driver 的 read/write callback。 */
+
+/* POSIX-style wrappers: may return a short count; callers decide whether to retry. */
 ssize_t dl_runtime_write(struct dl_runtime_handle *handle, const void *buf, size_t count);
 ssize_t dl_runtime_read(struct dl_runtime_handle *handle, void *buf, size_t count);
-/* control path：對應 03 driver 的 ioctl command。 */
+
 int dl_runtime_ioctl_set_message(struct dl_runtime_handle *handle, const char *message);
-int dl_runtime_ioctl_get_status(struct dl_runtime_handle *handle, struct dl_ioctl_status *status);
+int dl_runtime_ioctl_get_status(struct dl_runtime_handle *handle,
+								struct dl_ioctl_status *status);
 int dl_runtime_ioctl_trigger_event(struct dl_runtime_handle *handle);
 int dl_runtime_ioctl_clear_buffer(struct dl_runtime_handle *handle);
-/* event path：等待 driver 回報可讀資料或特殊事件。 */
-int dl_runtime_poll_readable(struct dl_runtime_handle *handle, int timeout_ms, short *revents);
-/* shared memory path：對應 03 driver 的 mmap shared page。 */
+
+/* Returns poll()'s count/timeout/error result and always initializes *revents if supplied. */
+int dl_runtime_poll_readable(struct dl_runtime_handle *handle, int timeout_ms,
+							 short *revents);
+
+/*
+ * mmap only creates a read-only shared-page mapping. Obtain the length from
+ * DL_IOC_GET_STATUS.mmap_size; do not assume PAGE_SIZE == 4096.
+ */
 void *dl_runtime_mmap_shared(struct dl_runtime_handle *handle, size_t length);
 int dl_runtime_munmap_shared(void *addr, size_t length);
+
+/*
+ * Read a consistent copy using dl_shared_page.seq. The mapped source is read
+ * through volatile byte loads between sequence checks so the compiler cannot
+ * replace/reuse the shared-memory accesses. Returns EAGAIN after bounded retry.
+ */
+int dl_runtime_read_shared_snapshot(const struct dl_shared_page *mapped,
+									struct dl_shared_page *snapshot);
 
 #ifdef __cplusplus
 }

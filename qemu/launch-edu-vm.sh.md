@@ -2,346 +2,273 @@
 
 ## 結論
 
-這支腳本是在 host 上啟動帶有 QEMU EDU PCI device 的 Linux guest。它不是在 host 上 build/load driver；真正的 Lab05-07 driver build、`insmod`、smoke test 仍然發生在 guest 裡。
+這支script在**host**啟動一台含QEMU EDU的guest。Lab05～07的build、`insmod/rmmod`與smoke tests仍在**Linux guest**執行。
 
 最小用法：
 
 ```sh
-QEMU_IMAGE=$HOME/vm/ubuntu.qcow2 ./qemu/launch-edu-vm.sh
+QEMU_IMAGE="$HOME/vm/driver-lab.qcow2" \
+./qemu/launch-edu-vm.sh
 ```
 
-啟動後，guest 裡應該能用：
+Guest內第一個gate：
 
 ```sh
-lspci -nn | grep 1234:11e8
+uname -m
+lspci -Dnn | grep 1234:11e8
 ```
 
-看到 QEMU EDU device。
+## Current inputs
 
-## 不確定處 / 查證範圍
+| 變數 | 預設 | 角色 |
+|---|---|---|
+| `QEMU_BIN` | `qemu-system-x86_64` | System emulator binary/path |
+| `QEMU_IMAGE` | 無，必填 | Guest disk image |
+| `QEMU_IMAGE_FORMAT` | `qcow2` | `qcow2`或`raw`；必須符合實際image |
+| `QEMU_GUEST_ARCH` | 由binary名稱推斷 | `x86_64`/`aarch64`等；wrapper binary時可覆寫 |
+| `QEMU_ACCEL` | 自動 | `kvm`/`hvf`/`tcg` |
+| `QEMU_EXTRA_ARGS` | 空 | Trusted local escape hatch |
+| `SSH_PORT` | `2222` | Host forwarded TCP port |
+| `MEMORY_MB` | `2048` | Guest RAM MiB |
+| `SMP_CPUS` | `2` | Guest vCPU count |
 
-這份講義根據本 repo 的 QEMU launch script 與 QEMU EDU lab 流程解釋。它不保證你的 guest image、QEMU build、host acceleration、network firewall 或 SSH server 設定都相同；那些必須依實際 host/guest 環境確認。
+Script會驗：
 
-## 先理解這份檔案在 repo 的位置
+- QEMU binary存在；
+- image是regular file；
+- format只接受`raw`或`qcow2`；
+- port是1..65535；
+- RAM/vCPU為正整數；
+- guest architecture可推斷或已明確指定；
+- accelerator已編譯，且不是明顯的cross-ISA錯配；
+- KVM還要求目前使用者可讀寫`/dev/kvm`。
 
-路徑：
+## Architecture與accelerator
+
+Script先normalize常見名稱：
 
 ```text
-qemu/launch-edu-vm.sh
+amd64 → x86_64
+arm64 → aarch64
 ```
 
-相關文件：
+若host/guest architecture不同：
 
-- [`README.md`](README.md)：QEMU 目錄總覽。
-- [`edu-bringup-checklist.md`](edu-bringup-checklist.md)：host 到 guest 的最小檢查表。
-- [`../docs/guides/qemu-edu-first-pass.md`](../docs/guides/qemu-edu-first-pass.md)：第一次做 Lab05-07 的導讀。
-- [`../docs/guides/linux-guest-05-to-07-walkthrough.md`](../docs/guides/linux-guest-05-to-07-walkthrough.md)：進 guest 後的完整 runbook。
-
-## 這份檔案要解決什麼問題
-
-Lab05-07 要學 PCI/MMIO/IRQ/DMA，需要一顆可預測的 PCI device。QEMU EDU 正好提供固定 vendor/device ID 與教學用 register interface。
-
-這支腳本負責：
-
-- 找到 `qemu-system-x86_64`。
-- 要求使用者明確指定 guest image。
-- 依 host OS 選擇 accelerator。
-- 加上 `-device edu`。
-- 設定 user-mode network 與 SSH port forwarding。
-- 用 `-nographic` 讓 VM 在 terminal 裡跑。
-
-## 它怎麼被執行
-
-開頭設定：
-
-```sh
-#!/bin/sh
-set -eu
-
-QEMU_BIN=${QEMU_BIN:-qemu-system-x86_64}
-QEMU_IMAGE=${QEMU_IMAGE:-}
-QEMU_ACCEL=${QEMU_ACCEL:-}
-QEMU_EXTRA_ARGS=${QEMU_EXTRA_ARGS:-}
-SSH_PORT=${SSH_PORT:-2222}
-MEMORY_MB=${MEMORY_MB:-2048}
-SMP_CPUS=${SMP_CPUS:-2}
-HOST_OS=$(uname -s)
+```text
+arm64 host + x86_64 guest
+→ default TCG
 ```
 
-### 參數表
+KVM使用host CPU virtualization extension，通常只加速相同/相容ISA；macOS HVF也不能被當成任意cross-ISA accelerator。Cross-architecture明確指定非TCG時，script拒絕並說明原因。
 
-| 變數 | 預設 | 作用 |
-|---|---:|---|
-| `QEMU_BIN` | `qemu-system-x86_64` | QEMU executable 名稱或路徑。 |
-| `QEMU_IMAGE` | 空 | 必填，guest qcow2 image。 |
-| `QEMU_ACCEL` | 空 | 空值時自動選；也可手動指定 `kvm`、`hvf`、`tcg`。 |
-| `QEMU_EXTRA_ARGS` | 空 | 額外 QEMU 參數，最後附加。 |
-| `SSH_PORT` | `2222` | host 轉到 guest port 22 的 TCP port。 |
-| `MEMORY_MB` | `2048` | guest memory size。 |
-| `SMP_CPUS` | `2` | guest CPU 數。 |
+同架構時：
 
-### 白話講
+- Linux：KVM編譯存在且`/dev/kvm`可用才選KVM，否則TCG。
+- macOS：QEMU列出HVF時選HVF，否則TCG。
+- 其他OS：TCG。
 
-這支腳本把「固定需要的 QEMU 參數」寫死，把「每台機器不同的選項」留給環境變數覆寫。
+`-accel help`只表示QEMU build列出backend；KVM還需device node/permission，因此script另外檢查。
 
-## 讀 source 的主線
+## Guest architecture如何推斷
 
-主線可以拆成五段：
-
-1. 檢查 QEMU 是否支援某個 accelerator。
-2. 依 host OS 選預設 accelerator。
-3. 強制要求 `QEMU_IMAGE`。
-4. 驗證 QEMU binary 與 accelerator。
-5. `exec qemu-system-x86_64 ... -device edu ...`。
-
-## 一、檢查 accelerator 是否支援
-
-原始碼片段：
-
-```sh
-supports_accel() {
-    accel=$1
-
-    if "$QEMU_BIN" -accel help 2>/dev/null | grep -Eq "(^|[[:space:]])${accel}([[:space:]]|$)"; then
-        return 0
-    fi
-
-    return 1
-}
+```text
+qemu-system-x86_64 → x86_64
+qemu-system-aarch64 → aarch64
 ```
 
-### 這段在做什麼
-
-它執行：
+自訂wrapper或其他binary時，設定：
 
 ```sh
-qemu-system-x86_64 -accel help
+QEMU_BIN=/path/to/wrapper \
+QEMU_GUEST_ARCH=x86_64 \
+QEMU_IMAGE=... \
+./qemu/launch-edu-vm.sh
 ```
 
-再用 `grep` 檢查輸出中是否列出指定 accelerator。
+Binary名稱只是default inference；真正guest image/firmware/machine仍需相互匹配。
 
-### 為什麼不用硬猜
+## Image format
 
-不同 host、QEMU build、硬體虛擬化狀態會影響 accelerator 是否可用。用 QEMU 自己的 help output 檢查，比只靠 OS 名稱安全。
-
-## 二、依 host OS 選預設 accelerator
-
-原始碼片段：
+Current launch command使用：
 
 ```sh
-pick_default_accel() {
-    case "$HOST_OS" in
-        Linux)
-            if supports_accel kvm; then
-                printf 'kvm\n'
-            else
-                printf 'tcg\n'
-            fi
-            ;;
-        Darwin)
-            if supports_accel hvf; then
-                printf 'hvf\n'
-            else
-                printf 'tcg\n'
-            fi
-            ;;
-        *)
-            printf 'tcg\n'
-            ;;
-    esac
-}
+-drive "file=$QEMU_IMAGE,if=virtio,format=$QEMU_IMAGE_FORMAT"
 ```
 
-### 這段在做什麼
-
-它用 `uname -s` 的結果選擇預設 accelerator：
-
-| Host OS | 優先 | fallback |
-|---|---|---|
-| Linux | `kvm` | `tcg` |
-| macOS / Darwin | `hvf` | `tcg` |
-| 其他 | `tcg` | 無 |
-
-### 白話講
-
-`kvm` 和 `hvf` 是 host hardware acceleration。`tcg` 是 QEMU 的 software translation fallback，通常比較慢，但相容性高。
-
-對學 driver 來說，速度重要，但第一個目標是 VM 能穩定啟動且 guest 看得到 EDU device。
-
-## 三、強制要求 `QEMU_IMAGE`
-
-原始碼片段：
+不要把raw image宣告成qcow2或反之。先查：
 
 ```sh
-if [ -z "$QEMU_IMAGE" ]; then
-    printf 'ERROR: 請先設定 QEMU_IMAGE 指向你的 guest image。\n' >&2
-    printf '例如：QEMU_IMAGE=$HOME/vm/ubuntu.qcow2 %s\n' "$0" >&2
-    exit 1
-fi
+qemu-img info "$QEMU_IMAGE"
 ```
 
-### 這段在做什麼
-
-如果沒有設定 `QEMU_IMAGE`，腳本直接失敗並印出範例。
-
-### 為什麼不給預設 image path
-
-guest image 位置非常依個人環境而定。硬塞預設值很可能導致使用者以為腳本壞了。明確要求 `QEMU_IMAGE` 可以讓錯誤更早、更清楚。
-
-## 四、確認 QEMU binary 與 accelerator
-
-原始碼片段：
+再設定：
 
 ```sh
-if ! command -v "$QEMU_BIN" >/dev/null 2>&1; then
-    printf 'ERROR: 找不到 %s\n' "$QEMU_BIN" >&2
-    exit 1
-fi
-
-if [ -z "$QEMU_ACCEL" ]; then
-    QEMU_ACCEL=$(pick_default_accel)
-elif ! supports_accel "$QEMU_ACCEL"; then
-    printf 'ERROR: %s 不支援 accel=%s\n' "$QEMU_BIN" "$QEMU_ACCEL" >&2
-    exit 1
-fi
+QEMU_IMAGE_FORMAT=raw
 ```
 
-### 這段在做什麼
+或保留`qcow2`。
 
-先確認 QEMU executable 存在。接著：
+Image存在並不證明其CPU architecture、boot firmware或filesystem正確；cloud image還需官方checksum與architecture核對。
 
-- 如果使用者沒指定 `QEMU_ACCEL`，就自動選。
-- 如果使用者指定了，就確認 QEMU 支援該 accelerator。
+## Network與EDU
 
-### 常見用法
+Script固定加入：
 
-手動指定 software fallback：
+```text
+-netdev user,id=n1,hostfwd=tcp::<SSH_PORT>-:22
+-device virtio-net-pci,netdev=n1
+-device edu
+-nographic
+```
+
+- User-mode network將host port轉到guest 22。
+- Guest仍需SSH server/account/firewall正確。
+- `-device edu`才是Lab05～07看到`1234:11e8`的來源。
+- BDF由machine topology/enumeration決定，不固定。
+- `-nographic`把console放在terminal。
+
+若host port已被占用，QEMU會啟動失敗；換`SSH_PORT`。
+
+## `QEMU_EXTRA_ARGS`
+
+Script最後故意未quote：
 
 ```sh
-QEMU_IMAGE=$HOME/vm/ubuntu.qcow2 \
+# shellcheck disable=SC2086
+...
+$QEMU_EXTRA_ARGS
+```
+
+它允許簡單多參數：
+
+```sh
+QEMU_EXTRA_ARGS='-machine q35 -cpu qemu64'
+```
+
+限制：
+
+- 只接受你完全信任的local input；
+- 複雜nested quoting、含空白值、untrusted input不可靠；
+- 複雜設定寫一支local wrapper或使用array-capable shell更安全。
+
+Cloud-init ISO等參數也可透過它加入，但要核對script的word splitting結果。
+
+## Host/guest責任
+
+| Host | Guest |
+|---|---|
+| QEMU binary/accelerator | Running Linux kernel |
+| Disk/seed/network | Matching kernel headers/build tree |
+| `-device edu` | `lspci` enumeration |
+| Port forwarding | Build/load/unload/tests |
+| VM lifecycle | `dmesg`、sysfs、`/proc/interrupts` evidence |
+
+Host是macOS不影響guest內可以build Linux module；但host本身不能load Linux `.ko`。
+
+## 常見錯誤
+
+### `QEMU_IMAGE`缺失/不存在
+
+```sh
+QEMU_IMAGE="$HOME/vm/driver-lab.qcow2" ./qemu/launch-edu-vm.sh
+```
+
+核對path與regular file。
+
+### Format不符
+
+```sh
+qemu-img info "$QEMU_IMAGE"
+QEMU_IMAGE_FORMAT=raw ...
+```
+
+### Cross-architecture卻指定KVM/HVF
+
+```sh
+QEMU_ACCEL=tcg ...
+```
+
+TCG較慢是預期，不是driver error。
+
+### KVM列出但不可用
+
+查：
+
+```sh
+ls -l /dev/kvm
+id
+```
+
+或明確使用TCG。
+
+### Guest看不到EDU
+
+先確認QEMU command真的包含`-device edu`，再確認登入的是正確VM：
+
+```sh
+uname -m
+lspci -Dnn
+```
+
+### SSH連不上
+
+確認QEMU仍在跑、port未衝突、guest SSH service/cloud-init完成。
+
+## 使用範例
+
+### x86_64 Linux host + x86_64 guest
+
+```sh
+QEMU_IMAGE="$HOME/vm/driver-lab.qcow2" \
+QEMU_IMAGE_FORMAT=qcow2 \
+./qemu/launch-edu-vm.sh
+```
+
+若`/dev/kvm`可用，通常選KVM。
+
+### arm64 host + x86_64 guest
+
+```sh
+QEMU_BIN=qemu-system-x86_64 \
+QEMU_GUEST_ARCH=x86_64 \
+QEMU_IMAGE="$HOME/vm/driver-lab-x86.qcow2" \
 QEMU_ACCEL=tcg \
 ./qemu/launch-edu-vm.sh
 ```
 
-指定不同 QEMU binary：
+詳見[`arm-host-x86-guest.md`](arm-host-x86-guest.md)。
+
+### Raw image與自訂port
 
 ```sh
-QEMU_BIN=/opt/homebrew/bin/qemu-system-x86_64 \
-QEMU_IMAGE=$HOME/vm/ubuntu.qcow2 \
+QEMU_IMAGE="$HOME/vm/guest.raw" \
+QEMU_IMAGE_FORMAT=raw \
+SSH_PORT=2223 \
 ./qemu/launch-edu-vm.sh
 ```
 
-## 五、真正啟動 QEMU
+## Self-check
 
-原始碼片段：
+1. 為什麼`-accel help`列出KVM仍不代表它可用？
+2. ARM host跑x86_64 guest為什麼default TCG？
+3. `QEMU_IMAGE_FORMAT`錯誤會造成什麼？
+4. `-device edu`與guest中的`lspci`有何關係？
+5. `QEMU_EXTRA_ARGS`為什麼只能視為trusted local escape hatch？
 
-```sh
-# shellcheck disable=SC2086
-exec "$QEMU_BIN" \
-    -accel "$QEMU_ACCEL" \
-    -m "$MEMORY_MB" \
-    -smp "$SMP_CPUS" \
-    -drive "file=$QEMU_IMAGE,if=virtio,format=qcow2" \
-    -netdev "user,id=n1,hostfwd=tcp::${SSH_PORT}-:22" \
-    -device virtio-net-pci,netdev=n1 \
-    -device edu \
-    -nographic \
-    $QEMU_EXTRA_ARGS
-```
+<details>
+<summary>參考答案</summary>
 
-### 這段在做什麼
+1. 它只反映QEMU build支援backend；KVM還需同架構與可讀寫`/dev/kvm`、host virtualization/permission可用。
+2. KVM/HVF使用host硬體虛擬化，不能任意加速不同ISA；TCG做software translation。
+3. QEMU會以錯誤格式解析disk，可能拒絕啟動或錯誤讀寫；先以`qemu-img info`核對。
+4. QEMU建立EDU PCI function，guest PCI core列舉後才會出現`1234:11e8`供driver match。
+5. POSIX shell將未quote字串做word splitting/globbing，無法安全表達任意複雜或不可信參數；複雜情境應用wrapper/array。
 
-| 參數 | 作用 |
-|---|---|
-| `-accel "$QEMU_ACCEL"` | 使用選定 accelerator。 |
-| `-m "$MEMORY_MB"` | 設定 guest memory。 |
-| `-smp "$SMP_CPUS"` | 設定 guest CPU 數。 |
-| `-drive "file=...,if=virtio,format=qcow2"` | 掛入 qcow2 guest disk。 |
-| `-netdev "user,...hostfwd=tcp::${SSH_PORT}-:22"` | host port 轉到 guest SSH port 22。 |
-| `-device virtio-net-pci,netdev=n1` | 加入 virtio network device。 |
-| `-device edu` | 加入 QEMU EDU PCI device。 |
-| `-nographic` | 使用 terminal console，不開 GUI 視窗。 |
-| `$QEMU_EXTRA_ARGS` | 讓使用者追加進階參數。 |
+</details>
 
-### 為什麼用 `exec`
+## 參考
 
-`exec` 會用 QEMU process 取代 shell script process。好處是：
-
-- signal 行為比較直接。
-- script 不需要再等子行程結束。
-- terminal 上看到的主要 process 就是 QEMU。
-
-### 為什麼 `QEMU_EXTRA_ARGS` 沒有加引號
-
-這一行前面有：
-
-```sh
-# shellcheck disable=SC2086
-```
-
-這是刻意允許使用者傳入多個額外 QEMU 參數，例如：
-
-```sh
-QEMU_EXTRA_ARGS="-monitor stdio -serial mon:stdio"
-```
-
-代價是：`QEMU_EXTRA_ARGS` 不適合放入需要複雜 quoting 的任意字串。它是 convenience escape hatch，不是完整參數 parser。
-
-## Host 與 guest 的責任分界
-
-| 位置 | 做什麼 |
-|---|---|
-| host | 執行 `launch-edu-vm.sh`，啟動 QEMU，提供 guest image 和 `-device edu`。 |
-| guest | 安裝 build tools/kernel headers，build `.ko`，執行 Lab05-07 `test.sh`。 |
-
-這點很重要：如果你在 macOS host 啟動 QEMU，仍然是在 Linux guest 裡 build/load Linux driver，不是在 macOS kernel 裡載入 `.ko`。
-
-## 這份檔案和其他檔案的對照
-
-| 檔案 | 關係 |
-|---|---|
-| [`edu-bringup-checklist.md`](edu-bringup-checklist.md) | 啟動前後的最小檢查清單。 |
-| [`../labs/05-pci-edu-mmio/test.sh`](../labs/05-pci-edu-mmio/test.sh) | guest 內第一個 PCI EDU lab smoke test。 |
-| [`../scripts/fs-surface-checks.sh`](../scripts/fs-surface-checks.sh) | guest 內檢查 PCI device / driver bind surface。 |
-
-## 常見卡點
-
-### `ERROR: 請先設定 QEMU_IMAGE`
-
-設定 guest image：
-
-```sh
-QEMU_IMAGE=$HOME/vm/ubuntu.qcow2 ./qemu/launch-edu-vm.sh
-```
-
-### `找不到 qemu-system-x86_64`
-
-代表 QEMU binary 不在 `PATH`。安裝 QEMU，或用 `QEMU_BIN=/path/to/qemu-system-x86_64` 指定。
-
-### guest 內看不到 `1234:11e8`
-
-先確認腳本真的有跑到 `-device edu`，再在 guest 裡用：
-
-```sh
-lspci -nn | grep 1234:11e8
-```
-
-若仍看不到，優先檢查 QEMU 版本、device 是否支援、guest 是否完整開機，而不是先改 driver code。
-
-### SSH 連不上 guest
-
-這支腳本只設定 host port forwarding：
-
-```text
-host tcp:${SSH_PORT} -> guest tcp:22
-```
-
-guest 裡仍然需要 SSH server 正常啟動、防火牆允許、使用者帳號可登入。
-
-## 讀完後你應該能回答
-
-1. 為什麼 `QEMU_IMAGE` 必須由使用者明確設定？
-2. `kvm`、`hvf`、`tcg` 在這支腳本裡的角色差異是什麼？
-3. `-device edu` 對 Lab05-07 有什麼意義？
-4. 為什麼 host 啟動 QEMU 不等於 host 可以 load Linux kernel module？
-5. `QEMU_EXTRA_ARGS` 為什麼刻意不加引號？
+- QEMU invocation: <https://www.qemu.org/docs/master/system/invocation.html>
+- TCG: <https://www.qemu.org/docs/master/devel/tcg.html>
+- QEMU EDU: <https://www.qemu.org/docs/master/specs/edu.html>
