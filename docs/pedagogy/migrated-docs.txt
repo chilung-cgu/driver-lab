@@ -1,0 +1,6 @@
+# One repository-relative Markdown path per line.
+# Add a file only after technical and beginner-readability review.
+docs/concepts/pcie-primer.md
+labs/05-pci-edu-mmio/README.md
+labs/06-pci-edu-irq/README.md
+labs/07-pci-edu-dma/README.md
