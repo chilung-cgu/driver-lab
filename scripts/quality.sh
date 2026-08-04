@@ -2,7 +2,10 @@
 set -eu
 
 # 先做 shell 語法與靜態檢查、Markdown local-link 檢查，最後在有
-# kernel tree 時跑 checkpatch。這些是 static gates，不等於 module runtime test。
+# kernel tree 時對 kernel-facing C/H source 跑 checkpatch。
+# Userspace runtime/tests 由 -Wall -Wextra -Werror 的 build gate 檢查；
+# checkpatch 的 kernel-only規則（例如反對volatile）不適合直接套用。
+# 這些都只是 static gates，不等於 module runtime test。
 
 ROOT_DIR=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 TARGET_DIR=${1:-$ROOT_DIR}
@@ -175,6 +178,13 @@ run_checkpatch() {
             ! -name '*.mod.c' \
             ! -name '.module-common.c' \
             ! -path '*/.tmp_versions/*' | while IFS= read -r file; do
+            case "$file" in
+                */runtime/src/*|*/tests/*)
+                    printf 'skip checkpatch for userspace source %s\n' "$file"
+                    continue
+                    ;;
+            esac
+
             printf 'checkpatch %s\n' "$file"
             perl "$checkpatch" --no-tree -f "$file"
         done
