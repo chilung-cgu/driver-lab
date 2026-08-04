@@ -18,6 +18,8 @@
 
 只解釋 happy-path API 不夠；只貼 code 也不夠；只看到 test pass 更不能推論 production correctness。
 
+本 branch 已將 Lab00～09 README 與 PCIe primer 全部遷移到這個結構；`migrated-docs.txt` 表示完成結構/source 對照與 CI gate，**不等於已完成 target runtime 或獨立人工 sign-off**。
+
 ## 讀者假設
 
 預設讀者具備一般 C / Linux 使用經驗，但沒有 kernel driver、PCIe、MMIO、IRQ、DMA 實務。
@@ -90,6 +92,7 @@ pci_iomap()          ：建立 I/O mapping
 | Smoke runtime | 指定環境的正常路徑可重現 | race、timeout、所有 architecture |
 | Stress / sanitizer | 特定競態與 memory bug 的證據增加 | 數學上證明完全無 bug |
 | Fault injection | error path / recovery 在指定 fault 下可重現 | 真實硬體所有 failure mode |
+| Real hardware | 指定 board/device/firmware 的行為 | 所有平台與版本通則 |
 
 README 必須使用正確層級描述，不把較低證據升格。
 
@@ -107,7 +110,7 @@ README 必須使用正確層級描述，不把較低證據升格。
 
 - 保留 accuracy audit 修正；
 - 對照 official docs / current source；
-- architecture / device-specific內容有標示；
+- architecture / device-specific 內容有標示；
 - 不虛構 runtime 結果。
 
 ### Gate 2：初學者可讀性
@@ -131,18 +134,16 @@ README 必須使用正確層級描述，不把較低證據升格。
 - source / test path 存在；
 - Self-check 有頁內答案；
 - official links 可用；
-- migrated manifest 與 structure check 通過。
+- migrated manifest、canonical-doc manifest 與 structure checks 通過。
 
-## Pilot migration
+## 已完成的結構遷移
 
-第一批先處理：
+目前 [`pedagogy/migrated-docs.txt`](pedagogy/migrated-docs.txt) 包含：
 
-1. `docs/concepts/pcie-primer.md`
-2. `labs/05-pci-edu-mmio/README.md`
-3. `labs/06-pci-edu-irq/README.md`
-4. `labs/07-pci-edu-dma/README.md`
+1. `docs/concepts/pcie-primer.md`；
+2. Lab00～09 的十份 primary README。
 
-它們與 `pcie-study` 的 P1-10、P2-07、P2-14 共同建立：
+它們與 `pcie-study` 49 篇 primary notes 共同使用：
 
 ```text
 resource / mapping
@@ -153,11 +154,34 @@ resource / mapping
 → quiesce-before-free
 ```
 
-Pilot 經人工 review 與 runtime gate 後，再依 Lab00→09 擴大。
+此外，重複的 onboarding bridge、roadmap、debugging 與 companion index 已整合至 canonical docs；清單見 [`pedagogy/canonical-docs.txt`](pedagogy/canonical-docs.txt)。
+
+## 狀態標籤
+
+### `migrated`
+
+表示：
+
+- 已套用教學結構；
+- 已對照 current source/test；
+- official links 與 local links 通過；
+- structure/static/build gate 通過；
+- runtime 缺口有明確標示。
+
+### `reviewed`
+
+在 `migrated` 之外，還必須：
+
+- 至少一次獨立 technical semantic-regression review；
+- 至少一次真正初學者 readability review；
+- 若敘述涉及 runtime，附 target kernel/QEMU/device log，或明確將該段維持為待驗證；
+- 必要時有 sanitizer/fault-injection evidence。
+
+目前 manifest 追蹤的是 `migrated`，不是宣告所有文件已達最終 `reviewed`。
 
 ## 完成定義
 
-文件只有在以下條件都成立時，才能列入 pedagogy-reviewed manifest：
+文件只有在以下條件都成立時，才能升格為最終 reviewed：
 
 - 技術語意未比 audit branch 退步；
 - 必要術語有定義；
@@ -165,9 +189,9 @@ Pilot 經人工 review 與 runtime gate 後，再依 Lab00→09 擴大。
 - 有 resource/data flow、正反範例與 evidence；
 - 有 failure / teardown / limits；
 - 有 Self-check 與官方來源；
-- structure check 通過；
-- 至少一次 technical + beginner readability review；
-- 涉及 runtime 行為時，有 log，或清楚標為待驗證。
+- structure / link / architecture checks 通過；
+- technical + beginner readability review；
+- 涉及 runtime 行為時，有 log，或清楚標為尚未驗證。
 
 模板與 CI 只能檢查結構，不能自動證明 kernel / device 語意或 runtime correctness。
 
