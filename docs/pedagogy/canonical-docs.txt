@@ -14,6 +14,7 @@ docs/guides/lab-05-study-order.md
 docs/guides/qemu-edu-first-pass.md
 docs/guides/linux-guest-05-to-07-walkthrough.md
 docs/guides/linux-guest-05-to-07-checklist.md
+docs/reference/glossary.md
 docs/reference/debugging.md
 docs/reference/source-index.md
 docs/reference/companion-docs.md
