@@ -5,87 +5,10 @@ on:
   pull_request:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  consolidate-and-check:
-    if: >-
-      github.event_name == 'pull_request' &&
-      github.event.pull_request.head.ref == 'review/pedagogy-pass-2026-08' &&
-      github.actor != 'github-actions[bot]'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: review/pedagogy-pass-2026-08
-          fetch-depth: 0
-
-      - name: Keep all Lab READMEs on the reviewed structure
-        run: python3 scripts/rewrite_remaining_lab_readmes.py --write
-
-      - name: Consolidate overlapping learner-facing documentation
-        run: python3 scripts/consolidate_learning_docs.py
-
-      - name: Install static tools and a buildable kernel headers tree
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y shellcheck linux-headers-generic
-
-      - name: Shell syntax, ShellCheck, Markdown links, kernel-facing checkpatch
-        run: ./scripts/quality.sh .
-
-      - name: Check Lab teaching structure
-        run: python3 scripts/check_pedagogy_structure.py
-
-      - name: Check canonical documentation architecture
-        run: python3 scripts/check_docs_architecture.py
-
-      - name: Build userspace runtime and CLI
-        run: make -C runtime clean all
-
-      - name: Compile Labs 00-07 as external modules
-        shell: bash
-        run: |
-          set -euo pipefail
-          KDIR=$(find /usr/src -maxdepth 1 -type d \
-            -name 'linux-headers-*-generic' | sort -V | tail -n 1)
-          test -n "$KDIR"
-          echo "Using KDIR=$KDIR"
-
-          for lab in \
-            labs/00-hello-module \
-            labs/01-debugfs-logging \
-            labs/02-char-device \
-            labs/03-ioctl-poll-mmap \
-            labs/04-locking-and-races \
-            labs/05-pci-edu-mmio \
-            labs/06-pci-edu-irq \
-            labs/07-pci-edu-dma; do
-            make -C "$lab" KDIR="$KDIR"
-          done
-
-      - name: Check whitespace
-        run: git diff --check
-
-      - name: Commit canonical documentation graph
-        shell: bash
-        run: |
-          set -euo pipefail
-          if git diff --quiet; then
-            echo "Documentation already consolidated"
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git commit -m "docs: consolidate learner documentation around canonical entries"
-          git push origin HEAD:review/pedagogy-pass-2026-08
-
   static-and-build:
-    if: >-
-      github.event_name != 'pull_request' ||
-      github.event.pull_request.head.ref != 'review/pedagogy-pass-2026-08' ||
-      github.actor == 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
