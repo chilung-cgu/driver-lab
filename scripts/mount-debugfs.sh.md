@@ -33,7 +33,7 @@ WARN: debugfs 尚未掛載，可執行 ./scripts/mount-debugfs.sh
 相關學習入口：
 
 - [`../labs/01-debugfs-logging/README.md`](../labs/01-debugfs-logging/README.md)
-- [`../docs/onboarding/kernel-filesystem-surfaces.md`](../docs/onboarding/kernel-filesystem-surfaces.md)
+- [`../docs/onboarding/kernel-filesystem-surfaces.md`](../docs/onboarding/kernel-interfaces.md)
 
 ## 這份檔案要解決什麼問題
 

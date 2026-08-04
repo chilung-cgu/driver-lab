@@ -1,97 +1,76 @@
-# Pedagogy pass — 2026-08
+# Pedagogy pass — beginner-first、correctness-preserving
 
-> Branch: `review/pedagogy-pass-2026-08`
->
-> Base: `review/accuracy-audit-2026-08`
->
-> Companion: `chilung-cgu/pcie-study:review/pedagogy-pass-2026-08`
+## 先講結論
 
-## 結論
+本 branch 建立在 `review/accuracy-audit-2026-08` 上，已完成：
 
-本輪從 accuracy audit branch 分出獨立 teaching branch：
+- Labs00～09 全部 primary README 的 beginner-first 改寫；
+- PCIe、concurrency、accelerator architecture 三份核心 concept；
+- 單一 START-HERE、環境、kernel interfaces；
+- debugging 與 companion 政策集中化；
+- 重複 onboarding/bridge/roadmap/reference 文件整併；
+- structure、local-link、docs-architecture、static/build CI。
 
-```text
-main
-  └─ review/accuracy-audit-2026-08
-       └─ review/pedagogy-pass-2026-08
-```
-
-不從舊 `main` 重寫，因為 audit branch 已修正 MMIO ordering、DMA address/ownership、IRQ teardown、
-mmap consistency 等重要問題；從 main 出發會重新引入 semantic regression 風險。
-
-不直接把教學改寫塞進 audit PR，因為 technical fixes 與 writing changes 混在同一個巨大 diff，會降低
-reviewability。新的 branch 只做 beginner readability、structure、cross-repo terminology 與 teaching
-validation，不改變 current `.c/.h/.sh` behavior。
-
-## Pilot 範圍
-
-1. `docs/concepts/pcie-primer.md`
-2. `labs/05-pci-edu-mmio/README.md`
-3. `labs/06-pci-edu-irq/README.md`
-4. `labs/07-pci-edu-dma/README.md`
-
-配套 `pcie-study`：P1-10、P2-07、P2-14。
-
-這組文件涵蓋：
+目標不是把內容說得簡單而已，而是讓讀者能由：
 
 ```text
-PCI resource / mapping
-→ MMIO access
-→ interrupt notification
-→ DMA address / ownership
-→ ordering
-→ posted arrival
-→ operation completion
-→ payload correctness
-→ quiesce-before-free
+心智模型
+→ current source / resource / context / lifetime
+→ test evidence
+→ failure / limits
 ```
 
-## 原則
+逐步建立可驗證理解。
 
-- Accuracy audit 是 correctness baseline；pedagogy pass 不得弱化其限制。
-- 第一次出現的專有名詞要定義，並說「不代表什麼」。
-- 先教完整 flow，再讀 source function / register。
-- 每個 API 都寫清 resource、context、observer、lifetime。
-- Test 結果分 static、compile、runtime、stress、fault-injection。
-- QEMU EDU 是 teaching device，不包裝成 production accelerator driver。
-- Source path / symbol 取代固定行號。
-- `pcie-study` 與 `driver-lab` 使用同一組詞：ordering、arrival、completion、correctness、quiesce。
+## Technical baseline
 
-## Review 與合併順序
+Pedagogy 改寫不得撤銷 accuracy audit 的訂正，包括：
 
-1. Audit PR 保持 Draft，完成 CI 與 Linux/QEMU runtime review。
-2. Pedagogy branch 對 audit branch 開獨立 Draft PR。
-3. 先 review technical baseline 有沒有被文字改寫弱化。
-4. 再由初學者視角 review 名詞、段落順序與 examples。
-5. 先合併 `driver-lab` audit PR，再合併 `pcie-study` audit PR。
-6. Pedagogy PR rebase / retarget 到新 main，重跑 CI。
-7. 先合併 `driver-lab` pedagogy PR，再更新 `pcie-study` source link / SHA 並合併。
-8. 最後才重新生成 NotebookLM artifacts。
+- syscall/IRQ entry 不等於 task switch；
+- wakeup 不等於 predicate 成立；
+- `READ_ONCE/WRITE_ONCE` 不等於 general barrier/lock；
+- BAR raw/resource/`__iomem` 分離；
+- normal MMIO ordering、posted arrival、device completion 分離；
+- MSI/MSI-X 是 Memory Write Request；
+- CPU pointer、DMA address、device-local address 分離；
+- coherent/streaming ownership 與 ordering/completion/lifetime 分離；
+- teardown 先 quiesce/synchronize，再 free。
 
-## 後續批次
+## Evidence status
 
-### Batch 1：Lab00～04
+### 已完成
 
-Module lifecycle、debugfs、char device、ioctl/poll/mmap、race/mutex。
+- source/document alignment review；
+- all Lab README teaching structure；
+- canonical docs consolidation；
+- ShellCheck/Markdown/local link/checkpatch；
+- userspace runtime/CLI build；
+- Labs00～07 external-module compile；
+- pedagogy/docs-architecture checks。
 
-### Batch 2：Lab05～07
+### 仍待完成
 
-本次 pilot；完成 MMIO、IRQ、DMA 主線。
+- target Linux runtime：Labs00～04；
+- QEMU EDU runtime：Labs05～07；
+- Lab03/04 concurrency + sanitizer；
+- Lab06 repeated IRQ/teardown；
+- Lab07 timeout/reset/IOMMU/SWIOTLB；
+- real hardware/device-specific validation；
+- generated companion regeneration/review。
 
-### Batch 3：Lab08～09 與 QEMU runbook
+## Canonical reader path
 
-Userspace runtime、stress/fault injection、host/guest/cross-architecture。
+1. [`onboarding/START-HERE.md`](onboarding/START-HERE.md)
+2. Each Lab `README.md`
+3. Current source/test
+4. Needed concept/study-order/runbook
+5. [`reference/debugging.md`](reference/debugging.md) on failure
+6. Companion only as secondary side reading
 
-### Batch 4：Companion regeneration
+## Maintenance rule
 
-只從最終 merged current source 重新產生 `.c.md/.h.md/.sh.md`，人工 review 後再列為 reviewed。
+A new top-level teaching document must answer a distinct reader question. Do not add another roadmap/bridge/checklist if existing canonical docs can absorb the content. New Lab details belong first in that Lab README; cross-lab theory belongs in one concept; operational repetition belongs in a walkthrough/checklist pair only when first-run and repeat-run use cases are genuinely different.
 
-## 驗收
+## Merge order
 
-- Standard、template、manifest、structure CI 存在；
-- Pilot 文件全部使用一致 teaching structure；
-- Source code 未因本輪文字改寫而變動；
-- Current test 能/不能證明的範圍寫清楚；
-- Runtime 尚未完成的項目保留；
-- Draft PR base 為 audit branch，不直接 merge；
-- audit branch 與 main 不被覆蓋。
+Keep this PR based on the audit branch until audit runtime/review is complete. After audit merges, rebase/retarget, rerun all gates, then merge `driver-lab` pedagogy before the companion `pcie-study` pedagogy PR.

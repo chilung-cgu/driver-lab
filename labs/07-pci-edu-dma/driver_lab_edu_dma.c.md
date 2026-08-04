@@ -35,7 +35,7 @@ driver 最後驗資料是否真的搬對
 這份 companion doc 已查過：
 
 - 本檔 source、[`README.md`](README.md)、[`test.sh.md`](test.sh.md)、[`Makefile.md`](Makefile.md)。
-- 05-07 導讀：[`../../docs/onboarding/05-to-07-pci-irq-dma-bridge.md`](../../docs/onboarding/05-to-07-pci-irq-dma-bridge.md)、[`../../docs/guides/linux-guest-05-to-07-walkthrough.md`](../../docs/guides/linux-guest-05-to-07-walkthrough.md)。
+- 05-07 導讀：[`../../docs/onboarding/05-to-07-pci-irq-dma-bridge.md`](../../docs/onboarding/START-HERE.md)、[`../../docs/guides/linux-guest-05-to-07-walkthrough.md`](../../docs/guides/linux-guest-05-to-07-walkthrough.md)。
 - Linux kernel documentation：Dynamic DMA mapping Guide、generic DMA API、PCI MSI/IRQ 相關文件。
 - QEMU 官方 `EDU device` spec。
 

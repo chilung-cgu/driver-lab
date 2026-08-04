@@ -1,0 +1,20 @@
+# Canonical learner-facing documents after the 2026-08 consolidation.
+README.md
+docs/README.md
+docs/PEDAGOGY-PASS-2026-08.md
+docs/TEACHING-QUALITY-STANDARD.md
+docs/onboarding/START-HERE.md
+docs/onboarding/linux-environment.md
+docs/onboarding/kernel-interfaces.md
+docs/concepts/concurrency-primer.md
+docs/concepts/pcie-primer.md
+docs/concepts/accelerator-driver-architecture.md
+docs/guides/lab-04-study-order.md
+docs/guides/lab-05-study-order.md
+docs/guides/qemu-edu-first-pass.md
+docs/guides/linux-guest-05-to-07-walkthrough.md
+docs/guides/linux-guest-05-to-07-checklist.md
+docs/reference/debugging.md
+docs/reference/source-index.md
+docs/reference/companion-docs.md
+docs/reference/accuracy-audit-2026-08.md

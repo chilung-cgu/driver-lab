@@ -257,7 +257,7 @@ done
 |---|---|
 | [`install-git-hooks.sh`](install-git-hooks.sh) | 設定 repo hook 後，commit 前會跑最小保護機制。 |
 | [`check-kernel-env.sh`](check-kernel-env.sh) | 檢查 Linux kernel build tree；影響 checkpatch 與 module build 可用性。 |
-| [`../docs/reference/companion-docs-index.md`](../docs/reference/companion-docs-index.md) | Markdown link check 會驗這類索引連結是否正確。 |
+| [`../docs/reference/companion-docs-index.md`](../docs/reference/companion-docs.md) | Markdown link check 會驗這類索引連結是否正確。 |
 
 ## 常見卡點
 
