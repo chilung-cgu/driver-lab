@@ -224,12 +224,12 @@ int main(int argc, char **argv)
 			goto fail;
 		}
 
-		printf("seq=%u magic=0x%x version=%u event_count=%u "
-		       "event_pending=%u buffer_len=%u buffer=%.*s\n",
+		printf("seq=%u magic=0x%x version=%u event_count=%u",
 			   snapshot.seq, snapshot.magic, snapshot.version,
-			   snapshot.event_count, snapshot.event_pending,
-			   snapshot.buffer_len, (int)snapshot.buffer_len,
-			   snapshot.buffer);
+			   snapshot.event_count);
+		printf(" event_pending=%u buffer_len=%u buffer=%.*s\n",
+			   snapshot.event_pending, snapshot.buffer_len,
+			   (int)snapshot.buffer_len, snapshot.buffer);
 
 		if (dl_runtime_munmap_shared(mapped, map_len) != 0) {
 			perror("dl_runtime_munmap_shared");
