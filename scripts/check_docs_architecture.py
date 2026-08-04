@@ -33,6 +33,7 @@ EXPECTED_CANONICAL = (
     "docs/reference/accuracy-audit-2026-08.md",
     "docs/reference/companion-docs.md",
     "docs/reference/debugging.md",
+    "docs/reference/glossary.md",
     "docs/reference/source-index.md",
 )
 
@@ -123,6 +124,14 @@ REQUIRED_ENTRY_SECTIONS: dict[str, tuple[str, ...]] = {
         "## Authority order",
         "## Reviewed companion 的最低條件",
         "## 目前策略",
+        "## 來源與查證",
+    ),
+    "docs/reference/glossary.md": (
+        "## 先講結論",
+        "## Module / build / logging",
+        "## Execution context / concurrency / lifetime",
+        "## PCIe / BAR / MMIO",
+        "## DMA / IOMMU / queue",
         "## 來源與查證",
     ),
 }
