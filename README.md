@@ -35,6 +35,7 @@ main
 - CI 已覆蓋 shell/Markdown/static style、userspace runtime build、Labs00～07 external-module compile、pedagogy structure 與 docs graph。
 - 真正 `insmod/rmmod`、MMIO、IRQ、DMA、timeout/reset、sanitizer、IOMMU/SWIOTLB 仍需指定 Linux/QEMU guest logs。
 - QEMU EDU 不是 production accelerator；不涵蓋 vendor firmware、PHY/link、完整 AER/PM/hotplug/reset、multi-queue MSI-X、pinned memory 與 security-reviewed UAPI。
+- `migrated` 表示結構/source/static gates 通過，不等於獨立人工 sign-off 或 target runtime verification。
 
 ## 學習路線
 
@@ -71,7 +72,7 @@ Labs00～04 可在合適 Linux host/guest；Labs05～07 需要 Linux PCI hierarc
 (cd labs/00-hello-module && ./test.sh)
 ```
 
-依 [`START-HERE`](docs/onboarding/START-HERE.md) 逐關前進。進 PCI 前先讀 [`PCIe primer`](docs/concepts/pcie-primer.md)。
+依 [`START-HERE`](docs/onboarding/START-HERE.md) 逐關前進。進 PCI 前先讀 [`PCIe primer`](docs/concepts/pcie-primer.md)。遇到陌生術語可查 [`Driver glossary`](docs/reference/glossary.md)。
 
 ## Static/build gates
 
@@ -122,10 +123,11 @@ Runtime report 至少記錄 kernel/QEMU/two-repo SHA、IOMMU/sanitizer state、c
 - [`Concurrency primer`](docs/concepts/concurrency-primer.md)
 - [`PCIe primer`](docs/concepts/pcie-primer.md)
 - [`Accelerator architecture`](docs/concepts/accelerator-driver-architecture.md)
+- [`Driver glossary`](docs/reference/glossary.md)
 - [`Debugging`](docs/reference/debugging.md)
 - [`Companion policy`](docs/reference/companion-docs.md)
 
-重複的 onboarding bridge、roadmap、debugging 與 companion rollout 文件已整合到上述 canonical docs；全 repo local links 由 CI 驗證。
+重複的 onboarding bridge、roadmap、debugging 與 companion rollout 文件已整合到上述 canonical docs；全 repo local links 由 CI 驗證。原 1,300 行 glossary 則濃縮為分層速查，保留查詢價值而不形成第二套主教材。
 
 ## 正確合併順序
 
