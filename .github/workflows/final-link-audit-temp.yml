@@ -1,0 +1,106 @@
+name: final-link-audit-temp
+
+on:
+  push:
+    branches:
+      - review/pedagogy-pass-2026-08
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: review/pedagogy-pass-2026-08
+          fetch-depth: 0
+
+      - name: Add the superseded-document scan to the normal quality command
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('scripts/quality.sh')
+          text = path.read_text(encoding='utf-8')
+
+          function_marker = '''locate_checkpatch() {
+          '''
+          function = '''run_superseded_doc_link_checks() {
+              if ! command -v python3 >/dev/null 2>&1; then
+                  warn "python3 不存在，略過 superseded documentation link 檢查。"
+                  return 0
+              fi
+
+              python3 "$ROOT_DIR/scripts/check_superseded_doc_links.py"
+          }
+
+          locate_checkpatch() {
+          '''
+          if 'run_superseded_doc_link_checks()' not in text:
+              if function_marker not in text:
+                  raise SystemExit('quality.sh function insertion marker not found')
+              text = text.replace(function_marker, function, 1)
+
+          call_marker = '''run_markdown_link_checks
+          run_checkpatch
+          '''
+          call_replacement = '''run_markdown_link_checks
+          run_superseded_doc_link_checks
+          run_checkpatch
+          '''
+          if 'run_superseded_doc_link_checks\nrun_checkpatch' not in text:
+              if call_marker not in text:
+                  raise SystemExit('quality.sh call insertion marker not found')
+              text = text.replace(call_marker, call_replacement, 1)
+
+          path.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Remove the one-shot workflow from the final branch
+        run: git rm -f .github/workflows/final-link-audit-temp.yml
+
+      - name: Install static tools and a buildable kernel headers tree
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck linux-headers-generic
+
+      - name: Run repository documentation and build gates
+        run: |
+          ./scripts/quality.sh .
+          python3 scripts/check_pedagogy_structure.py
+          python3 scripts/check_docs_architecture.py
+          make -C runtime clean all
+
+      - name: Compile Labs 00-07 as external modules
+        shell: bash
+        run: |
+          set -euo pipefail
+          KDIR=$(find /usr/src -maxdepth 1 -type d \
+            -name 'linux-headers-*-generic' | sort -V | tail -n 1)
+          test -n "$KDIR"
+          for lab in \
+            labs/00-hello-module \
+            labs/01-debugfs-logging \
+            labs/02-char-device \
+            labs/03-ioctl-poll-mmap \
+            labs/04-locking-and-races \
+            labs/05-pci-edu-mmio \
+            labs/06-pci-edu-irq \
+            labs/07-pci-edu-dma; do
+            make -C "$lab" KDIR="$KDIR"
+          done
+
+      - run: git diff --check
+
+      - name: Commit the permanent link audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "ci: reject links to consolidated-away documentation"
+          git push origin HEAD:review/pedagogy-pass-2026-08
