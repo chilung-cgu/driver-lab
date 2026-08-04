@@ -21,6 +21,9 @@ jobs:
       - name: Shell syntax, ShellCheck, Markdown links
         run: ./scripts/quality.sh .
 
+      - name: Check beginner teaching structure
+        run: python3 scripts/check_pedagogy_structure.py
+
       - name: Build userspace runtime and CLI
         run: make -C runtime clean all
 
