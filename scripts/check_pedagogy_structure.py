@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check minimum structure for pedagogy-reviewed driver-lab documents.
+"""Check minimum structure for pedagogy-migrated driver-lab documents.
 
 Passing this script proves only that required teaching sections exist. It does
 not prove semantic correctness, successful module runtime, or hardware safety.
@@ -12,6 +12,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = REPO_ROOT / "docs/pedagogy/migrated-docs.txt"
+EXPECTED_DOCUMENTS = 11
 
 REQUIRED_SECTIONS = (
     "## 先講結論",
@@ -98,6 +99,10 @@ def main() -> int:
     errors: list[str] = []
     if not paths:
         errors.append("migration manifest has no paths")
+    if len(paths) != EXPECTED_DOCUMENTS:
+        errors.append(
+            f"expected {EXPECTED_DOCUMENTS} migrated documents, found {len(paths)}"
+        )
     if len(paths) != len(set(paths)):
         errors.append("migration manifest contains duplicate paths")
     if paths != sorted(paths):
