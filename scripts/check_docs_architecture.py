@@ -149,17 +149,18 @@ def main() -> int:
     else:
         paths = load_manifest()
 
-    expected = list(EXPECTED_CANONICAL)
-    if paths != expected:
+    expected_set = set(EXPECTED_CANONICAL)
+    path_set = set(paths)
+    if len(paths) != len(path_set):
+        errors.append("canonical manifest contains duplicate paths")
+    if path_set != expected_set:
         errors.append(
-            "canonical manifest must exactly match the sorted expected set; "
-            f"expected={len(expected)} found={len(paths)}"
+            "canonical manifest must contain exactly the expected path set; "
+            f"expected={len(expected_set)} found={len(path_set)}"
         )
-        missing = sorted(set(expected) - set(paths))
-        extra = sorted(set(paths) - set(expected))
-        for item in missing:
+        for item in sorted(expected_set - path_set):
             errors.append(f"manifest missing canonical path: {item}")
-        for item in extra:
+        for item in sorted(path_set - expected_set):
             errors.append(f"manifest has unexpected path: {item}")
 
     for relative in EXPECTED_CANONICAL:
