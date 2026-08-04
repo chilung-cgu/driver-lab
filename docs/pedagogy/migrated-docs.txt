@@ -1,4 +1,6 @@
-# One repo-relative path per pedagogy-reviewed teaching document.
+# One repo-relative path per pedagogy-migrated teaching document.
+# Migrated means structure/source/static gates passed; it does not claim final
+# independent technical/readability review or target runtime verification.
 docs/concepts/pcie-primer.md
 labs/00-hello-module/README.md
 labs/01-debugfs-logging/README.md
