@@ -8,7 +8,7 @@ permissions:
   contents: write
 
 jobs:
-  rewrite-and-check:
+  consolidate-and-check:
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.ref == 'review/pedagogy-pass-2026-08' &&
@@ -20,19 +20,25 @@ jobs:
           ref: review/pedagogy-pass-2026-08
           fetch-depth: 0
 
-      - name: Rewrite remaining learner-facing Lab READMEs
+      - name: Keep all Lab READMEs on the reviewed structure
         run: python3 scripts/rewrite_remaining_lab_readmes.py --write
+
+      - name: Consolidate overlapping learner-facing documentation
+        run: python3 scripts/consolidate_learning_docs.py
 
       - name: Install static tools and a buildable kernel headers tree
         run: |
           sudo apt-get update
           sudo apt-get install -y shellcheck linux-headers-generic
 
-      - name: Shell syntax, ShellCheck, Markdown links
+      - name: Shell syntax, ShellCheck, Markdown links, kernel-facing checkpatch
         run: ./scripts/quality.sh .
 
-      - name: Check beginner teaching structure
+      - name: Check Lab teaching structure
         run: python3 scripts/check_pedagogy_structure.py
+
+      - name: Check canonical documentation architecture
+        run: python3 scripts/check_docs_architecture.py
 
       - name: Build userspace runtime and CLI
         run: make -C runtime clean all
@@ -61,25 +67,18 @@ jobs:
       - name: Check whitespace
         run: git diff --check
 
-      - name: Commit rewritten Lab READMEs
+      - name: Commit canonical documentation graph
         shell: bash
         run: |
           set -euo pipefail
           if git diff --quiet; then
-            echo "Lab READMEs already rewritten"
+            echo "Documentation already consolidated"
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add labs/00-hello-module/README.md \
-            labs/01-debugfs-logging/README.md \
-            labs/02-char-device/README.md \
-            labs/03-ioctl-poll-mmap/README.md \
-            labs/04-locking-and-races/README.md \
-            labs/08-runtime-library/README.md \
-            labs/09-stress-and-fault-injection/README.md \
-            docs/pedagogy/migrated-docs.txt
-          git commit -m "docs: rewrite remaining Lab READMEs for beginners"
+          git add -A
+          git commit -m "docs: consolidate learner documentation around canonical entries"
           git push origin HEAD:review/pedagogy-pass-2026-08
 
   static-and-build:
@@ -96,11 +95,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y shellcheck linux-headers-generic
 
-      - name: Shell syntax, ShellCheck, Markdown links
+      - name: Shell syntax, ShellCheck, Markdown links, kernel-facing checkpatch
         run: ./scripts/quality.sh .
 
-      - name: Check beginner teaching structure
+      - name: Check Lab teaching structure
         run: python3 scripts/check_pedagogy_structure.py
+
+      - name: Check canonical documentation architecture
+        run: python3 scripts/check_docs_architecture.py
 
       - name: Build userspace runtime and CLI
         run: make -C runtime clean all
