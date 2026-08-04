@@ -9,7 +9,7 @@ START-HERE
 → Lab README
 → concept / study-order guide（需要時）
 → current source + test
-→ debugging/reference（失敗時）
+→ debugging/reference（失敗或查詞時）
 ```
 
 ## 新手入口
@@ -37,6 +37,7 @@ Walkthrough 用於第一次操作；checklist 只在已理解後重跑，不取�
 
 ## Reference
 
+- [`reference/glossary.md`](reference/glossary.md)：精簡、分層、可搜尋的術語速查；不取代主教材。
 - [`reference/debugging.md`](reference/debugging.md)：code reading、common failures、tools、bug diary、regression。
 - [`reference/source-index.md`](reference/source-index.md)：official source entry points。
 - [`reference/companion-docs.md`](reference/companion-docs.md)：generated companion 使用政策。
@@ -56,7 +57,7 @@ Walkthrough 用於第一次操作；checklist 只在已理解後重跑，不取�
 2. Official documentation。
 3. Current source/tests。
 4. Reviewed README/concepts/guides。
-5. Generated companions。
+5. Glossary / generated companions。
 
 Static/compile/smoke/stress/fault/real-hardware evidence 必須分開描述。
 
