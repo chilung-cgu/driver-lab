@@ -58,6 +58,7 @@ static void dl_sync_shared_page_locked(void)
 		seq++;
 
 	WRITE_ONCE(dl_shared->seq, seq + 1U);
+	/* Publish the odd sequence before any snapshot field becomes visible. */
 	smp_wmb();
 
 	WRITE_ONCE(dl_shared->magic, DL_SHARED_MAGIC);
@@ -69,6 +70,7 @@ static void dl_sync_shared_page_locked(void)
 	memset(dl_shared->buffer, 0, sizeof(dl_shared->buffer));
 	memcpy(dl_shared->buffer, dl_buffer, dl_buffer_len);
 
+	/* Publish every snapshot field before the final even sequence. */
 	smp_wmb();
 	WRITE_ONCE(dl_shared->seq, seq + 2U);
 }
