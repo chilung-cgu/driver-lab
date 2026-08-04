@@ -107,7 +107,7 @@ fi
 
 if [ -z "$QEMU_IMAGE" ]; then
     printf 'ERROR: 請設定 QEMU_IMAGE 指向 guest image。\n' >&2
-    printf '例如：QEMU_IMAGE=%s/vm/ubuntu.qcow2 %s\n' '$HOME' "$0" >&2
+    printf '例如：QEMU_IMAGE=%s/vm/ubuntu.qcow2 %s\n' "\$HOME" "$0" >&2
     exit 1
 fi
 
