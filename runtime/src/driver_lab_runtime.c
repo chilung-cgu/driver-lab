@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
+#define _POSIX_C_SOURCE 200809L
+
 #include "driver_lab_runtime.h"
 
 #include <errno.h>
