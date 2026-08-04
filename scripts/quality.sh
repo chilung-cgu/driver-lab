@@ -156,6 +156,15 @@ if errors:
 PY
 }
 
+run_superseded_doc_link_checks() {
+    if ! command -v python3 >/dev/null 2>&1; then
+        warn "python3 不存在，略過 superseded documentation link 檢查。"
+        return 0
+    fi
+
+    python3 "$ROOT_DIR/scripts/check_superseded_doc_links.py"
+}
+
 locate_checkpatch() {
     if [ -n "$KERNEL_TREE" ] && [ -x "$KERNEL_TREE/scripts/checkpatch.pl" ]; then
         printf '%s\n' "$KERNEL_TREE/scripts/checkpatch.pl"
@@ -196,6 +205,7 @@ run_checkpatch() {
 run_shell_syntax_checks
 run_shellcheck
 run_markdown_link_checks
+run_superseded_doc_link_checks
 run_checkpatch
 
 printf 'quality checks completed for %s\n' "$TARGET_DIR"
