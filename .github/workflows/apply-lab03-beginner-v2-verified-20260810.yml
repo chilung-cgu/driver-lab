@@ -1,0 +1,76 @@
+name: apply-lab03-beginner-v2-verified-20260810
+
+on:
+  push:
+    branches:
+      - review/pedagogy-pass-2026-08
+
+permissions:
+  contents: write
+
+concurrency:
+  group: lab03-beginner-v2-20260810
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: review/pedagogy-pass-2026-08
+          fetch-depth: 0
+      - name: Rewrite Lab03 and preserve the branch teaching contract
+        run: |
+          if [ -f scripts/apply_lab03_beginner_v2_20260810.py ]; then
+            python3 scripts/apply_lab03_beginner_v2_20260810.py
+          fi
+          python3 scripts/finalize_lab03_beginner_v2_20260810.py
+      - name: Validate new and existing documentation gates
+        run: |
+          python3 -m py_compile scripts/check_beginner_explanation_quality.py
+          python3 scripts/check_beginner_explanation_quality.py
+          python3 scripts/check_pedagogy_structure.py
+          python3 scripts/check_docs_architecture.py
+          if [ -f scripts/check_docs_links_and_references.py ]; then
+            python3 scripts/check_docs_links_and_references.py
+          fi
+          git diff --check
+      - name: Record verification boundary
+        run: |
+          cat > docs/pedagogy/LAB03-BEGINNER-V2-VERIFICATION-2026-08.md <<EOF
+          # Lab03 beginner v2 verification
+
+          Base branch checkout before the verification commit: \
+          \`$(git rev-parse HEAD)\`
+
+          Verified in GitHub Actions on $(date -u +%Y-%m-%dT%H:%M:%SZ):
+
+          - Lab03 section-level beginner explanation gate passed;
+          - existing pedagogy structure and documentation architecture gates passed;
+          - local reference/link gate passed when present;
+          - \`git diff --check\` passed.
+
+          This verifies document structure and known compressed-summary regressions. It does not prove target-kernel runtime, all weak-memory interleavings, VMA teardown safety, or production readiness.
+          EOF
+      - name: Remove one-time staging files
+        run: |
+          rm -f scripts/apply_lab03_beginner_v2_20260810.py
+          rm -f scripts/finalize_lab03_beginner_v2_20260810.py
+          rm -f .github/workflows/apply-lab03-beginner-v2-20260810.yml
+          rm -f .github/workflows/apply-lab03-beginner-v2-verified-20260810.yml
+      - name: Commit verified Lab03 beginner v2 changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          if git diff --cached --quiet; then
+            echo "No changes"
+            exit 0
+          fi
+          git commit -m "docs: explain Lab03 mmap and synchronization for beginners"
+          git push origin HEAD:review/pedagogy-pass-2026-08
