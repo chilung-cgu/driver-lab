@@ -1,105 +1,93 @@
-# driver-lab
+# driver-lab — 從 kernel module 到 PCIe MMIO / IRQ / DMA
 
-> Linux host-driver learning labs: module lifecycle → debugfs → char-device UAPI → concurrency → PCI MMIO → IRQ → DMA → userspace runtime → stress.
+> 一套可 build、load、觀察、故障排查與反覆驗證的 Linux host-driver labs。概念教材：[`chilung-cgu/pcie-study`](https://github.com/chilung-cgu/pcie-study)。
 
-> [!IMPORTANT]
-> Technical accuracy audit branch: `review/accuracy-audit-2026-08`.
-> Read [`docs/reference/accuracy-audit-2026-08.md`](docs/reference/accuracy-audit-2026-08.md). Current source and reproduced behavior are authoritative; generated/line-by-line `.c.md/.h.md/.sh.md` companions may still describe pre-audit code.
+## 先講結論
 
-## Current integration status
-
-The useful material from the earlier `codex/lab05-study-order` branch has been reviewed and selectively integrated here rather than merged wholesale. In particular:
-
-- [`docs/concepts/pcie-primer.md`](docs/concepts/pcie-primer.md) now distinguishes DMA address from CPU/physical address and separates ordering, posted-write arrival, device completion and payload correctness.
-- [`docs/guides/lab-04-study-order.md`](docs/guides/lab-04-study-order.md) and [`docs/guides/lab-05-study-order.md`](docs/guides/lab-05-study-order.md) preserve the study-order idea with corrected concurrency, hotplug, BAR and MMIO details.
-- [`qemu/arm-host-x86-guest.md`](qemu/arm-host-x86-guest.md) keeps the cross-architecture workflow with corrected TCG/KVM/HVF, image-format, BDF, headers and sync-path caveats.
-
-The original branch remains useful as history/backup until this PR is merged, but it should not be merged separately into `main` afterward.
-
-## What this repository is
-
-A sequence of deliberately small labs. Each lab should answer:
-
-1. Who calls the code path?
-2. Which resources become live, and when?
-3. Which contexts can access state concurrently?
-4. What observable evidence proves the path worked?
-5. How does every partial failure unwind?
-6. How are producers and in-flight users stopped before resources are freed?
-
-This is not a production PCIe driver. QEMU EDU teaches the Linux PCI software model, not real-board signal integrity, LTSSM/equalization, vendor firmware, hotplug, SR-IOV or production reset recovery.
-
-## Authority order
-
-When files disagree:
-
-1. Reproduced behavior on the target kernel and current source.
-2. Current Linux kernel/QEMU official documentation and relevant in-tree drivers.
-3. Current Lab README, reviewed guides and audit documents.
-4. Generated summaries and source companions.
-
-Do not copy a line solely because a companion calls it a rule; identify the API/context/device contract.
-
-## Environment model
+十個 Lab 已使用同一套 beginner-first 結構：
 
 ```text
-Host
-  └─ runs QEMU and owns guest image/network
-
-Linux guest
-  ├─ sees QEMU EDU (1234:11e8)
-  ├─ has build tree matching uname -r
-  ├─ builds/loads Labs05–07
-  └─ runs lspci, dmesg, smoke/stress tests
+結論與驗證狀態
+→ 問題與名詞
+→ 心智模型
+→ resource/data flow
+→ current source
+→ 正反範式
+→ test evidence / debug order
+→ limits / Self-check / sources
 ```
 
-- Labs00–04 can run on a suitable Linux host or guest.
-- Labs05–07 require a Linux PCI hierarchy containing EDU.
-- macOS can be editor/QEMU host but cannot load Linux `.ko` files.
-- Cross-architecture QEMU normally uses TCG; do not assume KVM/HVF accelerates another ISA.
+目前分支：
 
-## Recommended first pass
+```text
+main
+  └─ review/accuracy-audit-2026-08
+       └─ review/pedagogy-pass-2026-08
+```
 
-1. [`docs/onboarding/reading-map.md`](docs/onboarding/reading-map.md)
-2. [`docs/onboarding/learning-dashboard.md`](docs/onboarding/learning-dashboard.md)
-3. [`docs/onboarding/linux-host-setup.md`](docs/onboarding/linux-host-setup.md)
-4. Lab00–03
-5. [`docs/guides/lab-04-study-order.md`](docs/guides/lab-04-study-order.md) → Lab04
-6. [`docs/concepts/pcie-primer.md`](docs/concepts/pcie-primer.md)
-7. [`docs/guides/lab-05-study-order.md`](docs/guides/lab-05-study-order.md) + [`qemu/README.md`](qemu/README.md)
-8. Lab05 → Lab06 → Lab07
-9. Runtime/CLI and Lab09 stress
+- Accuracy audit 修正 source、tests 與高風險技術語意。
+- Pedagogy pass 保留 audit contract，改善全部 Lab README、核心 concepts、導航與 docs 結構。
 
-Read companions after reading source, not instead of source.
+**唯一新手入口：[`docs/onboarding/START-HERE.md`](docs/onboarding/START-HERE.md)**
 
-## Lab matrix
+## 不確定處與驗證狀態
 
-| Lab | Main concept | Current first-pass validation | Important boundary |
+- CI 已覆蓋 shell/Markdown/static style、userspace runtime build、Labs00～07 external-module compile、pedagogy structure 與 docs graph。
+- 真正 `insmod/rmmod`、MMIO、IRQ、DMA、timeout/reset、sanitizer、IOMMU/SWIOTLB 仍需指定 Linux/QEMU guest logs。
+- QEMU EDU 不是 production accelerator；不涵蓋 vendor firmware、PHY/link、完整 AER/PM/hotplug/reset、multi-queue MSI-X、pinned memory 與 security-reviewed UAPI。
+- `migrated` 表示結構/source/static gates 通過，不等於獨立人工 sign-off 或 target runtime verification。
+
+## 學習路線
+
+| Lab | 核心概念 | 第一層 evidence | 重要邊界 |
 |---|---|---|---|
-| 00 | external module lifecycle | init/exit, parameters, logs | failed init must unwind itself; exit is not called |
-| 01 | debugfs, seq_file, dynamic debug | trigger/status/atomic knobs | debugfs is not stable product UAPI; helper/driver access needs shared synchronization |
-| 02 | cdev + read/write | global text-like buffer | each open has its own `f_pos`; not a multi-client queue |
-| 03 | ioctl/poll/blocking read/mmap | read-only sequenced page snapshot | wake only re-evaluates readiness; mutex cannot protect userspace mmap loads |
-| 04 | lost update and mutex | unsafe/safe comparison | timing demo is probabilistic; initialize before worker start and synchronize stop |
-| 05 | PCI match/BAR/MMIO | BAR validation, ident, liveness | request vs map differ; read-back is not device-command completion |
-| 06 | IRQ vector/status/ack | one EDU event with timeout | quiesce/ack and synchronize handler before teardown |
-| 07 | coherent DMA round-trip | truthful 28-bit mask, RAM→EDU→RAM, compare | CPU pointer ≠ DMA address; prove quiesce before free |
-| 08 | userspace runtime/CLI | POSIX wrappers/UAPI packaging | partial I/O, handle copying, ABI/version/lifetime still matter |
-| 09 | stress scaffold | Lab03 reload + parallel workers | not a complete KUnit/kselftest/fault-injection suite |
+| 00 | module lifecycle | init/exit、parameters | failed init 自己 unwind |
+| 01 | debugfs/logging | trigger/status/log | debugfs 非 stable UAPI |
+| 02 | cdev/read-write | `/dev`/sysfs/proc/readback | 不是 multi-client queue |
+| 03 | ioctl/poll/mmap | predicates、read-only snapshot | wake 只要求 recheck |
+| 04 | race/mutex/kthread | unsafe/safe、stop | probabilistic test 非 proof |
+| 05 | PCI/BAR/MMIO | enumeration/bind/liveness | read-back 非任意 command completion |
+| 06 | IRQ | vector/status/ACK/complete | 先停 source 再 sync handler |
+| 07 | coherent DMA | mask/transfers/idle/compare | 未 quiesce 不可 free |
+| 08 | userspace runtime | unit/CLI/device UAPI | partial I/O、handle lifetime |
+| 09 | stress/fault scaffold | reload/parallel oracle | 不是完整 fault framework |
+
+## Host / guest
+
+```text
+macOS or Linux host
+  └─ QEMU + guest image/network/storage
+       └─ Linux guest
+            ├─ matching kernel build tree
+            ├─ QEMU EDU 1234:11e8
+            └─ build/load/test Labs05～07
+```
+
+Labs00～04 可在合適 Linux host/guest；Labs05～07 需要 Linux PCI hierarchy 中的 EDU。Cross-ISA 通常使用 TCG。
+
+## 快速開始
+
+```sh
+./scripts/check-kernel-env.sh
+(cd labs/00-hello-module && ./test.sh)
+```
+
+依 [`START-HERE`](docs/onboarding/START-HERE.md) 逐關前進。進 PCI 前先讀 [`PCIe primer`](docs/concepts/pcie-primer.md)。遇到陌生術語可查 [`Driver glossary`](docs/reference/glossary.md)。
 
 ## Static/build gates
 
 ```sh
 ./scripts/quality.sh .
-./scripts/check-kernel-env.sh
+python3 scripts/check_pedagogy_structure.py
+python3 scripts/check_docs_architecture.py
 make -C runtime clean all
 ```
 
-GitHub Actions on this PR is configured to run shell syntax/ShellCheck, Markdown local-link checks, runtime/CLI build, Labs00–07 external-module compile and whitespace checks. A green compile/static run is necessary but not runtime proof.
+這些是必要 gate，不是 runtime proof。
 
 ## Runtime gates
 
-Labs00–04 on Linux:
+Labs00～04：
 
 ```sh
 for lab in \
@@ -112,11 +100,10 @@ for lab in \
 done
 ```
 
-Labs05–07 inside EDU guest:
+EDU guest：
 
 ```sh
 lspci -Dnn | grep '1234:11e8'
-
 for lab in \
   labs/05-pci-edu-mmio \
   labs/06-pci-edu-irq \
@@ -125,44 +112,27 @@ for lab in \
 done
 ```
 
-Do not describe this PR as runtime-verified until these commands have run on the intended kernel/QEMU setup and logs are attached.
+Runtime report 至少記錄 kernel/QEMU/two-repo SHA、IOMMU/sanitizer state、commands、stdout/stderr/dmesg。
 
-## High-value regression/fault tests
+## Docs architecture
 
-- Lab03: two blocking readers/one message; one consumes, the other remains waiting.
-- Lab03: writable mmap and `mprotect(PROT_WRITE)` rejected.
-- Lab03: concurrent snapshots never accept odd/changing sequence.
-- Lab04: startup does not erase worker updates; use KCSAN/lockdep to supplement probabilistic demo.
-- Lab06: pending source cleared before request; repeated teardown has no late handler.
-- Lab07: timeout/reset failure never frees mapping while device may still access it.
-- All labs: repeated load/unload under lockdep/KASAN where practical.
+- [`Docs index`](docs/README.md)
+- [`START-HERE`](docs/onboarding/START-HERE.md)
+- [`Linux/QEMU environment`](docs/onboarding/linux-environment.md)
+- [`Kernel interfaces`](docs/onboarding/kernel-interfaces.md)
+- [`Concurrency primer`](docs/concepts/concurrency-primer.md)
+- [`PCIe primer`](docs/concepts/pcie-primer.md)
+- [`Accelerator architecture`](docs/concepts/accelerator-driver-architecture.md)
+- [`Driver glossary`](docs/reference/glossary.md)
+- [`Debugging`](docs/reference/debugging.md)
+- [`Companion policy`](docs/reference/companion-docs.md)
 
-See [`labs/09-stress-and-fault-injection/README.md`](labs/09-stress-and-fault-injection/README.md) for current scaffold and gaps.
+重複的 onboarding bridge、roadmap、debugging 與 companion rollout 文件已整合到上述 canonical docs；全 repo local links 由 CI 驗證。原 1,300 行 glossary 則濃縮為分層速查，保留查詢價值而不形成第二套主教材。
 
-## Bug diary evidence
+## 正確合併順序
 
-```text
-kernel/QEMU/repository commit
-kernel config + sanitizer/IOMMU state
-exact command sequence
-expected vs observed
-full dmesg/stdout/stderr
-resource/IRQ state before and after
-hypothesis → experiment → evidence → fix → regression
-```
-
-A single “passed” line is not enough for IRQ/DMA correctness; verify status/ack and payload integrity.
-
-## Direct references
-
-- [`docs/reference/source-index.md`](docs/reference/source-index.md)
-- Linux PCI guide: <https://docs.kernel.org/PCI/pci.html>
-- Device I/O: <https://docs.kernel.org/driver-api/device-io.html>
-- DMA API HOWTO: <https://docs.kernel.org/core-api/dma-api-howto.html>
-- Generic IRQ: <https://docs.kernel.org/core-api/genericirq.html>
-- Lock types: <https://docs.kernel.org/locking/locktypes.html>
-- QEMU EDU: <https://www.qemu.org/docs/master/specs/edu.html>
-
-## Beyond these labs
-
-A production accelerator driver additionally needs device-specific queue/reset state machines, hot-unplug/error recovery, stable/security-reviewed UAPI, pinned-user-memory policy, IOMMU isolation, multi-queue MSI-X/NUMA, PM, comprehensive fault injection and upstream-compatible design/testing.
+1. 完成並合併 `driver-lab` accuracy audit。
+2. `pcie-study` audit 鎖定 immutable merged driver SHA 後合併。
+3. Rebase/retarget 兩個 pedagogy PR 到新 main 並重跑 CI/runtime。
+4. 先合併 `driver-lab` pedagogy，再更新/合併 `pcie-study` pedagogy。
+5. 最後重新生成並人工 review companion/NotebookLM artifacts。

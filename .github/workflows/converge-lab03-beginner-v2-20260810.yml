@@ -1,0 +1,80 @@
+name: converge-lab03-beginner-v2-20260810
+
+on:
+  push:
+    branches:
+      - review/pedagogy-pass-2026-08
+
+permissions:
+  contents: write
+
+concurrency:
+  group: lab03-beginner-v2-converge-20260810
+  cancel-in-progress: false
+
+jobs:
+  converge:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: review/pedagogy-pass-2026-08
+          fetch-depth: 0
+      - name: Let older one-time runs settle and refresh branch
+        run: |
+          sleep 30
+          git fetch origin review/pedagogy-pass-2026-08
+          git reset --hard origin/review/pedagogy-pass-2026-08
+      - name: Apply only when the verification record is absent
+        run: |
+          if [ ! -f docs/pedagogy/LAB03-BEGINNER-V2-VERIFICATION-2026-08.md ]; then
+            python3 scripts/apply_lab03_beginner_v2_20260810.py
+            python3 scripts/finalize_lab03_beginner_v2_20260810.py
+          fi
+      - name: Re-run permanent documentation checks
+        run: |
+          python3 -m py_compile scripts/check_beginner_explanation_quality.py
+          python3 scripts/check_beginner_explanation_quality.py
+          python3 scripts/check_pedagogy_structure.py
+          python3 scripts/check_docs_architecture.py
+          if [ -f scripts/check_docs_links_and_references.py ]; then
+            python3 scripts/check_docs_links_and_references.py
+          fi
+          git diff --check
+      - name: Ensure a verification record exists
+        run: |
+          if [ ! -f docs/pedagogy/LAB03-BEGINNER-V2-VERIFICATION-2026-08.md ]; then
+            cat > docs/pedagogy/LAB03-BEGINNER-V2-VERIFICATION-2026-08.md <<EOF
+          # Lab03 beginner v2 verification
+
+          Verified from refreshed branch checkout \`$(git rev-parse HEAD)\` on $(date -u +%Y-%m-%dT%H:%M:%SZ).
+
+          Passed: Lab03 beginner-explanation gate, existing pedagogy structure and documentation architecture checks, local reference/link check when present, and \`git diff --check\`.
+
+          Boundary: this is document regression evidence, not target-kernel runtime, complete weak-memory proof, VMA teardown proof or production readiness.
+          EOF
+          fi
+      - name: Remove one-time files
+        run: |
+          rm -f scripts/apply_lab03_beginner_v2_20260810.py
+          rm -f scripts/finalize_lab03_beginner_v2_20260810.py
+          rm -f .github/workflows/apply-lab03-beginner-v2-20260810.yml
+          rm -f .github/workflows/apply-lab03-beginner-v2-verified-20260810.yml
+          rm -f .github/workflows/converge-lab03-beginner-v2-20260810.yml
+      - name: Commit and rebase before push
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          if git diff --cached --quiet; then
+            echo "No changes"
+            exit 0
+          fi
+          git commit -m "docs: verify Lab03 beginner-first explanation"
+          git pull --rebase origin review/pedagogy-pass-2026-08
+          python3 scripts/check_beginner_explanation_quality.py
+          git push origin HEAD:review/pedagogy-pass-2026-08

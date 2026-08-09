@@ -32,7 +32,7 @@ inc/race     -> DL_RACE_IOC_INC_COUNTER
 
 - 本檔 source、[`driver_lab_race_uapi.h.md`](driver_lab_race_uapi.h.md)、[`test.sh.md`](test.sh.md)、[`Makefile.md`](Makefile.md)。
 - userspace 施壓工具：[`../../tests/driver_lab_race_cli.c.md`](../../tests/driver_lab_race_cli.c.md)。
-- repo 既有導讀：[`../../docs/concepts/concurrency-primer.md`](../../docs/concepts/concurrency-primer.md)、[`../../docs/guides/lab-04-walkthrough.md`](../../docs/guides/lab-04-walkthrough.md)。
+- repo 既有導讀：[`../../docs/concepts/concurrency-primer.md`](../../docs/concepts/concurrency-primer.md)、[`../../docs/guides/lab-04-walkthrough.md`](../../docs/guides/lab-04-study-order.md)。
 - Linux kernel documentation：mutex/lock types、kthread、ioctl、READ_ONCE/WRITE_ONCE、device infrastructure。
 
 這裡不把 spinlock、atomic、completion、waitqueue、KCSAN、lockdep 全部展開。Lab04 source 目前主要實作的是 mutex、kthread、ioctl ABI 與可觀測 lost update。

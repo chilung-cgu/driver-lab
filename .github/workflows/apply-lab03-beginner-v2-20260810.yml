@@ -1,0 +1,51 @@
+name: apply-lab03-beginner-v2-20260810
+
+on:
+  push:
+    branches:
+      - review/pedagogy-pass-2026-08
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: review/pedagogy-pass-2026-08
+          fetch-depth: 0
+      - name: Rewrite Lab03 for beginner-first reading
+        run: python3 scripts/apply_lab03_beginner_v2_20260810.py
+      - name: Validate checker syntax and content
+        run: |
+          python3 -m py_compile scripts/check_beginner_explanation_quality.py
+          python3 scripts/check_beginner_explanation_quality.py
+      - name: Validate existing documentation contracts
+        run: |
+          python3 scripts/check_pedagogy_structure.py
+          python3 scripts/check_docs_architecture.py
+          if [ -f scripts/check_docs_links_and_references.py ]; then
+            python3 scripts/check_docs_links_and_references.py
+          fi
+          git diff --check
+      - name: Remove one-time apply files
+        run: |
+          rm -f scripts/apply_lab03_beginner_v2_20260810.py
+          rm -f .github/workflows/apply-lab03-beginner-v2-20260810.yml
+      - name: Commit verified changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          if git diff --cached --quiet; then
+            echo "No changes"
+            exit 0
+          fi
+          git commit -m "docs: explain Lab03 mmap and synchronization for beginners"
+          git push origin HEAD:review/pedagogy-pass-2026-08

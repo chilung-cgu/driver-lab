@@ -28,7 +28,7 @@ Lab05 不建立 `/dev/driver_lab_*`，也不處理 IRQ/DMA。它只驗證三件�
 這份 companion doc 已查過：
 
 - 本檔 source、[`README.md`](README.md)、[`test.sh.md`](test.sh.md)、[`Makefile.md`](Makefile.md)。
-- repo 既有導讀：[`../../docs/concepts/pcie-primer.md`](../../docs/concepts/pcie-primer.md)、[`../../docs/onboarding/05-to-07-pci-irq-dma-bridge.md`](../../docs/onboarding/05-to-07-pci-irq-dma-bridge.md)、[`../../docs/guides/qemu-edu-first-pass.md`](../../docs/guides/qemu-edu-first-pass.md)。
+- repo 既有導讀：[`../../docs/concepts/pcie-primer.md`](../../docs/concepts/pcie-primer.md)、[`../../docs/onboarding/05-to-07-pci-irq-dma-bridge.md`](../../docs/onboarding/START-HERE.md)、[`../../docs/guides/qemu-edu-first-pass.md`](../../docs/guides/qemu-edu-first-pass.md)。
 - Linux kernel documentation：PCI driver flow、PCI support library、device I/O accessor、kbuild external modules。
 - QEMU 官方 `EDU device` spec。
 
