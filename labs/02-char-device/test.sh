@@ -17,9 +17,11 @@ MESSAGE='hello-char-device'
 TMP_DIR=$(mktemp -d)
 READBACK_FILE="$TMP_DIR/readback"
 EXPECTED_FILE="$TMP_DIR/expected"
+loaded_by_test=0
 
 cleanup() {
-	if lsmod | grep -q "^${MODULE_NAME} "; then
+	if [ "$loaded_by_test" -eq 1 ] && \
+	   lsmod | grep -q "^${MODULE_NAME} "; then
 		$SUDO rmmod "$MODULE_NAME" || true
 	fi
 	rm -rf "$TMP_DIR"
@@ -35,13 +37,15 @@ FS_SUDO=$SUDO
 
 make
 
-# 如果前一次測試留下同名 module，先卸載，避免 /dev 節點或 major/minor 狀態混亂。
 if lsmod | grep -q "^${MODULE_NAME} "; then
-    $SUDO rmmod "$MODULE_NAME"
+    printf 'ERROR: %s 已在載入；test 不會卸載非本次載入的 module。\n' \
+        "$MODULE_NAME" >&2
+    exit 1
 fi
 
 # 寫入固定訊息，再讀回檔案，比對 read/write 路徑是否一致。
 $SUDO insmod ./driver_lab_char.ko
+loaded_by_test=1
 fs_expect_char_device /dev/driver_lab_char0 \
 	/sys/class/driver_lab_char/driver_lab_char0 \
 	driver_lab_char
@@ -51,6 +55,7 @@ printf '%s' "$MESSAGE" >"$EXPECTED_FILE"
 diff -u "$EXPECTED_FILE" "$READBACK_FILE"
 $SUDO dmesg | tail -n 50 | grep 'driver_lab_char'
 $SUDO rmmod "$MODULE_NAME"
+loaded_by_test=0
 fs_expect_absent /dev/driver_lab_char0 "device node"
 fs_expect_absent /sys/class/driver_lab_char/driver_lab_char0 "sysfs class device"
 make clean

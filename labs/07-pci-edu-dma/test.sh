@@ -81,7 +81,7 @@ grep -q 'edu-to-ram transfer finished' "$DMESG_LOG"
 grep -q 'round-trip compare passed' "$DMESG_LOG"
 grep -q 'device removed' "$DMESG_LOG"
 
-if grep -Eq 'BUG:|WARNING:|KASAN:|KCSAN:|Oops:|use-after-free|DMA quiesce is unproven' \
+if grep -Eq 'BUG:|WARNING:|KASAN:|KCSAN:|Oops:|use-after-free|cannot prove DMA quiescence|retaining coherent mapping|coherent allocation intentionally retained' \
     "$DMESG_LOG"; then
     printf 'ERROR: kernel warning/sanitizer/quiesce failure in this test run.\n' >&2
     exit 1

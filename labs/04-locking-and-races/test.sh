@@ -11,6 +11,7 @@ fi
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
 ROOT_DIR=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
 CLI=$(mktemp)
+RAW_IOCTL=$(mktemp)
 MODULE_NAME=driver_lab_race
 DEVICE=/dev/driver_lab_race0
 SUDO=
@@ -23,7 +24,7 @@ cleanup() {
        lsmod | grep -q "^${MODULE_NAME} "; then
         $SUDO rmmod "$MODULE_NAME" || true
     fi
-    rm -f "$UNSAFE_LOG" "$SAFE_LOG" "$CLI"
+    rm -f "$UNSAFE_LOG" "$SAFE_LOG" "$CLI" "$RAW_IOCTL"
 }
 
 trap cleanup EXIT INT TERM
@@ -44,6 +45,8 @@ cd "$SCRIPT_DIR"
 make
 cc -Wall -Wextra -Werror -std=c11 -pthread -o "$CLI" \
     "$ROOT_DIR/tests/driver_lab_race_cli.c"
+cc -Wall -Wextra -Werror -std=c11 -o "$RAW_IOCTL" \
+    "$ROOT_DIR/tests/driver_lab_race_raw_ioctl.c"
 
 $SUDO insmod "./${MODULE_NAME}.ko"
 loaded_by_test=1
@@ -93,11 +96,8 @@ if [ "$safe_observed" -lt "$safe_expected" ]; then
     exit 1
 fi
 
-# Invalid mode values must be rejected instead of silently becoming true.
-if $SUDO "$CLI" "$DEVICE" safe-mode 2 >/dev/null 2>&1; then
-    printf 'ERROR: invalid safe-mode value unexpectedly succeeded.\n' >&2
-    exit 1
-fi
+# The raw probe bypasses the CLI's 0|1 parser and verifies kernel-side EINVAL.
+$SUDO "$RAW_IOCTL" "$DEVICE"
 
 $SUDO rmmod "$MODULE_NAME"
 loaded_by_test=0

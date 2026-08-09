@@ -28,7 +28,7 @@ jobs:
         run: python3 scripts/check_docs_architecture.py
 
       - name: Build userspace runtime and CLI
-        run: make -C runtime clean all
+        run: make -C runtime clean all test
 
       - name: Compile Labs 00-07 as external modules
         shell: bash

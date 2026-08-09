@@ -11,9 +11,11 @@ fi
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
 MODULE_NAME=driver_lab_hello
 SUDO=
+loaded_by_test=0
 
 cleanup() {
-    if lsmod | grep -q "^${MODULE_NAME} "; then
+    if [ "$loaded_by_test" -eq 1 ] && \
+       lsmod | grep -q "^${MODULE_NAME} "; then
         $SUDO rmmod "$MODULE_NAME" || true
     fi
 }
@@ -28,15 +30,18 @@ fi
 
 make
 
-# 如果前一次測試留下同名 module，先卸載，避免 insmod 失敗。
 if lsmod | grep -q "^${MODULE_NAME} "; then
-    $SUDO rmmod "$MODULE_NAME"
+    printf 'ERROR: %s 已在載入；test 不會卸載非本次載入的 module。\n' \
+        "$MODULE_NAME" >&2
+    exit 1
 fi
 
 # 載入 module 並傳入 module parameters，確認 dmesg 內有本 module log。
 $SUDO insmod ./driver_lab_hello.ko who=smoke-test repeat=2
+loaded_by_test=1
 $SUDO dmesg | tail -n 30 | grep 'driver_lab_hello'
 $SUDO rmmod "$MODULE_NAME"
+loaded_by_test=0
 make clean
 
 printf '00-hello-module smoke test passed.\n'

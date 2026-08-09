@@ -17,6 +17,7 @@ pid0=
 pid1=
 pid2=
 pid3=
+loaded_by_test=0
 
 if [ "$(id -u)" -ne 0 ]; then
     SUDO=sudo
@@ -38,7 +39,8 @@ cleanup() {
     stop_pid "$pid2"
     stop_pid "$pid3"
 
-    if lsmod | grep -q "^${MODULE_NAME} "; then
+    if [ "$loaded_by_test" -eq 1 ] && \
+       lsmod | grep -q "^${MODULE_NAME} "; then
         $SUDO rmmod "$MODULE_NAME" || true
     fi
     make -C "$LAB_DIR" clean >/dev/null 2>&1 || true
@@ -57,6 +59,7 @@ if lsmod | grep -q "^${MODULE_NAME} "; then
 fi
 
 $SUDO insmod "$LAB_DIR/${MODULE_NAME}.ko"
+loaded_by_test=1
 fs_expect_char_device "$DEVICE" \
     /sys/class/driver_lab_ctl/driver_lab_ctl0 \
     driver_lab_ctl
@@ -119,6 +122,7 @@ if [ "$status0" -ne 0 ] || [ "$status1" -ne 0 ] || \
 fi
 
 $SUDO rmmod "$MODULE_NAME"
+loaded_by_test=0
 fs_expect_absent "$DEVICE" "device node"
 fs_expect_absent /sys/class/driver_lab_ctl/driver_lab_ctl0 "sysfs class device"
 printf 'stress-03-parallel passed.\n'
