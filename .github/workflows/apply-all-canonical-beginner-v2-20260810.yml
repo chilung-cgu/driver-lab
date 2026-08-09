@@ -1,0 +1,79 @@
+name: apply-all-canonical-beginner-v2-20260810
+
+on:
+  push:
+    branches:
+      - review/pedagogy-pass-2026-08
+
+permissions:
+  contents: write
+
+concurrency:
+  group: all-canonical-beginner-v2-20260810
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: review/pedagogy-pass-2026-08
+          fetch-depth: 0
+      - name: Refresh to the newest branch state
+        run: |
+          sleep 20
+          git fetch origin review/pedagogy-pass-2026-08
+          git reset --hard origin/review/pedagogy-pass-2026-08
+      - name: Apply topic-specific guides and high-risk-section expansion
+        run: python3 scripts/enrich_all_learner_docs_beginner_v2_20260810.py
+      - name: Validate all new and existing documentation contracts
+        run: |
+          python3 -m py_compile scripts/check_beginner_explanation_quality_all.py
+          python3 scripts/check_beginner_explanation_quality.py
+          python3 scripts/check_beginner_explanation_quality_all.py
+          python3 scripts/check_pedagogy_structure.py
+          python3 scripts/check_docs_architecture.py
+          if [ -f scripts/check_docs_links_and_references.py ]; then
+            python3 scripts/check_docs_links_and_references.py
+          fi
+          git diff --check
+      - name: Record clean-checkout verification scope
+        run: |
+          cat > docs/pedagogy/BEGINNER-V2-ALL-DOCS-VERIFICATION-2026-08.md <<EOF
+          # Beginner v2 all-canonical-doc verification
+
+          Base branch checkout before this verification commit: \
+          \`$(git rev-parse HEAD)\`
+
+          Verified in GitHub Actions on $(date -u +%Y-%m-%dT%H:%M:%SZ):
+
+          - v2 manifest contains 11 sorted unique canonical learner documents;
+          - every canonical document contains a unique topic-specific beginner guide;
+          - short/list-heavy subsection regression gate passed across all 11 documents;
+          - existing pedagogy structure, documentation architecture and local-reference gates passed;
+          - \`git diff --check\` passed.
+
+          This is document regression evidence. It does not prove target-kernel runtime, all weak-memory interleavings, VMA teardown safety, real hardware, or production readiness.
+          EOF
+      - name: Remove one-time staging files
+        run: |
+          rm -f scripts/enrich_all_learner_docs_beginner_v2_20260810.py
+          rm -f .github/workflows/apply-all-canonical-beginner-v2-20260810.yml
+      - name: Commit, rebase, recheck, and push
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          if git diff --cached --quiet; then
+            echo "No changes"
+            exit 0
+          fi
+          git commit -m "docs: expand beginner explanations across canonical learning docs"
+          git pull --rebase origin review/pedagogy-pass-2026-08
+          python3 scripts/check_beginner_explanation_quality_all.py
+          git push origin HEAD:review/pedagogy-pass-2026-08
