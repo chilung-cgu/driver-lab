@@ -18,6 +18,7 @@
 #define DL_EDU_IDENT_REG 0x00
 #define DL_EDU_IDENT_SIGNATURE_MASK 0x0000ffffU
 #define DL_EDU_IDENT_SIGNATURE 0x000000edU
+#define DL_EDU_FACTORIAL_STATUS_REG 0x20
 #define DL_EDU_IRQ_STATUS_REG 0x24
 #define DL_EDU_IRQ_ACK_REG 0x64
 #define DL_EDU_DMA_SRC_REG 0x80
@@ -27,7 +28,12 @@
 #define DL_EDU_DEVICE_RAM_OFFSET 0x00040000ULL
 #define DL_EDU_DEVICE_RAM_BYTES 4096U
 #define DL_EDU_DMA_ADDRESS_BITS 28U
+#define DL_EDU_FACTORIAL_IRQ_MASK 0x00000001U
+#define DL_EDU_LAB06_TEST_IRQ_MASK 0x00000002U
 #define DL_EDU_DMA_IRQ_MASK 0x00000100U
+#define DL_EDU_KNOWN_IRQ_MASK \
+	(DL_EDU_FACTORIAL_IRQ_MASK | DL_EDU_LAB06_TEST_IRQ_MASK | \
+	 DL_EDU_DMA_IRQ_MASK)
 #define DL_EDU_DMA_CMD_START 0x01U
 #define DL_EDU_DMA_CMD_FROM_DEVICE 0x02U
 #define DL_EDU_DMA_CMD_IRQ 0x04U
@@ -44,6 +50,7 @@ struct dl_edu_dma_dev {
 	unsigned long irq_flags;
 	bool irq_registered;
 	bool bus_master_enabled;
+	bool legacy_intx_enabled;
 	bool dma_in_flight;
 	bool dma_mapping_safe_to_free;
 	struct completion irq_done;
@@ -58,20 +65,28 @@ struct dl_edu_dma_dev {
 static irqreturn_t dl_edu_dma_handler(int irq, void *opaque)
 {
 	struct dl_edu_dma_dev *dl = opaque;
-	u32 handled;
+	u32 pending;
 	u32 status;
 
 	status = ioread32(dl->bar0 + DL_EDU_IRQ_STATUS_REG);
-	handled = status & DL_EDU_DMA_IRQ_MASK;
-	if (!handled)
+	if (status == ~0U)
 		return IRQ_NONE;
+	pending = status & DL_EDU_KNOWN_IRQ_MASK;
+	if (!pending)
+		return IRQ_NONE;
+
+	iowrite32(pending, dl->bar0 + DL_EDU_IRQ_ACK_REG);
+	/* Deassert legacy INTx / complete the posted acknowledge before return. */
+	(void)ioread32(dl->bar0 + DL_EDU_IRQ_STATUS_REG);
+	if (pending & ~DL_EDU_DMA_IRQ_MASK)
+		dev_warn_ratelimited(&dl->pdev->dev,
+			"acknowledged unexpected EDU IRQ status=0x%08x\n",
+			status);
+	if (!(pending & DL_EDU_DMA_IRQ_MASK))
+		return IRQ_HANDLED;
 
 	dl->last_irq_status = status;
 	dl->irq_count++;
-	/* Do not discard an unrelated factorial IRQ bit. */
-	iowrite32(handled, dl->bar0 + DL_EDU_IRQ_ACK_REG);
-	/* Deassert legacy INTx / complete the posted acknowledge before return. */
-	(void)ioread32(dl->bar0 + DL_EDU_IRQ_STATUS_REG);
 	complete(&dl->irq_done);
 	dev_dbg_ratelimited(&dl->pdev->dev,
 				"dma irq status=0x%08x acknowledged\n", status);
@@ -80,12 +95,22 @@ static irqreturn_t dl_edu_dma_handler(int irq, void *opaque)
 
 static void dl_edu_dma_ack_pending(struct dl_edu_dma_dev *dl)
 {
+	u32 pending;
 	u32 status;
 
 	status = ioread32(dl->bar0 + DL_EDU_IRQ_STATUS_REG);
-	if (status && status != ~0U)
-		iowrite32(status, dl->bar0 + DL_EDU_IRQ_ACK_REG);
+	if (status == ~0U)
+		return;
+	pending = status & DL_EDU_KNOWN_IRQ_MASK;
+	if (pending)
+		iowrite32(pending, dl->bar0 + DL_EDU_IRQ_ACK_REG);
 	(void)ioread32(dl->bar0 + DL_EDU_IRQ_STATUS_REG);
+}
+
+static void dl_edu_dma_disable_factorial(struct dl_edu_dma_dev *dl)
+{
+	iowrite32(0, dl->bar0 + DL_EDU_FACTORIAL_STATUS_REG);
+	(void)ioread32(dl->bar0 + DL_EDU_FACTORIAL_STATUS_REG);
 }
 
 static int dl_edu_dma_wait_for_irq(struct dl_edu_dma_dev *dl,
@@ -200,6 +225,16 @@ static void dl_edu_dma_quiesce(struct dl_edu_dma_dev *dl)
 	if (!dl)
 		return;
 
+	if (dl->legacy_intx_enabled) {
+		pci_intx(dl->pdev, 0);
+		dl->legacy_intx_enabled = false;
+	}
+
+	if (dl->bar0) {
+		dl_edu_dma_disable_factorial(dl);
+		dl_edu_dma_ack_pending(dl);
+	}
+
 	if (dl->bus_master_enabled) {
 		pci_clear_master(dl->pdev);
 		dl->bus_master_enabled = false;
@@ -244,6 +279,13 @@ static void dl_edu_dma_quiesce(struct dl_edu_dma_dev *dl)
 	dl->dma_mapping_safe_to_free = safe_to_free;
 }
 
+static void dl_edu_dma_free_irq_vectors(struct dl_edu_dma_dev *dl)
+{
+	pci_free_irq_vectors(dl->pdev);
+	if (!dl->dma_mapping_safe_to_free)
+		pci_intx(dl->pdev, 0);
+}
+
 static void dl_edu_dma_free_buffer(struct dl_edu_dma_dev *dl)
 {
 	if (!dl || !dl->dma_buf)
@@ -283,6 +325,8 @@ static int dl_edu_dma_probe(struct pci_dev *pdev,
 	if (ret)
 		return dev_err_probe(&pdev->dev, ret,
 						 "pci_enable_device failed\n");
+	pci_clear_master(pdev);
+	pci_intx(pdev, 0);
 
 	if (!(pci_resource_flags(pdev, DL_EDU_BAR_INDEX) & IORESOURCE_MEM)) {
 		ret = -ENODEV;
@@ -317,6 +361,14 @@ static int dl_edu_dma_probe(struct pci_dev *pdev,
 		ret = -ENODEV;
 		goto err_iounmap;
 	}
+
+	dl_edu_dma_disable_factorial(dl);
+	ret = dl_edu_dma_wait_for_cmd_clear(dl, "probe takeover");
+	if (ret)
+		goto err_iounmap;
+	dev_info(&pdev->dev,
+		 "probe takeover confirmed DMA command idle with BME disabled\n");
+	dl_edu_dma_ack_pending(dl);
 
 	ret = dma_set_mask_and_coherent(&pdev->dev,
 						DMA_BIT_MASK(DL_EDU_DMA_ADDRESS_BITS));
@@ -362,12 +414,17 @@ static int dl_edu_dma_probe(struct pci_dev *pdev,
 	dl->irq_flags = (pdev->msi_enabled || pdev->msix_enabled) ?
 				0 : IRQF_SHARED;
 
+	dl_edu_dma_disable_factorial(dl);
 	dl_edu_dma_ack_pending(dl);
 	ret = request_irq(dl->irq_vector, dl_edu_dma_handler, dl->irq_flags,
 				  KBUILD_MODNAME, dl);
 	if (ret)
 		goto err_free_vectors;
 	dl->irq_registered = true;
+	if (!(pdev->msi_enabled || pdev->msix_enabled)) {
+		pci_intx(pdev, 1);
+		dl->legacy_intx_enabled = true;
+	}
 
 	/* DMA and MSI are device-originated memory transactions; enable BME last. */
 	pci_set_master(pdev);
@@ -402,7 +459,7 @@ static int dl_edu_dma_probe(struct pci_dev *pdev,
 err_quiesce:
 	dl_edu_dma_quiesce(dl);
 err_free_vectors:
-	pci_free_irq_vectors(pdev);
+	dl_edu_dma_free_irq_vectors(dl);
 err_free_dma:
 	dl_edu_dma_free_buffer(dl);
 err_iounmap:
@@ -419,7 +476,7 @@ static void dl_edu_dma_remove(struct pci_dev *pdev)
 	struct dl_edu_dma_dev *dl = pci_get_drvdata(pdev);
 
 	dl_edu_dma_quiesce(dl);
-	pci_free_irq_vectors(pdev);
+	dl_edu_dma_free_irq_vectors(dl);
 	dl_edu_dma_free_buffer(dl);
 	if (dl && dl->bar0)
 		pci_iounmap(pdev, dl->bar0);

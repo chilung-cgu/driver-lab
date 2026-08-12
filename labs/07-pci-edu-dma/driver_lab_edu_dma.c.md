@@ -230,18 +230,26 @@ struct dl_edu_dma_dev {
 static irqreturn_t dl_edu_dma_handler(int irq, void *opaque)
 {
 	struct dl_edu_dma_dev *dl = opaque;
+	u32 pending;
 	u32 status;
 
 	status = ioread32(dl->bar0 + DL_EDU_IRQ_STATUS_REG);
-	if (!(status & DL_EDU_DMA_IRQ_MASK))
+	if (status == ~0U)
 		return IRQ_NONE;
+	pending = status & DL_EDU_KNOWN_IRQ_MASK;
+	if (!pending)
+		return IRQ_NONE;
+
+	iowrite32(pending, dl->bar0 + DL_EDU_IRQ_ACK_REG);
+	(void)ioread32(dl->bar0 + DL_EDU_IRQ_STATUS_REG);
+	if (pending & ~DL_EDU_DMA_IRQ_MASK)
+		dev_warn_ratelimited(...);
+	if (!(pending & DL_EDU_DMA_IRQ_MASK))
+		return IRQ_HANDLED;
 
 	dl->last_irq_status = status;
 	dl->irq_count++;
-	iowrite32(status, dl->bar0 + DL_EDU_IRQ_ACK_REG);
 	complete(&dl->irq_done);
-	dev_info(&dl->pdev->dev, "dma irq status=0x%08x acknowledged\n", status);
-
 	return IRQ_HANDLED;
 }
 ```
@@ -249,18 +257,20 @@ static irqreturn_t dl_edu_dma_handler(int irq, void *opaque)
 這和 Lab06 handler 形狀相同，但 event bit 不同：
 
 ```text
-Lab06 self-test IRQ: 0x00000001
+Lab06 self-test IRQ: 0x00000002
 Lab07 DMA complete IRQ: 0x00000100
 ```
 
 handler 做四件事：
 
 1. 讀 EDU interrupt status register `0x24`。
-2. 確認 status 裡有 `DL_EDU_DMA_IRQ_MASK`。
-3. 寫 acknowledge register `0x64` 清掉 pending bit。
-4. `complete(&dl->irq_done)` 喚醒等待 DMA 完成的 probe path。
+2. 遮罩出 factorial `0x1`、Lab06 self-test `0x2` 與 DMA `0x100` 三個已知來源。
+3. ACK 所有已知 pending bit 並 read-back，避免 legacy INTx 持續 asserted。
+4. 只有 status 含 `DL_EDU_DMA_IRQ_MASK` 時才 `complete()`；其他已知來源一律記
+   ratelimited warning，避免 factorial 或 Lab06 self-test IRQ 假冒 DMA completion。
 
-如果 status 沒有 DMA bit，回 `IRQ_NONE`。這保留 shared IRQ / 非本事件的正確處理模型。
+只有完全沒有 EDU 已知 bit 時才回 `IRQ_NONE`；unexpected known source
+仍由本 handler ACK 並回 `IRQ_HANDLED`。
 
 ## 四、等待 DMA：IRQ 和 command bit 是兩個觀測點
 

@@ -3,6 +3,7 @@
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
 #include <linux/completion.h>
+#include <linux/delay.h>
 #include <linux/interrupt.h>
 #include <linux/io.h>
 #include <linux/jiffies.h>
@@ -15,12 +16,19 @@
 #define DL_EDU_IDENT_REG 0x00
 #define DL_EDU_IDENT_SIGNATURE_MASK 0x0000ffffU
 #define DL_EDU_IDENT_SIGNATURE 0x000000edU
+#define DL_EDU_FACTORIAL_STATUS_REG 0x20
 #define DL_EDU_IRQ_STATUS_REG 0x24
 #define DL_EDU_IRQ_RAISE_REG 0x60
 #define DL_EDU_IRQ_ACK_REG 0x64
-#define DL_EDU_TEST_IRQ_MASK 0x00000001U
+#define DL_EDU_DMA_CMD_REG 0x98
+#define DL_EDU_FACTORIAL_IRQ_MASK 0x00000001U
+#define DL_EDU_TEST_IRQ_MASK 0x00000002U
+#define DL_EDU_DMA_IRQ_MASK 0x00000100U
+#define DL_EDU_KNOWN_IRQ_MASK \
+	(DL_EDU_FACTORIAL_IRQ_MASK | DL_EDU_TEST_IRQ_MASK | DL_EDU_DMA_IRQ_MASK)
+#define DL_EDU_DMA_CMD_RUN 0x01U
 #define DL_EDU_IRQ_TIMEOUT_MS 1000
-#define DL_EDU_IRQ_MMIO_MIN_LEN (DL_EDU_IRQ_ACK_REG + sizeof(u32))
+#define DL_EDU_IRQ_MMIO_MIN_LEN (DL_EDU_DMA_CMD_REG + sizeof(u32))
 
 struct dl_edu_irq_dev {
 	struct pci_dev *pdev;
@@ -30,6 +38,7 @@ struct dl_edu_irq_dev {
 	unsigned long irq_flags;
 	bool irq_registered;
 	bool bus_master_enabled;
+	bool legacy_intx_enabled;
 	struct completion irq_done;
 	u32 last_irq_status;
 	u32 irq_count;
@@ -37,32 +46,69 @@ struct dl_edu_irq_dev {
 
 static void dl_edu_irq_ack_pending(struct dl_edu_irq_dev *dl)
 {
+	u32 pending;
 	u32 status;
 
 	status = ioread32(dl->bar0 + DL_EDU_IRQ_STATUS_REG);
-	if (status && status != ~0U)
-		iowrite32(status, dl->bar0 + DL_EDU_IRQ_ACK_REG);
+	if (status == ~0U)
+		return;
+	pending = status & DL_EDU_KNOWN_IRQ_MASK;
+	if (pending)
+		iowrite32(pending, dl->bar0 + DL_EDU_IRQ_ACK_REG);
 
 	/* Complete the posted acknowledge before changing IRQ ownership/state. */
 	(void)ioread32(dl->bar0 + DL_EDU_IRQ_STATUS_REG);
 }
 
+static void dl_edu_irq_disable_factorial(struct dl_edu_irq_dev *dl)
+{
+	iowrite32(0, dl->bar0 + DL_EDU_FACTORIAL_STATUS_REG);
+	(void)ioread32(dl->bar0 + DL_EDU_FACTORIAL_STATUS_REG);
+}
+
+static int dl_edu_irq_wait_for_dma_idle(struct dl_edu_irq_dev *dl)
+{
+	unsigned long deadline;
+
+	deadline = jiffies + msecs_to_jiffies(DL_EDU_IRQ_TIMEOUT_MS);
+	while (time_before(jiffies, deadline)) {
+		if (!(ioread32(dl->bar0 + DL_EDU_DMA_CMD_REG) &
+		      DL_EDU_DMA_CMD_RUN))
+			return 0;
+		usleep_range(1000, 2000);
+	}
+
+	dev_err(&dl->pdev->dev,
+		"probe takeover found DMA command still running after %u ms\n",
+		DL_EDU_IRQ_TIMEOUT_MS);
+	return -ETIMEDOUT;
+}
+
 static irqreturn_t dl_edu_irq_handler(int irq, void *opaque)
 {
 	struct dl_edu_irq_dev *dl = opaque;
-	u32 handled;
+	u32 pending;
 	u32 status;
 
 	status = ioread32(dl->bar0 + DL_EDU_IRQ_STATUS_REG);
-	handled = status & DL_EDU_TEST_IRQ_MASK;
-	if (!handled)
+	if (status == ~0U)
 		return IRQ_NONE;
+	pending = status & DL_EDU_KNOWN_IRQ_MASK;
+	if (!pending)
+		return IRQ_NONE;
+
+	iowrite32(pending, dl->bar0 + DL_EDU_IRQ_ACK_REG);
+	/* Deassert legacy INTx / complete the posted acknowledge before return. */
+	(void)ioread32(dl->bar0 + DL_EDU_IRQ_STATUS_REG);
+	if (pending & ~DL_EDU_TEST_IRQ_MASK)
+		dev_warn_ratelimited(&dl->pdev->dev,
+			"acknowledged unexpected EDU IRQ status=0x%08x\n",
+			status);
+	if (!(pending & DL_EDU_TEST_IRQ_MASK))
+		return IRQ_HANDLED;
 
 	dl->last_irq_status = status;
 	dl->irq_count++;
-	iowrite32(handled, dl->bar0 + DL_EDU_IRQ_ACK_REG);
-	/* Deassert legacy INTx / complete the posted acknowledge before return. */
-	(void)ioread32(dl->bar0 + DL_EDU_IRQ_STATUS_REG);
 	complete(&dl->irq_done);
 	dev_dbg_ratelimited(&dl->pdev->dev,
 				"irq status=0x%08x acknowledged\n", status);
@@ -74,9 +120,16 @@ static void dl_edu_irq_quiesce(struct dl_edu_irq_dev *dl)
 	if (!dl)
 		return;
 
-	/* Clear the device source before dismantling the CPU-side handler. */
-	if (dl->bar0)
+	if (dl->legacy_intx_enabled) {
+		pci_intx(dl->pdev, 0);
+		dl->legacy_intx_enabled = false;
+	}
+
+	/* Disable the independent producer before clearing pending sources. */
+	if (dl->bar0) {
+		dl_edu_irq_disable_factorial(dl);
 		dl_edu_irq_ack_pending(dl);
+	}
 
 	/* MSI/MSI-X are device-originated Memory Writes and require BME. */
 	if (dl->bus_master_enabled) {
@@ -112,6 +165,8 @@ static int dl_edu_irq_probe(struct pci_dev *pdev,
 	if (ret)
 		return dev_err_probe(&pdev->dev, ret,
 						 "pci_enable_device failed\n");
+	pci_clear_master(pdev);
+	pci_intx(pdev, 0);
 
 	if (!(pci_resource_flags(pdev, DL_EDU_BAR_INDEX) & IORESOURCE_MEM)) {
 		dev_err(&pdev->dev, "BAR%d is not an MMIO resource\n",
@@ -148,6 +203,14 @@ static int dl_edu_irq_probe(struct pci_dev *pdev,
 		goto err_iounmap;
 	}
 
+	dl_edu_irq_disable_factorial(dl);
+	ret = dl_edu_irq_wait_for_dma_idle(dl);
+	if (ret)
+		goto err_iounmap;
+	dev_info(&pdev->dev,
+		 "probe takeover confirmed DMA command idle with BME disabled\n");
+	dl_edu_irq_ack_pending(dl);
+
 	ret = pci_alloc_irq_vectors(pdev, 1, 1, PCI_IRQ_ALL_TYPES);
 	if (ret < 0)
 		goto err_iounmap;
@@ -156,7 +219,8 @@ static int dl_edu_irq_probe(struct pci_dev *pdev,
 	dl->irq_flags = (pdev->msi_enabled || pdev->msix_enabled) ?
 				0 : IRQF_SHARED;
 
-	/* request_irq() enables the handler; clear every stale EDU source first. */
+	/* Quiesce known producers before enabling CPU-side delivery. */
+	dl_edu_irq_disable_factorial(dl);
 	dl_edu_irq_ack_pending(dl);
 	ret = request_irq(dl->irq_vector, dl_edu_irq_handler, dl->irq_flags,
 				  KBUILD_MODNAME, dl);
@@ -167,6 +231,9 @@ static int dl_edu_irq_probe(struct pci_dev *pdev,
 	if (pdev->msi_enabled || pdev->msix_enabled) {
 		pci_set_master(pdev);
 		dl->bus_master_enabled = true;
+	} else {
+		pci_intx(pdev, 1);
+		dl->legacy_intx_enabled = true;
 	}
 
 	dev_info(&pdev->dev,

@@ -290,6 +290,7 @@ static const struct file_operations dl_fops = {
 	.write = dl_write,
 	.poll = dl_poll,
 	.unlocked_ioctl = dl_unlocked_ioctl,
+	.compat_ioctl = compat_ptr_ioctl,
 	.mmap = dl_mmap,
 	.llseek = noop_llseek,
 };

@@ -143,10 +143,16 @@ rmmod
 原始碼：
 
 ```c
+#define DL_EDU_FACTORIAL_STATUS_REG 0x20
 #define DL_EDU_IRQ_STATUS_REG 0x24
 #define DL_EDU_IRQ_RAISE_REG 0x60
 #define DL_EDU_IRQ_ACK_REG 0x64
-#define DL_EDU_TEST_IRQ_MASK 0x00000001U
+#define DL_EDU_DMA_CMD_REG 0x98
+#define DL_EDU_FACTORIAL_IRQ_MASK 0x00000001U
+#define DL_EDU_TEST_IRQ_MASK 0x00000002U
+#define DL_EDU_DMA_IRQ_MASK 0x00000100U
+#define DL_EDU_KNOWN_IRQ_MASK \
+	(DL_EDU_FACTORIAL_IRQ_MASK | DL_EDU_TEST_IRQ_MASK | DL_EDU_DMA_IRQ_MASK)
 #define DL_EDU_IRQ_TIMEOUT_MS 1000
 ```
 
@@ -154,11 +160,13 @@ rmmod
 
 | Register | 權限 | Lab06 用途 |
 |---|---|---|
+| `0x20` factorial status/control | read/write | probe/remove 寫 0 停用 factorial completion IRQ producer，再 read-back。 |
 | `0x24` interrupt status | read-only | handler 讀它，知道哪些 bit raise 了 interrupt。 |
 | `0x60` interrupt raise | write-only | probe self-test 寫它，要求 EDU raise interrupt。 |
 | `0x64` interrupt acknowledge | write-only | handler 寫它，清掉 status 裡對應 bit。 |
+| `0x98` DMA command | read/write | probe 在 BME 關閉、INTx 遮罩下 bounded wait bit 0 idle。 |
 
-`DL_EDU_TEST_IRQ_MASK` 是 Lab06 自我測試使用的 bit。它不是 Linux IRQ number，而是 EDU device 自己的 interrupt status bit。
+`DL_EDU_TEST_IRQ_MASK` 是 Lab06 自我測試使用的 bit。它不是 Linux IRQ number，而是 EDU device 自己的 interrupt status bit。Lab06 刻意選 `0x2`：QEMU EDU factorial completion 使用 `0x1`，兩者分開才不會讓晚到的 factorial IRQ 誤喚醒 self-test。
 
 ## 二、private state：IRQ 讓狀態更多了
 
@@ -203,19 +211,26 @@ handler 收到的 `opaque` 就是同一個 `dl`。
 static irqreturn_t dl_edu_irq_handler(int irq, void *opaque)
 {
 	struct dl_edu_irq_dev *dl = opaque;
+	u32 pending;
 	u32 status;
 
 	status = ioread32(dl->bar0 + DL_EDU_IRQ_STATUS_REG);
-	if (!(status & DL_EDU_TEST_IRQ_MASK))
+	if (status == ~0U)
 		return IRQ_NONE;
+	pending = status & DL_EDU_KNOWN_IRQ_MASK;
+	if (!pending)
+		return IRQ_NONE;
+
+	iowrite32(pending, dl->bar0 + DL_EDU_IRQ_ACK_REG);
+	(void)ioread32(dl->bar0 + DL_EDU_IRQ_STATUS_REG);
+	if (pending & ~DL_EDU_TEST_IRQ_MASK)
+		dev_warn_ratelimited(...);
+	if (!(pending & DL_EDU_TEST_IRQ_MASK))
+		return IRQ_HANDLED;
 
 	dl->last_irq_status = status;
 	dl->irq_count++;
-
-	iowrite32(status, dl->bar0 + DL_EDU_IRQ_ACK_REG);
 	complete(&dl->irq_done);
-	dev_info(&dl->pdev->dev, "irq status=0x%08x acknowledged\n", status);
-
 	return IRQ_HANDLED;
 }
 ```
@@ -238,19 +253,22 @@ status = ioread32(dl->bar0 + DL_EDU_IRQ_STATUS_REG);
 
 這是 MMIO read，不是一般記憶體讀取。`status` 是 EDU register 目前 pending 的 interrupt bit。
 
-第三，判斷這是不是自己的事件：
+第三，判斷這是不是 EDU 的已知事件：
 
 ```c
-if (!(status & DL_EDU_TEST_IRQ_MASK))
+pending = status & DL_EDU_KNOWN_IRQ_MASK;
+if (!pending)
 	return IRQ_NONE;
 ```
 
-`IRQ_NONE` 的意思是「這次 interrupt 看起來不是我處理的事件」。legacy INTx 可能 shared，所以 handler 需要先檢查 device status，不能看到 handler 被叫就直接宣稱處理成功。
+`IRQ_NONE` 的意思是這次 shared interrupt 沒有 EDU 已知來源。Factorial
+`0x1`、Lab06 self-test `0x2` 與 DMA `0x100` 都是這顆裝置的已知 pending bit。
 
 第四，處理並清掉事件：
 
 ```c
-iowrite32(status, dl->bar0 + DL_EDU_IRQ_ACK_REG);
+iowrite32(pending, dl->bar0 + DL_EDU_IRQ_ACK_REG);
+(void)ioread32(dl->bar0 + DL_EDU_IRQ_STATUS_REG);
 complete(&dl->irq_done);
 return IRQ_HANDLED;
 ```
@@ -259,13 +277,15 @@ return IRQ_HANDLED;
 
 ```text
 讀 status
-  -> 確認 self-test bit
-  -> 寫 ACK register 清 device pending bit
+  -> 找出所有已知 EDU pending bit
+  -> ACK 全部已知 bit 並 read-back
+  -> 沒有 self-test bit 時只記 ratelimited warning，不 complete
   -> complete() 喚醒等待者
   -> 回報 IRQ_HANDLED
 ```
 
-如果少了 acknowledge，同一個 interrupt 可能一直重進。這也是 Lab06 最重要的學習點。
+ACK 所有已知來源可避免 unexpected known bit 讓 INTx screaming；只讓
+self-test bit `0x2` 觸發 `complete()`，可避免 factorial 或 DMA IRQ 誤判成測試成功；若它們與 self-test bit 同時出現，handler 仍會先記 warning 再完成 self-test。
 
 ## 四、probe 前半：沿用 Lab05 PCI/MMIO bring-up
 
@@ -600,7 +620,7 @@ module exit -> pci_unregister_driver()
 |---|---|
 | Lab06 建立在哪一關之上？ | Lab05 的 PCI enable、BAR0 request/map、MMIO accessor 基礎。 |
 | EDU 的 interrupt status / raise / acknowledge register 分別在哪裡？ | `0x24`、`0x60`、`0x64`。 |
-| handler 為什麼可能回 `IRQ_NONE`？ | 因為 shared IRQ 或非目標事件時，status 沒有 `DL_EDU_TEST_IRQ_MASK`，這次 interrupt 不該由本 handler 宣稱處理。 |
+| handler 為什麼可能回 `IRQ_NONE`？ | 因為 shared IRQ 或非 EDU 已知事件時，status 沒有 `DL_EDU_KNOWN_IRQ_MASK` 的任一 bit；已知但非 self-test 的來源會先 ACK，再回 `IRQ_HANDLED`。 |
 | `request_irq()` 最後一個 `dl` 參數做什麼？ | 作為 `dev_id` cookie 傳回 handler，也用於 `free_irq()` 對應釋放。 |
 | `pci_alloc_irq_vectors(pdev, 1, 1, PCI_IRQ_ALL_TYPES)` 代表什麼？ | 向 PCI core 要剛好 1 條 IRQ vector，允許 INTx/MSI/MSI-X。 |
 | 為什麼 Lab06 呼叫 `pci_set_master()`？ | 若使用 MSI，device 需要能主動發起 memory write 送出 MSI。 |

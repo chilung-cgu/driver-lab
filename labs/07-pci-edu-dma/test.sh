@@ -11,6 +11,7 @@ ROOT_DIR=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
 MODULE_NAME=driver_lab_edu_dma
 DMESG_LOG=$(mktemp)
 DMESG_ALL=$(mktemp)
+DMESG_MARKER="${MODULE_NAME}: smoke-test marker pid=$$ epoch=$(date +%s)"
 SUDO=
 loaded_by_test=0
 
@@ -49,9 +50,7 @@ fi
 cd "$SCRIPT_DIR"
 make
 
-# Do not clear the global kernel log. Record its current line count and inspect
-# only lines appended by this load/self-test/unload cycle.
-before_lines=$($SUDO dmesg | wc -l)
+printf '%s\n' "$DMESG_MARKER" | $SUDO tee /dev/kmsg >/dev/null
 
 $SUDO insmod "./${MODULE_NAME}.ko"
 loaded_by_test=1
@@ -64,16 +63,19 @@ fs_expect_absent "/sys/bus/pci/drivers/$MODULE_NAME" \
     "PCI driver sysfs directory"
 
 $SUDO dmesg >"$DMESG_ALL"
-after_lines=$(wc -l <"$DMESG_ALL")
-if [ "$after_lines" -lt "$before_lines" ]; then
-    printf 'ERROR: kernel log wrapped during the test; cannot isolate new lines.\n' >&2
+if ! grep -Fq "$DMESG_MARKER" "$DMESG_ALL"; then
+    printf 'ERROR: kernel log marker was lost; cannot isolate this test run.\n' >&2
     exit 1
 fi
-start_line=$((before_lines + 1))
-tail -n "+$start_line" "$DMESG_ALL" >"$DMESG_LOG"
+awk -v marker="$DMESG_MARKER" '
+    index($0, marker) { capture = 1; next }
+    capture { print }
+' "$DMESG_ALL" >"$DMESG_LOG"
 cat "$DMESG_LOG"
 
 grep -q "${MODULE_NAME}:" "$DMESG_LOG"
+grep -q 'probe takeover confirmed DMA command idle with BME disabled' \
+    "$DMESG_LOG"
 grep -q 'dma mask configured' "$DMESG_LOG"
 grep -q 'coherent buffer allocated' "$DMESG_LOG"
 grep -q 'ram-to-edu transfer finished' "$DMESG_LOG"

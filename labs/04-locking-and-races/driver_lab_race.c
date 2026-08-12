@@ -180,6 +180,7 @@ static const struct file_operations dl_race_fops = {
 	.release = dl_race_release,
 	.read = dl_race_read,
 	.unlocked_ioctl = dl_race_ioctl,
+	.compat_ioctl = compat_ptr_ioctl,
 	.llseek = noop_llseek,
 };
 

@@ -892,6 +892,7 @@ static const struct file_operations dl_fops = {
 	.write = dl_write,
 	.poll = dl_poll,
 	.unlocked_ioctl = dl_unlocked_ioctl,
+	.compat_ioctl = compat_ptr_ioctl,
 	.mmap = dl_mmap,
 	.llseek = noop_llseek,
 };
@@ -907,7 +908,11 @@ static const struct file_operations dl_fops = {
 | `write()` | `dl_write()` |
 | `poll()` | `dl_poll()` |
 | `ioctl()` | `dl_unlocked_ioctl()` |
+| 32-bit userspace `ioctl()` | `compat_ptr_ioctl()` 轉送到 `dl_unlocked_ioctl()` |
 | `mmap()` | `dl_mmap()` |
+
+這裡可以直接使用通用 compat helper，因為 UAPI 只含 fixed-width、
+pointer-free 結構；仍需在 64-bit guest 上另跑 32-bit userspace regression。
 
 第一次讀 driver 時，先找到 `file_operations`，通常就能抓住 userspace 入口。
 

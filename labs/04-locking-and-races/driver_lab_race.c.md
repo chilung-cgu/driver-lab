@@ -506,6 +506,7 @@ static const struct file_operations dl_race_fops = {
 	.release = dl_race_release,
 	.read = dl_race_read,
 	.unlocked_ioctl = dl_race_ioctl,
+	.compat_ioctl = compat_ptr_ioctl,
 	.llseek = noop_llseek,
 };
 ```
@@ -517,9 +518,11 @@ static const struct file_operations dl_race_fops = {
 | `open("/dev/driver_lab_race0", O_RDWR)` | `.open` | `dl_race_open()` |
 | `read(fd, ...)` / `cat` | `.read` | `dl_race_read()` |
 | `ioctl(fd, DL_RACE_IOC_*)` | `.unlocked_ioctl` | `dl_race_ioctl()` |
+| 32-bit userspace `ioctl()` | `.compat_ioctl` | `compat_ptr_ioctl()` 轉送到 `dl_race_ioctl()` |
 | `close(fd)` | `.release` | `dl_race_release()` |
 
-Lab04 沒有 `.write`。所有控制都走 ioctl。
+Lab04 沒有 `.write`。所有控制都走 ioctl；fixed-width、pointer-free payload
+可由通用 compat helper 安全轉送，但仍需 32-on-64 runtime regression。
 
 ## 十一、init：建立 char device，再啟動 worker
 
