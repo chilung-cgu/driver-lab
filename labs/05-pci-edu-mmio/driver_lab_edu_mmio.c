@@ -69,7 +69,7 @@ static int dl_edu_mmio_probe(struct pci_dev *pdev,
 	dl->bar0 = pci_iomap(pdev, DL_EDU_BAR_INDEX, 0);
 	if (!dl->bar0) {
 		ret = -ENOMEM;
-		goto err_release_region;
+		goto err_disable_and_release;
 	}
 
 	dev_info(&pdev->dev, "BAR%d mapped, len=%llu bytes\n",
@@ -105,8 +105,10 @@ static int dl_edu_mmio_probe(struct pci_dev *pdev,
 
 err_iounmap:
 	pci_iounmap(pdev, dl->bar0);
-err_release_region:
+err_disable_and_release:
+	pci_disable_device(pdev);
 	pci_release_region(pdev, DL_EDU_BAR_INDEX);
+	return ret;
 err_disable_device:
 	pci_disable_device(pdev);
 	return ret;
@@ -118,8 +120,8 @@ static void dl_edu_mmio_remove(struct pci_dev *pdev)
 
 	if (dl && dl->bar0)
 		pci_iounmap(pdev, dl->bar0);
-	pci_release_region(pdev, DL_EDU_BAR_INDEX);
 	pci_disable_device(pdev);
+	pci_release_region(pdev, DL_EDU_BAR_INDEX);
 	pr_info("device removed for %s\n", pci_name(pdev));
 }
 

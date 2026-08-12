@@ -242,8 +242,8 @@ make clean
 ```text
 dl_edu_mmio_remove()
   -> pci_iounmap()
-  -> pci_release_region()
   -> pci_disable_device()
+  -> pci_release_region()
 ```
 
 `fs_expect_absent` 確認 driver sysfs directory 已消失，避免 module unregister 失敗或殘留。

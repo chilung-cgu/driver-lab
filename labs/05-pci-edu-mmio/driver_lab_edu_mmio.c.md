@@ -273,11 +273,11 @@ if (ret) {
 
 ```c
 dl->bar0_len = pci_resource_len(pdev, DL_EDU_BAR_INDEX);
-dl->bar0 = pci_iomap(pdev, DL_EDU_BAR_INDEX, 0);
-if (!dl->bar0) {
-	dev_err(&pdev->dev, "pci_iomap BAR%d failed\n", DL_EDU_BAR_INDEX);
-	ret = -ENOMEM;
-	goto err_release_region;
+	dl->bar0 = pci_iomap(pdev, DL_EDU_BAR_INDEX, 0);
+	if (!dl->bar0) {
+		dev_err(&pdev->dev, "pci_iomap BAR%d failed\n", DL_EDU_BAR_INDEX);
+		ret = -ENOMEM;
+		goto err_disable_and_release;
 }
 ```
 
@@ -357,15 +357,17 @@ MMIO read 有從 device 回來
 register offset/endianness 至少符合這個測試
 ```
 
-## 九、error path：反向釋放
+## 九、error path：依已取得資源與 PCI BAR 規則拆除
 
 原始碼：
 
 ```c
 err_iounmap:
 	pci_iounmap(pdev, dl->bar0);
-err_release_region:
+err_disable_and_release:
+	pci_disable_device(pdev);
 	pci_release_region(pdev, DL_EDU_BAR_INDEX);
+	return ret;
 err_disable_device:
 	pci_disable_device(pdev);
 	return ret;
@@ -375,7 +377,7 @@ err_disable_device:
 
 ```text
 目前成功拿到哪些 resource？
-從最後拿到的開始釋放。
+只釋放已成功取得的資源；PCI BAR reservation 另有「disable decoding 後才能 release」的順序限制。
 ```
 
 對照：
@@ -386,7 +388,9 @@ err_disable_device:
 | `pci_request_region()` | `pci_release_region()` |
 | `pci_iomap()` | `pci_iounmap()` |
 
-如果 liveness check 失敗，已經成功 map BAR0，所以要先 `pci_iounmap()`。
+如果 liveness check 失敗，已經成功 map BAR0，所以要先 `pci_iounmap()`。接著不能只套用「反向取得」：PCI BAR 要先 `pci_disable_device()` 停止 device decoding，才 `pci_release_region()` 交還 reservation；否則 device 仍可能 decode 一個已被視為可重新配置的 resource。
+
+`err_disable_device` 是尚未成功 `pci_request_region()` 時的分支，因此只能 disable，不能 release 一個未取得的 BAR reservation。`err_disable_and_release` 則對應「已 request region、但 map 尚未成功」：沒有 mapping 可 unmap，仍必須先 disable 再 release。
 
 ## 十、remove：module unload / device removal path
 
@@ -400,8 +404,8 @@ static void dl_edu_mmio_remove(struct pci_dev *pdev)
 	if (dl && dl->bar0)
 		pci_iounmap(pdev, dl->bar0);
 
-	pci_release_region(pdev, DL_EDU_BAR_INDEX);
 	pci_disable_device(pdev);
+	pci_release_region(pdev, DL_EDU_BAR_INDEX);
 	pr_info("device removed for %s\n", pci_name(pdev));
 }
 ```
@@ -495,7 +499,7 @@ module exit:
 | BAR0 在 Lab05 是什麼？ | QEMU EDU 的 MMIO register window。 |
 | `pci_iomap()` 回傳什麼？ | 可供 driver 用 `ioread32()` / `iowrite32()` 存取的 `void __iomem *` MMIO base。 |
 | liveness check 驗什麼？ | 寫入 `0x04` 後讀回 bitwise inverse，確認最小 MMIO read/write path 可用。 |
-| cleanup 順序是什麼？ | `pci_iounmap()`、`pci_release_region()`、`pci_disable_device()`。 |
+| cleanup 順序是什麼？ | `pci_iounmap()`、`pci_disable_device()`、`pci_release_region()`；PCI BAR reservation 要等 device decoding 關閉才交還。 |
 | 為什麼 remove 不手動 `kfree(dl)`？ | `dl` 由 `devm_kzalloc()` 配置，綁在 device lifecycle 上。 |
 
 ## 查證來源

@@ -169,8 +169,8 @@ Lab05沒有IRQ/DMA，但仍應確認：
 
 ```text
 iounmap
-→ release region
 → disable device
+→ release region
 → unregister PCI driver
 ```
 

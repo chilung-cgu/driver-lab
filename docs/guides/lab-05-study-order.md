@@ -99,8 +99,8 @@ Lab05尚未啟動IRQ/DMA producer，因此error/remove主要是：
 
 ```text
 pci_iounmap
-→ pci_release_region
 → pci_disable_device
+→ pci_release_region
 ```
 
 到Lab06/07後，必須先quiesce非同步IRQ/DMA，才可沿resource dependency拆除。
@@ -116,7 +116,7 @@ pci_iounmap
 5. `dl_edu_mmio_probe()`：enable → type/length validation → request → map。
 6. identification read。
 7. liveness write/read/compare。
-8. `err_iounmap`／`err_release_region`／`err_disable_device`。
+8. `err_iounmap`／`err_disable_and_release`／`err_disable_device`，並分辨哪些 branch 尚未取得 BAR reservation。
 9. `dl_edu_mmio_remove()`。
 10. `module_pci_driver()`。
 
