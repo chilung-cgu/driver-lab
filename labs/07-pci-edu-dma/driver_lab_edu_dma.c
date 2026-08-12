@@ -20,6 +20,7 @@
 #define DL_EDU_IDENT_SIGNATURE 0x000000edU
 #define DL_EDU_FACTORIAL_STATUS_REG 0x20
 #define DL_EDU_IRQ_STATUS_REG 0x24
+#define DL_EDU_IRQ_RAISE_REG 0x60
 #define DL_EDU_IRQ_ACK_REG 0x64
 #define DL_EDU_DMA_SRC_REG 0x80
 #define DL_EDU_DMA_DST_REG 0x88
@@ -31,6 +32,8 @@
 #define DL_EDU_FACTORIAL_IRQ_MASK 0x00000001U
 #define DL_EDU_LAB06_TEST_IRQ_MASK 0x00000002U
 #define DL_EDU_DMA_IRQ_MASK 0x00000100U
+#define DL_EDU_UNKNOWN_IRQ_MASK 0x80000000U
+#define DL_EDU_ALL_IRQ_MASK (~0U)
 #define DL_EDU_KNOWN_IRQ_MASK \
 	(DL_EDU_FACTORIAL_IRQ_MASK | DL_EDU_LAB06_TEST_IRQ_MASK | \
 	 DL_EDU_DMA_IRQ_MASK)
@@ -65,24 +68,28 @@ struct dl_edu_dma_dev {
 static irqreturn_t dl_edu_dma_handler(int irq, void *opaque)
 {
 	struct dl_edu_dma_dev *dl = opaque;
-	u32 pending;
+	u32 known;
 	u32 status;
 
 	status = ioread32(dl->bar0 + DL_EDU_IRQ_STATUS_REG);
-	if (status == ~0U)
-		return IRQ_NONE;
-	pending = status & DL_EDU_KNOWN_IRQ_MASK;
-	if (!pending)
+	if (!status)
 		return IRQ_NONE;
 
-	iowrite32(pending, dl->bar0 + DL_EDU_IRQ_ACK_REG);
+	/* A nonzero per-device status word belongs to EDU; clear it in full. */
+	iowrite32(status, dl->bar0 + DL_EDU_IRQ_ACK_REG);
 	/* Deassert legacy INTx / complete the posted acknowledge before return. */
 	(void)ioread32(dl->bar0 + DL_EDU_IRQ_STATUS_REG);
-	if (pending & ~DL_EDU_DMA_IRQ_MASK)
+
+	known = status & DL_EDU_KNOWN_IRQ_MASK;
+	if (status & ~DL_EDU_KNOWN_IRQ_MASK)
 		dev_warn_ratelimited(&dl->pdev->dev,
-			"acknowledged unexpected EDU IRQ status=0x%08x\n",
+			"acknowledged EDU IRQ with unknown bits status=0x%08x\n",
 			status);
-	if (!(pending & DL_EDU_DMA_IRQ_MASK))
+	else if (known & ~DL_EDU_DMA_IRQ_MASK)
+		dev_warn_ratelimited(&dl->pdev->dev,
+			"acknowledged unexpected known EDU IRQ status=0x%08x\n",
+			status);
+	if (!(known & DL_EDU_DMA_IRQ_MASK))
 		return IRQ_HANDLED;
 
 	dl->last_irq_status = status;
@@ -95,15 +102,14 @@ static irqreturn_t dl_edu_dma_handler(int irq, void *opaque)
 
 static void dl_edu_dma_ack_pending(struct dl_edu_dma_dev *dl)
 {
-	u32 pending;
 	u32 status;
 
 	status = ioread32(dl->bar0 + DL_EDU_IRQ_STATUS_REG);
-	if (status == ~0U)
+	if (!status)
 		return;
-	pending = status & DL_EDU_KNOWN_IRQ_MASK;
-	if (pending)
-		iowrite32(pending, dl->bar0 + DL_EDU_IRQ_ACK_REG);
+
+	/* EDU accepts every status bit written to 0x60, including ~0U. */
+	iowrite32(status, dl->bar0 + DL_EDU_IRQ_ACK_REG);
 	(void)ioread32(dl->bar0 + DL_EDU_IRQ_STATUS_REG);
 }
 
@@ -144,6 +150,27 @@ static int dl_edu_dma_wait_for_cmd_clear(struct dl_edu_dma_dev *dl,
 	return -ETIMEDOUT;
 }
 
+static int dl_edu_dma_wait_for_status_clear(struct dl_edu_dma_dev *dl,
+						     const char *phase)
+{
+	unsigned long deadline;
+	u32 status;
+
+	deadline = jiffies + msecs_to_jiffies(DL_EDU_DMA_WAIT_TIMEOUT_MS);
+	while (time_before(jiffies, deadline)) {
+		status = ioread32(dl->bar0 + DL_EDU_IRQ_STATUS_REG);
+		if (!status)
+			return 0;
+		usleep_range(1000, 2000);
+	}
+
+	status = ioread32(dl->bar0 + DL_EDU_IRQ_STATUS_REG);
+	dev_err(&dl->pdev->dev,
+		"%s IRQ status did not clear after %u ms: 0x%08x\n",
+		phase, DL_EDU_DMA_WAIT_TIMEOUT_MS, status);
+	return -ETIMEDOUT;
+}
+
 static int dl_edu_dma_program_addrs(struct dl_edu_dma_dev *dl,
 							 dma_addr_t src, dma_addr_t dst)
 {
@@ -165,11 +192,13 @@ static int dl_edu_dma_run_once(struct dl_edu_dma_dev *dl, dma_addr_t src,
 						   dma_addr_t dst, u32 cmd,
 						   const char *phase)
 {
+	u32 expected_irq_count;
 	int ret;
 
 	if (!dl->bus_master_enabled)
 		return -EIO;
 
+	expected_irq_count = dl->irq_count + 1U;
 	reinit_completion(&dl->irq_done);
 	ret = dl_edu_dma_program_addrs(dl, src, dst);
 	if (ret)
@@ -193,12 +222,81 @@ static int dl_edu_dma_run_once(struct dl_edu_dma_dev *dl, dma_addr_t src,
 	ret = dl_edu_dma_wait_for_cmd_clear(dl, phase);
 	if (ret)
 		return ret;
+	if (dl->last_irq_status != DL_EDU_DMA_IRQ_MASK ||
+	    dl->irq_count != expected_irq_count) {
+		dev_err(&dl->pdev->dev,
+			"%s recorded IRQ status=0x%08x count=%u\n",
+			phase, dl->last_irq_status, dl->irq_count);
+		return -EIO;
+	}
 
 	/* Completion is established first; then order device writes before CPU use. */
 	if (cmd & DL_EDU_DMA_CMD_FROM_DEVICE)
 		dma_rmb();
 	WRITE_ONCE(dl->dma_in_flight, false);
 	dev_info(&dl->pdev->dev, "%s finished\n", phase);
+	return 0;
+}
+
+/*
+ * QEMU EDU permits arbitrary bits at RAISE_REG. Exercise both an unknown-only
+ * word and the all-bits word before DMA so stale completions cannot satisfy a
+ * later transfer. This is intentionally QEMU-EDU-specific.
+ */
+static int dl_edu_dma_run_ack_regression(struct dl_edu_dma_dev *dl)
+{
+	unsigned long timeout;
+	u32 initial_count;
+	u32 initial_status;
+	int ret;
+
+	initial_count = dl->irq_count;
+	initial_status = dl->last_irq_status;
+	reinit_completion(&dl->irq_done);
+	iowrite32(DL_EDU_UNKNOWN_IRQ_MASK,
+		  dl->bar0 + DL_EDU_IRQ_RAISE_REG);
+	ret = dl_edu_dma_wait_for_status_clear(dl,
+					      "unknown-status regression");
+	if (ret)
+		return ret;
+	synchronize_irq(dl->irq_vector);
+	if (completion_done(&dl->irq_done) ||
+	    dl->irq_count != initial_count ||
+	    dl->last_irq_status != initial_status) {
+		dev_err(&dl->pdev->dev,
+			"unknown-status regression completed or changed IRQ state\n");
+		return -EIO;
+	}
+	dev_info(&dl->pdev->dev,
+		 "EDU IRQ ACK regression: unknown status=0x%08x cleared without completion\n",
+		 DL_EDU_UNKNOWN_IRQ_MASK);
+
+	reinit_completion(&dl->irq_done);
+	iowrite32(DL_EDU_ALL_IRQ_MASK, dl->bar0 + DL_EDU_IRQ_RAISE_REG);
+	timeout = msecs_to_jiffies(DL_EDU_DMA_WAIT_TIMEOUT_MS);
+	if (!wait_for_completion_timeout(&dl->irq_done, timeout)) {
+		dev_err(&dl->pdev->dev,
+			"all-status regression timed out after %u ms\n",
+			DL_EDU_DMA_WAIT_TIMEOUT_MS);
+		return -ETIMEDOUT;
+	}
+	ret = dl_edu_dma_wait_for_status_clear(dl, "all-status regression");
+	if (ret)
+		return ret;
+	synchronize_irq(dl->irq_vector);
+	if (dl->last_irq_status != DL_EDU_ALL_IRQ_MASK ||
+	    dl->irq_count != initial_count + 1U) {
+		dev_err(&dl->pdev->dev,
+			"all-status regression recorded status=0x%08x count=%u\n",
+			dl->last_irq_status, dl->irq_count);
+		return -EIO;
+	}
+	dev_info(&dl->pdev->dev,
+		 "EDU IRQ ACK regression: all-status=0x%08x cleared; completion drained\n",
+		 DL_EDU_ALL_IRQ_MASK);
+
+	/* Drain the controlled all-bits completion before the first DMA command. */
+	reinit_completion(&dl->irq_done);
 	return 0;
 }
 
@@ -430,6 +528,10 @@ static int dl_edu_dma_probe(struct pci_dev *pdev,
 	pci_set_master(pdev);
 	dl->bus_master_enabled = true;
 
+	ret = dl_edu_dma_run_ack_regression(dl);
+	if (ret)
+		goto err_quiesce;
+
 	dl_edu_dma_fill_pattern(dl);
 	ret = dl_edu_dma_run_once(dl, tx_dma, DL_EDU_DEVICE_RAM_OFFSET,
 				  DL_EDU_DMA_CMD_START | DL_EDU_DMA_CMD_IRQ,
@@ -465,7 +567,9 @@ err_free_dma:
 err_iounmap:
 	pci_iounmap(pdev, dl->bar0);
 err_release_region:
+	pci_disable_device(pdev);
 	pci_release_region(pdev, DL_EDU_BAR_INDEX);
+	return ret;
 err_disable_device:
 	pci_disable_device(pdev);
 	return ret;
@@ -480,8 +584,8 @@ static void dl_edu_dma_remove(struct pci_dev *pdev)
 	dl_edu_dma_free_buffer(dl);
 	if (dl && dl->bar0)
 		pci_iounmap(pdev, dl->bar0);
-	pci_release_region(pdev, DL_EDU_BAR_INDEX);
 	pci_disable_device(pdev);
+	pci_release_region(pdev, DL_EDU_BAR_INDEX);
 	pr_info("device removed for %s\n", pci_name(pdev));
 }
 

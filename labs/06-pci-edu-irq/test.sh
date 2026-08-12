@@ -77,9 +77,20 @@ grep -q "${MODULE_NAME}: probe start" "$DMESG_LOG"
 grep -q 'probe takeover confirmed DMA command idle with BME disabled' \
     "$DMESG_LOG"
 grep -q 'request_irq ok' "$DMESG_LOG"
+grep -q 'EDU IRQ ACK regression: unknown status=0x80000000 cleared without completion' \
+    "$DMESG_LOG"
+grep -q 'EDU IRQ ACK regression: all-status=0xffffffff cleared; completion drained' \
+    "$DMESG_LOG"
 grep -q 'irq status=0x' "$DMESG_LOG"
-grep -q 'self-test passed count=' "$DMESG_LOG"
+grep -q 'self-test passed count=2' "$DMESG_LOG"
 grep -q 'device removed' "$DMESG_LOG"
+
+if grep -F 'acknowledged unexpected known EDU IRQ status=' "$DMESG_LOG" >/dev/null ||
+    grep -F 'acknowledged EDU IRQ with unknown bits status=' "$DMESG_LOG" |
+        grep -Ev 'status=0x(80000000|ffffffff)' >/dev/null; then
+    printf 'ERROR: uncontrolled unexpected EDU IRQ status in this run.\n' >&2
+    exit 1
+fi
 
 if grep -Eq 'timed out|still set|BUG:|WARNING:|KASAN:|KCSAN:|Oops:|use-after-free' \
     "$DMESG_LOG"; then
