@@ -78,6 +78,10 @@ fs_expect_char_device "$DEVICE" \
     /sys/class/driver_lab_ctl/driver_lab_ctl0 \
     driver_lab_ctl
 
+if [ "${DRIVER_LAB_COMPAT32:-0}" = "1" ]; then
+    $SUDO "$ROOT_DIR/tests/run-compat32-ioctl.sh" lab03 "$DEVICE"
+fi
+
 # Basic control/data/shared paths.
 $SUDO "$CLI" "$DEVICE" ioctl-write hello-ioctl
 $SUDO "$CLI" "$DEVICE" status | grep 'buffer_len='

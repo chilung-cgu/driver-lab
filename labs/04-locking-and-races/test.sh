@@ -54,6 +54,10 @@ fs_expect_char_device "$DEVICE" \
     /sys/class/driver_lab_race/driver_lab_race0 \
     driver_lab_race
 
+if [ "${DRIVER_LAB_COMPAT32:-0}" = "1" ]; then
+    $SUDO "$ROOT_DIR/tests/run-compat32-ioctl.sh" lab04 "$DEVICE"
+fi
+
 $SUDO "$CLI" "$DEVICE" status | grep 'worker_running=1'
 
 # Unsafe phase: mode/reset are quiescent boundaries, while increments within
