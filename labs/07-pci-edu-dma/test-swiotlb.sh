@@ -75,7 +75,7 @@ fi
 
 TRACEFS=
 for candidate in /sys/kernel/tracing /sys/kernel/debug/tracing; do
-    if [ -d "$candidate" ]; then
+    if $SUDO test -d "$candidate"; then
         TRACEFS=$candidate
         break
     fi
@@ -88,8 +88,8 @@ TRACE_ENABLE="$TRACEFS/events/swiotlb/swiotlb_bounced/enable"
 TRACE_MARKER="$TRACEFS/trace_marker"
 TRACE_DATA="$TRACEFS/trace"
 TRACING_ON="$TRACEFS/tracing_on"
-if [ ! -e "$TRACE_ENABLE" ] || [ ! -e "$TRACE_MARKER" ] ||
-   [ ! -e "$TRACE_DATA" ] || [ ! -e "$TRACING_ON" ]; then
+if ! $SUDO test -e "$TRACE_ENABLE" || ! $SUDO test -e "$TRACE_MARKER" ||
+   ! $SUDO test -e "$TRACE_DATA" || ! $SUDO test -e "$TRACING_ON"; then
     printf 'ERROR: 這個 kernel 未提供完整的 swiotlb_bounced trace event。\n' >&2
     exit 1
 fi

@@ -26,13 +26,13 @@ guest cmdline: swiotlb=force
 tr ' ' '\n' </proc/cmdline | grep -Fx 'swiotlb=force'
 sudo dmesg | grep -F 'PCI-DMA: Using software bounce buffering for IO (SWIOTLB)'
 find /sys/kernel/iommu_groups -type l -print -quit
-test -e /sys/kernel/tracing/events/swiotlb/swiotlb_bounced/enable \
-  || test -e /sys/kernel/debug/tracing/events/swiotlb/swiotlb_bounced/enable
+sudo test -e /sys/kernel/tracing/events/swiotlb/swiotlb_bounced/enable \
+  || sudo test -e /sys/kernel/debug/tracing/events/swiotlb/swiotlb_bounced/enable
 ```
 
 IOMMU group 查詢必須沒有結果。IOMMU 與 SWIOTLB 是不同 translation path；若有 IOMMU device group，script 直接拒絕，以免把另一種 DMA mapping 機制誤報成 forced SWIOTLB。
 
-`tracefs` 可能掛在 `/sys/kernel/tracing` 或 `/sys/kernel/debug/tracing`。script 會自動選其中一個；若兩者都沒有完整的 trace event/marker/trace/tracing_on 檔案，停止而不是弱化 oracle。
+`tracefs` 可能掛在 `/sys/kernel/tracing` 或 `/sys/kernel/debug/tracing`。script 會自動選其中一個，並透過同一個 `sudo` 權限檢查 event、`trace_marker`、`trace` 與 `tracing_on`；有些 distribution 讓非 root 無法 traverse tracefs，即使檔案本身存在。若兩者都沒有完整的檔案集合，停止而不是弱化 oracle。
 
 ## 執行
 
