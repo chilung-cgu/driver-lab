@@ -11,6 +11,7 @@ ROOT_DIR=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
 MODULE_NAME=driver_lab_edu_mmio
 DMESG_LOG=$(mktemp)
 DMESG_ALL=$(mktemp)
+DMESG_MARKER="${MODULE_NAME}: lab05-test marker pid=$$ epoch=$(date +%s)"
 SUDO=
 loaded_by_test=0
 
@@ -49,7 +50,7 @@ fi
 cd "$SCRIPT_DIR"
 make
 
-before_lines=$($SUDO dmesg | wc -l)
+printf '%s\n' "$DMESG_MARKER" | $SUDO tee /dev/kmsg >/dev/null
 
 $SUDO insmod "./${MODULE_NAME}.ko"
 loaded_by_test=1
@@ -61,13 +62,14 @@ fs_expect_absent "/sys/bus/pci/drivers/$MODULE_NAME" \
     "PCI driver sysfs directory"
 
 $SUDO dmesg >"$DMESG_ALL"
-after_lines=$(wc -l <"$DMESG_ALL")
-if [ "$after_lines" -lt "$before_lines" ]; then
-    printf 'ERROR: kernel log wrapped during the test; cannot isolate new lines.\n' >&2
+if ! grep -Fq "$DMESG_MARKER" "$DMESG_ALL"; then
+    printf 'ERROR: kernel log marker was lost; cannot isolate this test run.\n' >&2
     exit 1
 fi
-start_line=$((before_lines + 1))
-tail -n "+$start_line" "$DMESG_ALL" >"$DMESG_LOG"
+awk -v marker="$DMESG_MARKER" '
+    index($0, marker) { capture = 1; next }
+    capture { print }
+' "$DMESG_ALL" >"$DMESG_LOG"
 cat "$DMESG_LOG"
 
 grep -q "${MODULE_NAME}: probe start" "$DMESG_LOG"
@@ -76,7 +78,7 @@ grep -q 'ident=0x' "$DMESG_LOG"
 grep -q 'liveness check passed' "$DMESG_LOG"
 grep -q 'device removed' "$DMESG_LOG"
 
-if grep -Eq 'BUG:|WARNING:|KASAN:|KCSAN:|Oops:|use-after-free' \
+if grep -Eq 'BUG:|WARNING:|KASAN:|KCSAN:|Oops:|use-after-free|DMA-API:|general protection fault' \
     "$DMESG_LOG"; then
     printf 'ERROR: kernel warning or sanitizer report in this test run.\n' >&2
     exit 1

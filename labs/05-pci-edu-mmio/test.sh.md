@@ -12,11 +12,12 @@ confirm lspci exists
 confirm lspci sees 1234:11e8
 confirm /sys/bus/pci/devices has vendor/device 0x1234:0x11e8
 build driver_lab_edu_mmio.ko
+write a unique /dev/kmsg marker
 insmod
 confirm driver bound to 1234:11e8
-grep dmesg for probe/BAR/liveness
 rmmod
 confirm PCI driver sysfs directory removed
+extract marker-scoped dmesg for probe/BAR/liveness/remove
 make clean
 ```
 
@@ -63,6 +64,8 @@ SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
 ROOT_DIR=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
 MODULE_NAME=driver_lab_edu_mmio
 DMESG_LOG=$(mktemp)
+DMESG_ALL=$(mktemp)
+DMESG_MARKER="${MODULE_NAME}: lab05-test marker pid=$$ epoch=$(date +%s)"
 SUDO=
 ```
 
@@ -71,7 +74,9 @@ SUDO=
 | `SCRIPT_DIR` | Lab05 目錄。 |
 | `ROOT_DIR` | repo 根目錄，用來 source helper。 |
 | `MODULE_NAME` | `driver_lab_edu_mmio`，給 `lsmod` / `rmmod` / sysfs driver path 使用。 |
-| `DMESG_LOG` | 保存本次 `dmesg`，方便 grep 成功訊號。 |
+| `DMESG_LOG` | 保存 marker 後的本輪 kernel log，供成功/diagnostic gate 使用。 |
+| `DMESG_ALL` | 暫存完整 `dmesg`，用來找 marker；不把整份共享 log 當成本輪證據。 |
+| `DMESG_MARKER` | 含 module、PID、epoch 的唯一 marker，讓 script 能界定本次 run。 |
 
 ## 三、cleanup 與 trap
 
@@ -82,7 +87,7 @@ cleanup() {
     if lsmod | grep -q "^${MODULE_NAME} "; then
         $SUDO rmmod "$MODULE_NAME" || true
     fi
-    rm -f "$DMESG_LOG"
+    rm -f "$DMESG_LOG" "$DMESG_ALL"
 }
 
 trap cleanup EXIT INT TERM
@@ -179,17 +184,17 @@ driver_lab_edu_mmio.ko
 
 如果前一次 module 還載著，先卸載，避免 driver bind 狀態混亂。
 
-## 八、清 dmesg、insmod、確認 driver bind
+## 八、寫 marker、insmod、確認 driver bind
 
 原始碼：
 
 ```sh
-$SUDO dmesg -C || true
+printf '%s\n' "$DMESG_MARKER" | $SUDO tee /dev/kmsg >/dev/null
 $SUDO insmod "./${MODULE_NAME}.ko"
 fs_expect_pci_driver_bound "$MODULE_NAME" 0x1234 0x11e8
 ```
 
-`dmesg -C` 是為了讓本次測試的 log 更乾淨；失敗也不讓測試中止，所以有 `|| true`。
+script 不執行 `dmesg -C`，因為那會清除共享的 kernel log。它改寫入唯一 marker；稍後 marker 若已從 ring buffer 遺失，測試直接失敗，不能用不可靠的切片聲稱本輪 log 乾淨。
 
 `insmod` 後，driver 註冊到 PCI core，若 `1234:11e8` 還沒有其他 driver 接手，PCI core 會呼叫 `dl_edu_mmio_probe()`。
 
@@ -201,16 +206,22 @@ fs_expect_pci_driver_bound "$MODULE_NAME" 0x1234 0x11e8
 
 底下是否有 vendor/device 符合 `0x1234:0x11e8` 的 bound device。
 
-## 九、grep dmesg 成功訊號
+## 九、擷取 marker-scoped log 與 gate
 
 原始碼：
 
 ```sh
-$SUDO dmesg | tee "$DMESG_LOG"
+$SUDO dmesg >"$DMESG_ALL"
+grep -Fq "$DMESG_MARKER" "$DMESG_ALL"
+awk -v marker="$DMESG_MARKER" '
+    index($0, marker) { capture = 1; next }
+    capture { print }
+' "$DMESG_ALL" >"$DMESG_LOG"
 
-grep -q 'probe start' "$DMESG_LOG"
+grep -q "${MODULE_NAME}: probe start" "$DMESG_LOG"
 grep -q 'BAR0 mapped' "$DMESG_LOG"
 grep -q 'liveness check passed' "$DMESG_LOG"
+grep -q 'device removed' "$DMESG_LOG"
 ```
 
 這三個 grep 對應到 driver 的三個階段：
@@ -221,7 +232,7 @@ grep -q 'liveness check passed' "$DMESG_LOG"
 | `BAR0 mapped` | `pci_iomap()` 成功，driver 拿到 MMIO base。 |
 | `liveness check passed` | `iowrite32()` / `ioread32()` round-trip 符合 QEMU EDU liveness 規格。 |
 
-如果 `probe start` 沒出現，優先查 PCI ID match / bind。
+marker 後沒有 `probe start`，優先查 PCI ID match / bind；若 marker 本身不存在，代表無法隔離本輪訊息，必須先停下來保存環境狀態，不可把整份 dmesg 當作證據。
 
 如果 `BAR0 mapped` 沒出現，優先查 `pci_enable_device()` / `pci_request_region()` / `pci_iomap()`。
 
@@ -271,7 +282,7 @@ dl_edu_mmio_remove()
 - `insmod` 成功但 `probe start` 沒有：查 device 是否被其他 driver bind，或 ID table 是否 match。
 - `BAR0 mapped` 沒有：查 `pci_enable_device()`、`pci_request_region()`、BAR index。
 - `liveness check passed` 沒有：查 QEMU EDU spec 的 `0x04` liveness 行為。
-- `dmesg -C` 可能因權限或 kernel 設定失敗；script 允許它失敗，因為這只是清 log 便利性。
+- marker 寫入或讀取失敗：確認可使用 `sudo` 寫 `/dev/kmsg` 與讀 `dmesg`；不能改用 `dmesg -C` 或整份舊 log 作替代。
 
 ## 讀完後你應該能回答
 
@@ -280,7 +291,7 @@ dl_edu_mmio_remove()
 | 這支 test 為什麼先查 `lspci`？ | 沒有 QEMU EDU device 時，driver `probe()` 不會進來。 |
 | `fs_expect_pci_device_id` 查哪裡？ | `/sys/bus/pci/devices/*/vendor` 和 `device`。 |
 | `fs_expect_pci_driver_bound` 驗什麼？ | driver sysfs directory 底下有 bound 到 `0x1234:0x11e8` 的 device。 |
-| 三個 dmesg gate 是什麼？ | `probe start`、`BAR0 mapped`、`liveness check passed`。 |
+| marker-scoped dmesg gate 是什麼？ | `probe start`、`BAR0 mapped`、`liveness check passed`、`device removed`，並拒絕本輪 marker 後的已知 kernel diagnostics。 |
 | rmmod 後驗什麼？ | `/sys/bus/pci/drivers/driver_lab_edu_mmio` 已移除。 |
 
 ## 查證來源
