@@ -5,6 +5,7 @@
 #include <linux/completion.h>
 #include <linux/delay.h>
 #include <linux/dma-mapping.h>
+#include <linux/gfp.h>
 #include <linux/interrupt.h>
 #include <linux/io.h>
 #include <linux/jiffies.h>
@@ -45,6 +46,12 @@
 #define DL_EDU_DMA_TOTAL_BYTES (DL_EDU_DMA_BUFFER_BYTES * 2U)
 #define DL_EDU_DMA_MMIO_MIN_LEN (DL_EDU_DMA_CMD_REG + sizeof(u32))
 
+/* Opt-in: test-swiotlb.sh uses this to exercise a streaming DMA mapping. */
+static bool streaming_probe;
+module_param(streaming_probe, bool, 0444);
+MODULE_PARM_DESC(streaming_probe,
+		 "run the single-buffer streaming DMA probe for swiotlb validation");
+
 struct dl_edu_dma_dev {
 	struct pci_dev *pdev;
 	u8 __iomem *bar0;
@@ -63,6 +70,9 @@ struct dl_edu_dma_dev {
 	dma_addr_t dma_handle;
 	u8 *tx_buf;
 	u8 *rx_buf;
+	void *stream_tx_buf;
+	dma_addr_t stream_tx_dma;
+	bool stream_tx_mapped;
 };
 
 static irqreturn_t dl_edu_dma_handler(int irq, void *opaque)
@@ -300,13 +310,96 @@ static int dl_edu_dma_run_ack_regression(struct dl_edu_dma_dev *dl)
 	return 0;
 }
 
-static void dl_edu_dma_fill_pattern(struct dl_edu_dma_dev *dl)
+static void dl_edu_dma_fill_pattern(u8 *buf)
 {
 	size_t i;
 
 	for (i = 0; i < DL_EDU_DMA_BUFFER_BYTES; ++i)
-		dl->tx_buf[i] = (u8)(i ^ 0x5a);
+		buf[i] = (u8)(i ^ 0x5a);
+}
+
+/*
+ * This is intentionally a single-buffer streaming mapping, not an SG or
+ * descriptor-ring implementation. The page is mapped once for DMA_TO_DEVICE
+ * and the CPU does not touch it again until dma_unmap_single() returns
+ * ownership. The coherent RX allocation remains the receiver so the probe can
+ * compare the exact payload after a second EDU command.
+ */
+static int dl_edu_dma_run_streaming_probe(struct dl_edu_dma_dev *dl,
+						  dma_addr_t rx_dma)
+{
+	bool need_sync;
+	int ret;
+
+	dl->stream_tx_buf = (void *)get_zeroed_page(GFP_KERNEL);
+	if (!dl->stream_tx_buf) {
+		dev_err(&dl->pdev->dev, "streaming TX page allocation failed\n");
+		return -ENOMEM;
+	}
+
+	dl_edu_dma_fill_pattern(dl->stream_tx_buf);
 	memset(dl->rx_buf, 0, DL_EDU_DMA_BUFFER_BYTES);
+	dl->stream_tx_dma = dma_map_single(&dl->pdev->dev, dl->stream_tx_buf,
+						     PAGE_SIZE, DMA_TO_DEVICE);
+	if (dma_mapping_error(&dl->pdev->dev, dl->stream_tx_dma)) {
+		dev_err(&dl->pdev->dev,
+			"streaming TX map failed for %lu bytes\n", PAGE_SIZE);
+		free_page((unsigned long)dl->stream_tx_buf);
+		dl->stream_tx_buf = NULL;
+		return -EIO;
+	}
+	dl->stream_tx_mapped = true;
+	if ((u64)dl->stream_tx_dma >
+	    DMA_BIT_MASK(DL_EDU_DMA_ADDRESS_BITS) - (PAGE_SIZE - 1UL)) {
+		dev_err(&dl->pdev->dev,
+			"streaming DMA range exceeds EDU mask: base=%pad bytes=%lu\n",
+			&dl->stream_tx_dma, PAGE_SIZE);
+		dma_unmap_single(&dl->pdev->dev, dl->stream_tx_dma, PAGE_SIZE,
+				 DMA_TO_DEVICE);
+		dl->stream_tx_mapped = false;
+		free_page((unsigned long)dl->stream_tx_buf);
+		dl->stream_tx_buf = NULL;
+		return -ERANGE;
+	}
+	need_sync = dma_need_sync(&dl->pdev->dev, dl->stream_tx_dma);
+	dev_info(&dl->pdev->dev,
+		 "streaming TX map established: cpu=%p dma=%pad bytes=%lu dma_need_sync=%u\n",
+		 dl->stream_tx_buf, &dl->stream_tx_dma, PAGE_SIZE, need_sync);
+
+	ret = dl_edu_dma_run_once(dl, dl->stream_tx_dma,
+				  DL_EDU_DEVICE_RAM_OFFSET,
+				  DL_EDU_DMA_CMD_START | DL_EDU_DMA_CMD_IRQ,
+				  "streaming ram-to-edu transfer");
+	if (ret)
+		return ret;
+
+	dma_unmap_single(&dl->pdev->dev, dl->stream_tx_dma, PAGE_SIZE,
+			 DMA_TO_DEVICE);
+	dl->stream_tx_mapped = false;
+	dev_info(&dl->pdev->dev,
+		 "streaming TX mapping released after transfer\n");
+
+	ret = dl_edu_dma_run_once(dl, DL_EDU_DEVICE_RAM_OFFSET, rx_dma,
+				  DL_EDU_DMA_CMD_START |
+				  DL_EDU_DMA_CMD_FROM_DEVICE |
+				  DL_EDU_DMA_CMD_IRQ,
+				  "edu-to-coherent-rx transfer");
+	if (ret)
+		return ret;
+
+	if (memcmp(dl->stream_tx_buf, dl->rx_buf,
+		   DL_EDU_DMA_BUFFER_BYTES) != 0) {
+		dev_err(&dl->pdev->dev,
+			"streaming-to-EDU-to-coherent-RX compare failed\n");
+		return -EIO;
+	}
+
+	dev_info(&dl->pdev->dev,
+		 "streaming-to-EDU-to-coherent-RX compare passed, irq_count=%u last_status=0x%08x\n",
+		 dl->irq_count, dl->last_irq_status);
+	free_page((unsigned long)dl->stream_tx_buf);
+	dl->stream_tx_buf = NULL;
+	return 0;
 }
 
 /*
@@ -398,6 +491,27 @@ static void dl_edu_dma_free_buffer(struct dl_edu_dma_dev *dl)
 	dma_free_coherent(&dl->pdev->dev, DL_EDU_DMA_TOTAL_BYTES,
 				  dl->dma_buf, dl->dma_handle);
 	dl->dma_buf = NULL;
+}
+
+static void dl_edu_dma_free_streaming(struct dl_edu_dma_dev *dl)
+{
+	if (!dl || !dl->stream_tx_buf)
+		return;
+
+	/* A mapped page may still be reachable by the device after a failed reset. */
+	if (dl->stream_tx_mapped && !dl->dma_mapping_safe_to_free) {
+		dev_crit(&dl->pdev->dev,
+			 "streaming mapping intentionally retained to avoid DMA use-after-free\n");
+		return;
+	}
+
+	if (dl->stream_tx_mapped) {
+		dma_unmap_single(&dl->pdev->dev, dl->stream_tx_dma, PAGE_SIZE,
+				 DMA_TO_DEVICE);
+		dl->stream_tx_mapped = false;
+	}
+	free_page((unsigned long)dl->stream_tx_buf);
+	dl->stream_tx_buf = NULL;
 }
 
 static int dl_edu_dma_probe(struct pci_dev *pdev,
@@ -532,7 +646,8 @@ static int dl_edu_dma_probe(struct pci_dev *pdev,
 	if (ret)
 		goto err_quiesce;
 
-	dl_edu_dma_fill_pattern(dl);
+	dl_edu_dma_fill_pattern(dl->tx_buf);
+	memset(dl->rx_buf, 0, DL_EDU_DMA_BUFFER_BYTES);
 	ret = dl_edu_dma_run_once(dl, tx_dma, DL_EDU_DEVICE_RAM_OFFSET,
 				  DL_EDU_DMA_CMD_START | DL_EDU_DMA_CMD_IRQ,
 				  "ram-to-edu transfer");
@@ -556,12 +671,19 @@ static int dl_edu_dma_probe(struct pci_dev *pdev,
 	dev_info(&pdev->dev,
 		 "round-trip compare passed, irq_count=%u last_status=0x%08x\n",
 		 dl->irq_count, dl->last_irq_status);
+
+	if (streaming_probe) {
+		ret = dl_edu_dma_run_streaming_probe(dl, rx_dma);
+		if (ret)
+			goto err_quiesce;
+	}
 	return 0;
 
 err_quiesce:
 	dl_edu_dma_quiesce(dl);
 err_free_vectors:
 	dl_edu_dma_free_irq_vectors(dl);
+	dl_edu_dma_free_streaming(dl);
 err_free_dma:
 	dl_edu_dma_free_buffer(dl);
 err_iounmap:
@@ -581,6 +703,7 @@ static void dl_edu_dma_remove(struct pci_dev *pdev)
 
 	dl_edu_dma_quiesce(dl);
 	dl_edu_dma_free_irq_vectors(dl);
+	dl_edu_dma_free_streaming(dl);
 	dl_edu_dma_free_buffer(dl);
 	if (dl && dl->bar0)
 		pci_iounmap(pdev, dl->bar0);
