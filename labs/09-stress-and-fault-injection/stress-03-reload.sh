@@ -28,16 +28,30 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 FS_SUDO=$SUDO
 . "$ROOT_DIR/scripts/fs-surface-checks.sh"
+DMESG_GATE_SUDO=$SUDO
+. "$SCRIPT_DIR/dmesg-gate.sh"
 
 cleanup() {
+    status=$?
+
+    trap - EXIT INT TERM
     if [ "$loaded_by_test" -eq 1 ] && \
        lsmod | grep -q "^${MODULE_NAME} "; then
         $SUDO rmmod "$MODULE_NAME" || true
     fi
     make -C "$LAB_DIR" clean >/dev/null 2>&1 || true
+
+    if [ "$DMESG_GATE_STARTED" -eq 1 ] && ! dmesg_gate_check_and_cleanup; then
+        if [ "$status" -eq 0 ]; then
+            status=1
+        fi
+    fi
+    exit "$status"
 }
 
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 # Do not remove a module that may belong to another user/test session.
 if lsmod | grep -q "^${MODULE_NAME} "; then
@@ -47,6 +61,7 @@ if lsmod | grep -q "^${MODULE_NAME} "; then
 fi
 
 make -C "$LAB_DIR"
+dmesg_gate_begin "stress-03-reload"
 
 while [ "$i" -lt "$ITERATIONS" ]; do
     $SUDO insmod "$LAB_DIR/${MODULE_NAME}.ko"
@@ -72,4 +87,7 @@ while [ "$i" -lt "$ITERATIONS" ]; do
     i=$((i + 1))
 done
 
+if ! dmesg_gate_check_and_cleanup; then
+    exit 1
+fi
 printf 'stress-03-reload passed (%s iterations).\n' "$ITERATIONS"

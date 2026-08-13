@@ -12,41 +12,72 @@ LAB_DIR="$ROOT_DIR/labs/03-ioctl-poll-mmap"
 CLI="$ROOT_DIR/tests/driver_lab_char_cli"
 MODULE_NAME=driver_lab_ioctl_poll_mmap
 DEVICE=/dev/driver_lab_ctl0
+WORKERS=${WORKERS:-4}
+ITERATIONS=${ITERATIONS:-20}
+READ_TIMEOUT_SECONDS=${READ_TIMEOUT_SECONDS:-2}
 SUDO=
-pid0=
-pid1=
-pid2=
-pid3=
+worker_pids=
 loaded_by_test=0
+
+require_positive_integer() {
+    name=$1
+    value=$2
+
+    case "$value" in
+        ''|*[!0-9]*|0)
+            printf 'ERROR: %s must be a positive integer.\n' "$name" >&2
+            return 1
+            ;;
+    esac
+}
+
+require_positive_integer WORKERS "$WORKERS"
+require_positive_integer ITERATIONS "$ITERATIONS"
+require_positive_integer READ_TIMEOUT_SECONDS "$READ_TIMEOUT_SECONDS"
 
 if [ "$(id -u)" -ne 0 ]; then
     SUDO=sudo
 fi
 FS_SUDO=$SUDO
 . "$ROOT_DIR/scripts/fs-surface-checks.sh"
+DMESG_GATE_SUDO=$SUDO
+. "$SCRIPT_DIR/dmesg-gate.sh"
 
-stop_pid() {
-    pid=$1
-    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
-        kill "$pid" 2>/dev/null || true
+stop_workers() {
+    for pid in $worker_pids; do
+        if kill -0 "$pid" 2>/dev/null; then
+            kill "$pid" 2>/dev/null || true
+        fi
+    done
+    for pid in $worker_pids; do
         wait "$pid" 2>/dev/null || true
-    fi
+    done
+    worker_pids=
 }
 
 cleanup() {
-    stop_pid "$pid0"
-    stop_pid "$pid1"
-    stop_pid "$pid2"
-    stop_pid "$pid3"
+    status=$?
+
+    trap - EXIT INT TERM
+    stop_workers
 
     if [ "$loaded_by_test" -eq 1 ] && \
        lsmod | grep -q "^${MODULE_NAME} "; then
         $SUDO rmmod "$MODULE_NAME" || true
     fi
     make -C "$LAB_DIR" clean >/dev/null 2>&1 || true
+
+    if [ "$DMESG_GATE_STARTED" -eq 1 ] && ! dmesg_gate_check_and_cleanup; then
+        if [ "$status" -eq 0 ]; then
+            status=1
+        fi
+    fi
+    exit "$status"
 }
 
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 make -C "$LAB_DIR"
 make -C "$ROOT_DIR/runtime"
@@ -58,6 +89,7 @@ if lsmod | grep -q "^${MODULE_NAME} "; then
     exit 1
 fi
 
+dmesg_gate_begin "stress-03-parallel"
 $SUDO insmod "$LAB_DIR/${MODULE_NAME}.ko"
 loaded_by_test=1
 fs_expect_char_device "$DEVICE" \
@@ -68,15 +100,17 @@ worker() {
     idx=$1
     i=0
 
-    while [ "$i" -lt 20 ]; do
+    while [ "$i" -lt "$ITERATIONS" ]; do
         $SUDO "$CLI" "$DEVICE" ioctl-write "worker-$idx-$i" >/dev/null
         $SUDO "$CLI" "$DEVICE" status >/dev/null
+        $SUDO "$CLI" "$DEVICE" mmap-read >/dev/null
 
         # A competing reader may consume the message first, so a bounded timeout
         # is expected. Only a successful read or GNU timeout's 124 status is
         # accepted; do not hide crashes, permission errors, or driver failures.
         read_status=0
-        $SUDO timeout 2s "$CLI" "$DEVICE" read >/dev/null 2>&1 || read_status=$?
+        $SUDO timeout "${READ_TIMEOUT_SECONDS}s" "$CLI" "$DEVICE" read \
+            >/dev/null 2>&1 || read_status=$?
         case "$read_status" in
             0|124)
                 ;;
@@ -92,37 +126,40 @@ worker() {
     done
 }
 
-worker 0 &
-pid0=$!
-worker 1 &
-pid1=$!
-worker 2 &
-pid2=$!
-worker 3 &
-pid3=$!
+worker_index=0
+while [ "$worker_index" -lt "$WORKERS" ]; do
+    worker "$worker_index" &
+    worker_pids="$worker_pids $!"
+    worker_index=$((worker_index + 1))
+done
 
-status0=0
-status1=0
-status2=0
-status3=0
-wait "$pid0" || status0=$?
-wait "$pid1" || status1=$?
-wait "$pid2" || status2=$?
-wait "$pid3" || status3=$?
-pid0=
-pid1=
-pid2=
-pid3=
+worker_status=0
+worker_failure_pid=
+for pid in $worker_pids; do
+    if wait "$pid"; then
+        :
+    else
+        wait_status=$?
+        if [ "$worker_status" -eq 0 ]; then
+            worker_status=$wait_status
+            worker_failure_pid=$pid
+        fi
+    fi
+done
+worker_pids=
 
-if [ "$status0" -ne 0 ] || [ "$status1" -ne 0 ] || \
-   [ "$status2" -ne 0 ] || [ "$status3" -ne 0 ]; then
-    printf 'ERROR: worker statuses: %s %s %s %s\n' \
-        "$status0" "$status1" "$status2" "$status3" >&2
-    exit 1
+if [ "$worker_status" -ne 0 ]; then
+    printf 'ERROR: worker pid %s failed with status %s\n' \
+        "$worker_failure_pid" "$worker_status" >&2
+    exit "$worker_status"
 fi
 
 $SUDO rmmod "$MODULE_NAME"
 loaded_by_test=0
 fs_expect_absent "$DEVICE" "device node"
 fs_expect_absent /sys/class/driver_lab_ctl/driver_lab_ctl0 "sysfs class device"
-printf 'stress-03-parallel passed.\n'
+if ! dmesg_gate_check_and_cleanup; then
+    exit 1
+fi
+printf 'stress-03-parallel passed (%s workers, %s iterations, %ss read timeout).\n' \
+    "$WORKERS" "$ITERATIONS" "$READ_TIMEOUT_SECONDS"

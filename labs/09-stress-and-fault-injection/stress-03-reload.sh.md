@@ -2,226 +2,158 @@
 
 ## 結論
 
-`labs/09-stress-and-fault-injection/stress-03-reload.sh` 是針對 Lab03 driver 的 repeated load/unload stress test。它把 Lab03 module 連續載入/卸載 20 次，每次都檢查：
+`stress-03-reload.sh` 對 Lab03 的 `driver_lab_ioctl_poll_mmap` 做 repeated load/unload stress。每一輪都驗證 `/dev`、sysfs 和 `/proc/devices` 出現，再確認 unload 後 `/dev` 與 sysfs 消失；預設跑 20 輪，可用 `ITERATIONS` 增加。
 
-```text
-load 後 /dev/driver_lab_ctl0 存在
-load 後 /sys/class/driver_lab_ctl/driver_lab_ctl0 存在
-load 後 /proc/devices 列出 driver_lab_ctl
-unload 後 /dev/driver_lab_ctl0 消失
-unload 後 /sys/class/driver_lab_ctl/driver_lab_ctl0 消失
-```
+它也使用 [`dmesg-gate.sh`](dmesg-gate.sh) 把本輪 kernel log 限縮在唯一 marker 後，拒絕已知 warning/sanitizer signature。這仍是正常路徑的 stress，並不是 allocation 或 usercopy fault injection suite。
 
-這支 script 的目標不是測單次功能，而是測 cleanup 對稱性。很多 driver bug 單跑一次不會出現，反覆 `insmod`/`rmmod` 才會暴露殘留 state 或 resource 沒釋放。
+## 第一輪先懂
+
+- `ITERATIONS` 必須是正整數，預設為 `20`。
+- script 拒絕 pre-loaded module，只卸載自己載入的 instance。
+- 每一輪 `insmod` 後檢查 char-device filesystem surface，`rmmod` 後檢查它們已消失。
+- 先完成所有工作負載與 unload，dmesg gate 通過後才印出 passed。
+- 如果 workload 已經失敗，cleanup 仍收集 marker 後的 log，但保留原本的 exit status。
 
 ## 不確定處 / 查證範圍
 
-這份 companion doc 已查過：
+本文件對照了：
 
-- [`stress-03-reload.sh`](stress-03-reload.sh) 本身。
-- Lab09 suite runner：[`test.sh.md`](test.sh.md)。
-- 共用 helper：[`../../scripts/fs-surface-checks.sh`](../../scripts/fs-surface-checks.sh)。
-- Lab03 driver/test 旁讀：[`../03-ioctl-poll-mmap/driver_lab_ioctl_poll_mmap.c.md`](../03-ioctl-poll-mmap/driver_lab_ioctl_poll_mmap.c.md)、[`../03-ioctl-poll-mmap/test.sh.md`](../03-ioctl-poll-mmap/test.sh.md)。
+- [`stress-03-reload.sh`](stress-03-reload.sh)；
+- [`dmesg-gate.sh`](dmesg-gate.sh)；
+- [`../../scripts/fs-surface-checks.sh`](../../scripts/fs-surface-checks.sh)；
+- Lab03 的 [`../03-ioctl-poll-mmap/driver_lab_ioctl_poll_mmap.c.md`](../03-ioctl-poll-mmap/driver_lab_ioctl_poll_mmap.c.md)。
 
-這裡只解釋 repeated reload stress，不把它擴大成 memory fault injection 或 long-running soak test。
+它說明的是 repeated reload 的可觀測行為，不把有限輪數的 stress pass 說成完整 lifetime proof 或 fault injection。
 
 ## 測試主線
 
-流程：
-
 ```text
-confirm Linux
-compute repo/lab path
-source fs-surface helper
-register cleanup trap
-make Lab03 module
-repeat 20 times:
-  remove stale module if needed
-  insmod Lab03 module
-  verify char device surfaces
-  rmmod Lab03 module
-  verify /dev and /sys entries are gone
-print stress-03-reload passed
+confirm Linux and ITERATIONS
+→ refuse a pre-loaded Lab03 module
+→ build Lab03
+→ write a unique kernel-log marker
+→ repeat N times:
+     insmod
+     verify /dev + sysfs + /proc/devices
+     rmmod
+     verify /dev + sysfs disappear
+→ inspect dmesg after the marker
+→ print passed only when every gate succeeded
 ```
 
-## 一、Linux guard
-
-原始碼：
+## 參數與 target
 
 ```sh
-if [ "$(uname -s)" != "Linux" ]; then
-    printf 'ERROR: 這個腳本必須在 Linux 主機上執行。\n' >&2
+LAB_DIR="$ROOT_DIR/labs/03-ioctl-poll-mmap"
+MODULE_NAME=driver_lab_ioctl_poll_mmap
+DEVICE=/dev/driver_lab_ctl0
+ITERATIONS=${ITERATIONS:-20}
+```
+
+用法：
+
+```sh
+ITERATIONS=100 ./stress-03-reload.sh
+```
+
+空值、`0`、負數或非數字都會在任何 module 動作前被拒絕。`ITERATIONS` 很大只會增加同一組 normal-path sequence 的重複次數，不會建立新的 fault path。
+
+## Module ownership 與 filesystem surface
+
+script 先確認 module 未載入：
+
+```sh
+if lsmod | grep -q "^${MODULE_NAME} "; then
+    printf 'ERROR: %s is already loaded; unload it before this isolated test.\n' \
+        "$MODULE_NAME" >&2
     exit 1
 fi
 ```
 
-這支 script 需要：
-
-- Linux kernel module build tree。
-- `insmod` / `rmmod`。
-- `/dev`、`/sys/class`、`/proc/devices`。
-
-macOS 不能直接執行。
-
-## 二、路徑與 module name
-
-原始碼：
-
-```sh
-SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
-ROOT_DIR=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
-LAB_DIR="$ROOT_DIR/labs/03-ioctl-poll-mmap"
-MODULE_NAME=driver_lab_ioctl_poll_mmap
-SUDO=
-i=0
-```
-
-| 變數 | 用途 |
-|---|---|
-| `SCRIPT_DIR` | Lab09 目錄。 |
-| `ROOT_DIR` | repo 根目錄。 |
-| `LAB_DIR` | Lab03 module 所在目錄。 |
-| `MODULE_NAME` | Lab03 kernel module name。 |
-| `i` | reload loop counter。 |
-
-這支 script 雖然放在 Lab09，但實際 target 是 Lab03。
-
-## 三、sudo 與 filesystem helper
-
-原始碼：
-
-```sh
-if [ "$(id -u)" -ne 0 ]; then
-    SUDO=sudo
-fi
-FS_SUDO=$SUDO
-. "$ROOT_DIR/scripts/fs-surface-checks.sh"
-```
-
-不是 root 時，`insmod` / `rmmod` 需要 sudo。
-
-這支 script 用 helper 驗證：
-
-| helper | 驗證什麼 |
-|---|---|
-| `fs_expect_char_device` | `/dev` node、sysfs class device、`/proc/devices` 都存在且一致。 |
-| `fs_expect_absent` | unload 後 `/dev` 與 sysfs entry 消失。 |
-
-這比只看 `insmod` exit code 更強，因為它直接驗證使用者會看到的 filesystem surface。
-
-## 四、cleanup 與 trap
-
-原始碼：
-
-```sh
-cleanup() {
-	if lsmod | grep -q "^${MODULE_NAME} "; then
-		$SUDO rmmod "$MODULE_NAME" || true
-	fi
-	make -C "$LAB_DIR" clean >/dev/null 2>&1 || true
-}
-
-trap cleanup EXIT INT TERM
-```
-
-如果 stress 中途失敗或被 Ctrl-C，cleanup 會：
-
-1. 嘗試卸載 Lab03 module。
-2. 清掉 Lab03 kbuild artifact。
-
-`|| true` 是刻意的：cleanup 階段不應因為 module 已不在或 clean 失敗而遮蔽原本的錯誤。
-
-## 五、build Lab03 module
-
-原始碼：
-
-```sh
-make -C "$LAB_DIR"
-```
-
-這會在 Lab03 目錄建出：
+載入後由 `fs_expect_char_device` 同時驗證：
 
 ```text
-driver_lab_ioctl_poll_mmap.ko
+/dev/driver_lab_ctl0
+/sys/class/driver_lab_ctl/driver_lab_ctl0
+/proc/devices -> driver_lab_ctl
 ```
 
-reload stress 後面每一輪都用這個 `.ko` 做 `insmod`。
+卸載後 `fs_expect_absent` 驗證 `/dev` node 與 sysfs class device 都已消失。這避免「`insmod` exit 0」被誤當作完整使用者可見 surface 正確。
 
-## 六、20 次 repeated load/unload
+## Reload loop
 
-原始碼：
+核心 loop：
 
 ```sh
-while [ "$i" -lt 20 ]; do
-    if lsmod | grep -q "^${MODULE_NAME} "; then
-        $SUDO rmmod "$MODULE_NAME"
-    fi
-
+while [ "$i" -lt "$ITERATIONS" ]; do
     $SUDO insmod "$LAB_DIR/${MODULE_NAME}.ko"
-    fs_expect_char_device /dev/driver_lab_ctl0 \
+    loaded_by_test=1
+    fs_expect_char_device "$DEVICE" \
         /sys/class/driver_lab_ctl/driver_lab_ctl0 \
         driver_lab_ctl
+
     $SUDO rmmod "$MODULE_NAME"
-    fs_expect_absent /dev/driver_lab_ctl0 "device node"
-    fs_expect_absent /sys/class/driver_lab_ctl/driver_lab_ctl0 "sysfs class device"
+    loaded_by_test=0
+    fs_expect_absent "$DEVICE" "device node"
+    fs_expect_absent /sys/class/driver_lab_ctl/driver_lab_ctl0 \
+        "sysfs class device"
     i=$((i + 1))
 done
 ```
 
-每一輪做同樣的事：
+`loaded_by_test` 是 cleanup ownership flag。任何一輪在 `insmod` 後失敗時，EXIT trap 只會嘗試移除 script 自己成功載入的 module；它不會刪除一開始就存在的其他 session module。
 
-```text
-確保沒有舊 module
-  -> insmod
-  -> 檢查 char device surface
-  -> rmmod
-  -> 檢查 /dev 和 /sys 已消失
-```
+## Marker-scoped dmesg gate
 
-為什麼要 20 次？
-
-```text
-單次 smoke test
-  只證明一次成功
-
-20 次 load/unload
-  更容易抓到 cleanup 不對稱、state 殘留、class/device destroy 漏掉
-```
-
-## 七、成功訊號
-
-原始碼：
+在第一個 `insmod` 前，script 先開始 gate：
 
 ```sh
-printf 'stress-03-reload passed.\n'
+dmesg_gate_begin "stress-03-reload"
 ```
 
-看到這行代表 20 次 loop 都完成，且每輪 load/unload 的 filesystem surface 檢查都通過。
+正常路徑在所有 unload checks 後完成 gate：
 
-## test 和 Lab03 的對照
+```sh
+if ! dmesg_gate_check_and_cleanup; then
+    exit 1
+fi
+printf 'stress-03-reload passed (%s iterations).\n' "$ITERATIONS"
+```
 
-| stress 檢查 | 對應 Lab03 行為 |
-|---|---|
-| `insmod` | module init 建立 char device/class/device node |
-| `fs_expect_char_device` | `/dev/driver_lab_ctl0`、sysfs class device、`/proc/devices` |
-| `rmmod` | module exit 清掉 cdev/device/class |
-| `fs_expect_absent /dev/driver_lab_ctl0` | devtmpfs node 已消失 |
-| `fs_expect_absent /sys/class/...` | device model entry 已消失 |
+詳細的 marker、ring-buffer 與診斷 signature 行為見 [`dmesg-gate.sh.md`](dmesg-gate.sh.md)。這裡的重要契約是：不使用 `dmesg -C`，marker 遺失就失敗，且不會在 gate 失敗前印出 passed。
 
-## 常見卡點
+## Cleanup 與原始失敗碼
 
-- 第 1 次就失敗：先跑 Lab03 `test.sh`，確認基本 smoke test 先通。
-- 第 N 次才失敗：高度懷疑 cleanup path 不對稱或 state 殘留。
-- unload 後 `/dev` 還在：看 `device_destroy()` / class cleanup path。
-- unload 後 sysfs 還在：看 device/class lifecycle。
-- `rmmod` 失敗：可能仍有 process 持有 fd，先用 `lsmod`、`lsof`、`dmesg` 查。
+```sh
+cleanup() {
+    status=$?
+
+    trap - EXIT INT TERM
+    # unload only a module loaded by this test; clean build output
+    if [ "$DMESG_GATE_STARTED" -eq 1 ] && ! dmesg_gate_check_and_cleanup; then
+        if [ "$status" -eq 0 ]; then
+            status=1
+        fi
+    fi
+    exit "$status"
+}
+```
+
+`status=$?` 先保存主工作負載的結果。若主工作負載失敗，dmesg capture 仍會嘗試執行，但不能把這個第一個失敗碼替換成 cleanup 或 gate 的結果。若主工作負載成功而 gate 失敗，最終 status 為 `1`。
+
+`INT` 和 `TERM` trap 會先以 `130`、`143` 結束，然後走同一個 EXIT cleanup。因此 Ctrl-C 也不會被 cleanup 意外改成成功。
+
+## 限制 / 例外
+
+- 這不會在 active fd 或 active VMA 存在時測試 unload；那需要專門的 lifetime case。
+- marker 後的無關 kernel warning 也會讓測試失敗；請在受控 guest 中執行並保留 stdout/stderr。
+- 20 次或更多次的 pass 只能增加觀察到 cleanup 問題的機率，不能證明沒有資源或競態 bug。
 
 ## 讀完後你應該能回答
 
-| 問題 | 標準答案 |
+| 問題 | 答案 |
 |---|---|
-| 這支 script target 哪個 module？ | Lab03 的 `driver_lab_ioctl_poll_mmap`。 |
-| loop 幾次？ | 20 次。 |
-| 每次 load 後檢查什麼？ | `/dev/driver_lab_ctl0`、sysfs class device、`/proc/devices`。 |
-| 每次 unload 後檢查什麼？ | `/dev/driver_lab_ctl0` 和 sysfs class device 已消失。 |
-| repeated reload 主要抓哪類 bug？ | init/exit cleanup 不對稱、resource 或 filesystem surface 殘留。 |
+| `ITERATIONS=100` 改變什麼？ | 把同一個 load/verify/unload/verify sequence 重複 100 次。 |
+| 為什麼拒絕 pre-loaded module？ | script 無法保證那個 instance 的來源與狀態，也不應卸載別人的 debug session。 |
+| 為什麼 passed 在 dmesg gate 後才印？ | 避免 warning、sanitizer report 或 marker 遺失時仍輸出誤導性成功。 |
+| 這是 fault injection 嗎？ | 不是；目前是 normal-path repeated reload stress。 |
