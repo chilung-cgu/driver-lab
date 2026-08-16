@@ -45,8 +45,13 @@ DMA use-after-free與任意資料毀損。Current source在無法證明quiesce�
   單一coherent allocation切TX/RX、late BME、兩方向transfer、IRQ + command-clear、
   `dma_rmb()`與fail-safe quiesce。
 - **Compile/static 狀態**：audit branch有external-module compile與script gate。
-- **已於 2026-08-16 runtime 驗證**：Lab05–07 smoke 與 forced-SWIOTLB streaming 已在隔離 QEMU EDU guest 實跑；
-  IRQ/command timeout、reset failure、repeated load/unload、KASAN/lockdep 與 fault injection 尚未驗證。
+- **已於 2026-08-16 runtime 驗證**：Lab05–07 smoke、forced-SWIOTLB streaming（28/32-bit）與
+  repeated load/unload（Lab09 stress 50 iterations）已在隔離 QEMU EDU guest 實跑，dmesg gate 無 BUG/WARNING/Oops。
+- **尚需其他工具才能驗證**：IRQ/command timeout 與 reset failure 無法用 stock QEMU EDU 觸發
+  （無效 DMA range 會讓 QEMU `hw_error()` 直接終止進程，且 EDU reset 恆成功）；
+  需自訂 QEMU/device model 或 real hardware fault injection。KASAN/lockdep 需要 debug kernel
+  （目前 guest 為 Ubuntu generic kernel，未啟用 `PROVE_LOCKING`/KASAN），fault injection 需要
+  kernel fault-injection infrastructure。
 - **Device-specific**：EDU 28-bit mask、local RAM offset、command/status/IRQ bits與reset behavior不代表真實硬體。
 - **Endianness boundary**：Current target是x86_64 little-endian guest；跨endian target需重新核對QEMU EDU model與accessor。
 
@@ -488,7 +493,7 @@ device removed
 - multi-queue/MSI-X/NUMA；
 - user-pinned memory/IOMMU security；
 - hot-unplug/AER/PM；
-- deterministic timeout/reset failure；
+- deterministic timeout/reset failure（stock QEMU EDU 無法製造：無效 DMA range 會 `hw_error()` 終止 QEMU，reset 恆成功）；
 - real hardware firmware/PHY/performance；
 
 ### 選用：forced-SWIOTLB streaming probe（`test-swiotlb.sh`）
@@ -596,7 +601,9 @@ EDU_DMA_ADDRESS_BITS=32 ./test-swiotlb.sh   # 32-bit 專用 fixture
 - Coherent single-buffer不能代表streaming/SG、descriptor ring、multi-queue或user memory。
 - Function reset能否真正停所有real-hardware DMA取決於device；不能泛化。
 - Current fail-safe retain mapping避免UAF，但需要reboot/platform recovery，並非可接受的長期production behavior。
-- 尚需deterministic timeout/reset fault、IOMMU on/off、SWIOTLB、KASAN/lockdep與repeated teardown logs。
+- Stock QEMU EDU 無法製造deterministic timeout/reset fault（無效range會`hw_error()`，reset恆成功）；
+  此類路徑需自訂emulator或real hardware才能取得failure-injection evidence。
+- IOMMU on/off、KASAN/lockdep與fault-injection logs需要對應的kernel/device config，尚未驗證。
 
 ## 第一次閱讀先記住
 
@@ -646,3 +653,5 @@ EDU_DMA_ADDRESS_BITS=32 ./test-swiotlb.sh   # 32-bit 專用 fixture
 - PCI APIs / reset: <https://docs.kernel.org/driver-api/pci/pci.html>
 - Generic IRQ: <https://docs.kernel.org/core-api/genericirq.html>
 - QEMU EDU: <https://www.qemu.org/docs/master/specs/edu.html>
+- QEMU source `hw/misc/edu.c`（v8.2.2）：`edu_check_range()` 對無效 DMA range 直接 `hw_error()`；
+  `edu_dma_timer()` 對可接受 range 完成後清除 START 並 raise DMA IRQ。<https://github.com/qemu/qemu/blob/v8.2.2/hw/misc/edu.c>
