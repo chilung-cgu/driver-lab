@@ -41,8 +41,9 @@ DMA use-after-free與任意資料毀損。Current source在無法證明quiesce�
 
 - **已由官方文件查證**：DMA mask、`dma_alloc_coherent()`的CPU/DMA雙address、coherent仍需ordering、
   MMIO accessor、IRQ與PCI reset API的通用contract。
-- **已對照 Current source**：`driver_lab_edu_dma.c` 使用28-bit mask、單一coherent allocation切TX/RX、
-  late BME、兩方向transfer、IRQ + command-clear、`dma_rmb()`與fail-safe quiesce。
+- **已對照 Current source**：`driver_lab_edu_dma.c` 使用28-bit預設（可選32-bit fixture）mask、
+  單一coherent allocation切TX/RX、late BME、兩方向transfer、IRQ + command-clear、
+  `dma_rmb()`與fail-safe quiesce。
 - **Compile/static 狀態**：audit branch有external-module compile與script gate。
 - **已於 2026-08-16 runtime 驗證**：Lab05–07 smoke 與 forced-SWIOTLB streaming 已在隔離 QEMU EDU guest 實跑；
   IRQ/command timeout、reset failure、repeated load/unload、KASAN/lockdep 與 fault injection 仍待補。
@@ -145,7 +146,7 @@ test -e "/lib/modules/$(uname -r)/build"
 pci_enable_device()
 → validate/request/map BAR0
 → verify EDU identity
-→ dma_set_mask_and_coherent(28 bits)
+→ dl_edu_dma_configure_mask()（28 預設；32 僅限配對 fixture）
 → dma_alloc_coherent(TX + RX)
 → allocate IRQ vector / request handler
 → clear stale pending source
@@ -164,7 +165,8 @@ dma_buf = dma_alloc_coherent(dev, total_bytes, &dma_handle, GFP_KERNEL);
 - `dma_buf`：CPU pointer；
 - `dma_handle`：device DMA address；
 - TX = base；RX = base + 256 bytes；
-- Current source確認整個TX/RX range都落在28-bit mask內，避免截斷或錯誤假設。
+- Current source確認整個TX/RX range都落在設定好的mask（28 預設或 32 fixture）內，
+  避免截斷或錯誤假設。
 
 ### RAM → EDU
 
@@ -228,6 +230,26 @@ Mask告訴DMA subsystem：device最多能產生哪些address bits。若device只
 拿到device無法表示的address，造成截斷與錯誤DMA。
 
 QEMU EDU current teaching model使用28-bit限制；記錄QEMU version，因model behavior可能變動。
+
+Current source透過唯讀module parameter `dma_address_bits` 支援 28（預設）或 32
+兩種值，其他值在probe時回傳 `-EINVAL`：
+
+```c
+static unsigned int dma_address_bits = DL_EDU_DMA_ADDRESS_BITS;
+module_param(dma_address_bits, uint, 0444);
+
+static int dl_edu_dma_configure_mask(struct dl_edu_dma_dev *dl)
+{
+	if (dma_address_bits != DL_EDU_DMA_ADDRESS_BITS &&
+	    dma_address_bits != DL_EDU_DMA_ADDRESS_BITS_MAX)
+		return -EINVAL;
+	dl->dma_mask = DMA_BIT_MASK(dma_address_bits);
+	return dma_set_mask_and_coherent(&dl->pdev->dev, dl->dma_mask);
+}
+```
+
+32-bit不是「driver變強」：EDU的DMA register仍只有32-bit，且host必須以
+`-device edu,dma_mask=0xffffffff` 啟動，module才應以 `dma_address_bits=32` 載入。
 
 ### 2. CPU pointer與DMA address分離
 
@@ -488,8 +510,10 @@ EDU_DMA_ADDRESS_BITS=32 ./test-swiotlb.sh   # 32-bit 專用 fixture
   與 kernel 6.8+ 的 `software IO TLB: `。
 - `swiotlb_bounced` 的 `dev_addr` 是 bounce 前的原始位址；要看 bounce 後實際
   mapped address，以 driver log 的 `streaming TX map established: ... dma=0x...` 為準。
+- 32-bit fixture 會以 sysfs 回讀 module parameter，並要求 driver log 的 mapped DMA
+  address 高於 `0x0fffffff`；低位址結果不接受為 32-bit 證據。
 - 256 MiB guest 編譯 module 若 OOM，先在 guest 建 1 GiB swapfile；不改變 fixture 語意。
-- 所有architecture/QEMU version。
+- 所有條件都依 architecture/QEMU version 核對；換版本需重新驗證。
 
 ## Debug order
 
@@ -498,7 +522,7 @@ EDU_DMA_ADDRESS_BITS=32 ./test-swiotlb.sh   # 32-bit 專用 fixture
 2. Lab06 IRQ/status/ACK正常
 3. dma_set_mask_and_coherent return
 4. dma_alloc_coherent CPU pointer / DMA handle
-5. 整個range是否落在28-bit mask
+5. 整個range是否落在設定好的mask（28 或 32）內
 6. BME是否在mapping/handler ready後啟用
 7. RAM→EDU source/destination/count/direction
 8. IRQ status與ACK
@@ -587,7 +611,7 @@ EDU_DMA_ADDRESS_BITS=32 ./test-swiotlb.sh   # 32-bit 專用 fixture
 ## Self-check
 
 1. `dma_alloc_coherent()`回傳的CPU pointer與DMA handle分別給誰使用？
-2. 為什麼EDU使用28-bit DMA mask，不能直接宣稱64-bit？
+2. 為什麼EDU預設使用28-bit DMA mask，何時才允許32-bit？不能直接宣稱64-bit？
 3. RAM→EDU與EDU→RAM時，host DMA address與 `0x40000` 各放在哪個欄位？
 4. 為什麼本single-buffer start path沒有固定加入 `dma_wmb(); wmb();`？
 5. IRQ、START clear、`dma_rmb()`與 `memcmp()`各證明什麼？

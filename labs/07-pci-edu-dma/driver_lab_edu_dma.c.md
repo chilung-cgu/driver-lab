@@ -10,7 +10,7 @@
 PCI core match QEMU EDU 1234:11e8
   -> probe()
   -> enable PCI device / map BAR0
-  -> set 28-bit DMA mask
+  -> configure DMA mask (28 default; 32 only with matching fixture)
   -> allocate coherent DMA buffer
   -> request IRQ
   -> run QEMU EDU full-status ACK regression
@@ -337,23 +337,50 @@ static int dl_edu_dma_wait_for_cmd_clear(struct dl_edu_dma_dev *dl,
 原始碼：
 
 ```c
-static void dl_edu_dma_program_addrs(struct dl_edu_dma_dev *dl,
+static int dl_edu_dma_program_addrs(struct dl_edu_dma_dev *dl,
 				     dma_addr_t src, dma_addr_t dst)
 {
+	/* This lab uses 32-bit MMIO accesses, so its fixture cannot exceed 32 bits. */
+	if ((u64)src > dl->dma_mask || (u64)dst > dl->dma_mask) {
+		dev_err(&dl->pdev->dev,
+			"DMA address exceeds EDU mask: src=%pad dst=%pad\n",
+			&src, &dst);
+		return -ERANGE;
+	}
+
 	iowrite32(lower_32_bits(src), dl->bar0 + DL_EDU_DMA_SRC_REG);
 	iowrite32(lower_32_bits(dst), dl->bar0 + DL_EDU_DMA_DST_REG);
+	return 0;
 }
 ```
 
 這裡的 `src` / `dst` 不是 CPU pointer，而是 device 要用的 DMA address 或 EDU internal buffer offset。
 
-Lab07 先設定 28-bit DMA mask：
+Lab07 預設設定 28-bit DMA mask，並允許 opt-in 的 32-bit fixture：
 
 ```c
-dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(28));
+static unsigned int dma_address_bits = DL_EDU_DMA_ADDRESS_BITS;
+module_param(dma_address_bits, uint, 0444);
+
+static int dl_edu_dma_configure_mask(struct dl_edu_dma_dev *dl)
+{
+	if (dma_address_bits != DL_EDU_DMA_ADDRESS_BITS &&
+	    dma_address_bits != DL_EDU_DMA_ADDRESS_BITS_MAX)
+		return -EINVAL;
+	dl->dma_mask = DMA_BIT_MASK(dma_address_bits);
+	return dma_set_mask_and_coherent(&dl->pdev->dev, dl->dma_mask);
+}
 ```
 
-所以 `lower_32_bits()` 在這個 lab 裡符合目前設計。QEMU EDU 預設只支援 28-bit DMA address；這也是為什麼 source 註解說先用 coherent DMA 配低位址，並以 32-bit MMIO access 寫入 source/destination。
+`dl_edu_dma_configure_mask()` 只接受 28（預設）或 32 兩種值。32-bit 不是「driver
+變強」：EDU 的 DMA register 仍是 32-bit，host 必須以 `-device edu,dma_mask=0xffffffff`
+啟動、module 以 `dma_address_bits=32` 載入，probe 才會成功；其他值（例如 29~31
+或 64）一律回傳 `-EINVAL`。
+
+所以 `lower_32_bits()` 在這個 lab 裡符合目前設計：EDU 的 DMA register 是 32-bit，
+driver 只允許 28-bit（預設）或 32-bit（opt-in fixture）兩種 aperture。QEMU EDU
+預設只支援 28-bit DMA address；32-bit 只有在 host 用 `-device edu,dma_mask=0xffffffff`
+且 module 以 `dma_address_bits=32` 載入時才能通過 probe。
 
 ## 六、`dl_edu_dma_run_once()`：一次 DMA transaction
 
@@ -790,6 +817,7 @@ module_pci_driver(dl_edu_dma_driver);
 
 - `probe()` 沒進來：先確認 guest 內 `lspci -Dnn | grep 1234:11e8` 有輸出。
 - `dma_set_mask_and_coherent()` 失敗：不能繼續 DMA；先確認 EDU 預設 28-bit mask 與 guest DMA addressing 是否相容。
+- `dma_address_bits` 不是 28 或 32：probe 會回傳 `-EINVAL`；確認 insmod 參數與 host 的 `-device edu[,dma_mask=...]` 一致，不要改用 29~31 等中間值。
 - `dma_alloc_coherent()` 失敗：先看 DMA mask 是否成功、guest memory 是否足夠、錯誤 log 是否明確。
 - DMA timeout：先分辨是 `wait_for_completion_timeout()` timeout，還是 command start bit 沒清掉。
 - `unknown-status regression completed or changed IRQ state`：`0x80000000` 不應含 DMA bit；檢查 handler 是否把 nonzero unknown status 完整 ACK、但沒有 `complete()` / 改 count。
@@ -807,7 +835,8 @@ module_pci_driver(dl_edu_dma_driver);
 |---|---|
 | `dma_alloc_coherent()` 回傳哪兩種位址？ | CPU virtual address 和 device 要用的 `dma_addr_t`。 |
 | CPU 可以直接 dereference `dma_addr_t` 嗎？ | 不可以；CPU 用 `void *`/`u8 *`，device 用 DMA address。 |
-| Lab07 為什麼用 `DMA_BIT_MASK(28)`？ | QEMU EDU 預設只支援 28-bit DMA address。 |
+| Lab07 為什麼預設用 `DMA_BIT_MASK(28)`？ | QEMU EDU 預設只支援 28-bit DMA address。 |
+| 什麼時候才能用 `dma_address_bits=32`？ | 只有搭配 host `-device edu,dma_mask=0xffffffff` 的專用 forced-SWIOTLB fixture；driver 仍只用 32-bit MMIO 寫 register，不能宣稱超過 32-bit。 |
 | `DL_EDU_DEVICE_RAM_OFFSET` 是什麼？ | EDU device 內部 4096-byte buffer 的 offset `0x40000`。 |
 | RAM -> EDU 的 command 是什麼？ | `START | IRQ`，direction bit 為 0。 |
 | EDU -> RAM 的 command 是什麼？ | `START | FROM_DEVICE | IRQ`。 |
