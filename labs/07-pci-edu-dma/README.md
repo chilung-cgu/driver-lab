@@ -46,7 +46,7 @@ DMA use-after-free與任意資料毀損。Current source在無法證明quiesce�
   `dma_rmb()`與fail-safe quiesce。
 - **Compile/static 狀態**：audit branch有external-module compile與script gate。
 - **已於 2026-08-16 runtime 驗證**：Lab05–07 smoke 與 forced-SWIOTLB streaming 已在隔離 QEMU EDU guest 實跑；
-  IRQ/command timeout、reset failure、repeated load/unload、KASAN/lockdep 與 fault injection 仍待補。
+  IRQ/command timeout、reset failure、repeated load/unload、KASAN/lockdep 與 fault injection 尚未驗證。
 - **Device-specific**：EDU 28-bit mask、local RAM offset、command/status/IRQ bits與reset behavior不代表真實硬體。
 - **Endianness boundary**：Current target是x86_64 little-endian guest；跨endian target需重新核對QEMU EDU model與accessor。
 

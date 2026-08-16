@@ -27,6 +27,9 @@ jobs:
       - name: Check canonical documentation architecture
         run: python3 scripts/check_docs_architecture.py
 
+      - name: Check all Markdown links and superseded references
+        run: python3 scripts/check_docs_links_and_references.py
+
       - name: Build userspace runtime and CLI
         run: make -C runtime clean all test
 

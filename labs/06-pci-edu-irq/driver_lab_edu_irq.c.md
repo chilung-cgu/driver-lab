@@ -23,7 +23,7 @@ probe() 可以用 completion 等到 IRQ self-test 完成
 這份 companion doc 已查過：
 
 - 本檔 source、[`README.md`](README.md)、[`test.sh.md`](test.sh.md)、[`Makefile.md`](Makefile.md)。
-- 05-07 導讀：[`../../docs/onboarding/05-to-07-pci-irq-dma-bridge.md`](../../docs/onboarding/START-HERE.md)、[`../../docs/guides/linux-guest-05-to-07-walkthrough.md`](../../docs/guides/linux-guest-05-to-07-walkthrough.md)。
+- 05-07 導讀：[`../../docs/onboarding/START-HERE.md`](../../docs/onboarding/START-HERE.md)、[`../../docs/guides/linux-guest-05-to-07-walkthrough.md`](../../docs/guides/linux-guest-05-to-07-walkthrough.md)。
 - Linux kernel documentation：PCI MSI HOWTO、generic IRQ、completion API。
 - QEMU 官方 `EDU device` spec。
 

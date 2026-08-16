@@ -28,7 +28,7 @@ scripts/check-kernel-env.sh
 
 相關文件：
 
-- [`../docs/onboarding/check-kernel-env-explained.md`](../docs/onboarding/linux-environment.md)：用範例輸出教你怎麼讀結果。
+- [`../docs/onboarding/linux-environment.md`](../docs/onboarding/linux-environment.md)：用範例輸出教你怎麼讀結果。
 - [`mount-debugfs.sh`](mount-debugfs.sh)：當這支腳本提醒 debugfs 尚未掛載時，下一步通常會用它。
 - [`quality.sh`](quality.sh)：repo 的語法、Markdown link 與 checkpatch 檢查入口。
 
@@ -263,7 +263,7 @@ if [ -r /proc/sys/kernel/tainted ]; then
     if [ "$taint_value" = "0" ]; then
         info "Taint summary: kernel is currently clean/untainted"
     else
-        warn "kernel taint is non-zero; see docs/check-kernel-env-explained.md before debugging strange failures."
+        warn "kernel taint is non-zero; see docs/onboarding/linux-environment.md before debugging strange failures."
     fi
 fi
 ```
@@ -284,7 +284,7 @@ fi
 |---|---|
 | [`mount-debugfs.sh`](mount-debugfs.sh) | `check-kernel-env.sh` 發現 debugfs 未掛載時的修復工具。 |
 | [`quality.sh`](quality.sh) | repo 的品質檢查入口；也會依 Linux kernel tree 決定是否跑 checkpatch。 |
-| [`../docs/onboarding/check-kernel-env-explained.md`](../docs/onboarding/linux-environment.md) | 用範例輸出說明每一行健檢結果。 |
+| [`../docs/onboarding/linux-environment.md`](../docs/onboarding/linux-environment.md) | 用範例輸出說明每一行健檢結果。 |
 | [`../labs/00-hello-module/README.md`](../labs/00-hello-module/README.md) | 通過環境健檢後，第一個真正開始 build/load module 的 lab。 |
 
 ## 常見卡點

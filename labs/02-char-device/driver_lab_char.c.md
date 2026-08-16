@@ -24,7 +24,7 @@
 這份 companion doc 已查過：
 
 - 本檔 source、[`README.md`](README.md)、[`test.sh`](test.sh)、[`Makefile`](Makefile)。
-- repo 內的 [`../../docs/onboarding/01-to-03-user-kernel-abi-bridge.md`](../../docs/onboarding/START-HERE.md) 與 [`../../docs/onboarding/kernel-filesystem-surfaces.md`](../../docs/onboarding/kernel-interfaces.md)。
+- repo 內的 [`../../docs/onboarding/kernel-interfaces.md`](../../docs/onboarding/kernel-interfaces.md)：user/kernel ABI 與 filesystem surfaces 的銜接整理。
 - Linux kernel documentation：device driver infrastructure、kernel API helpers、sysfs、allocated devices。
 - Linux man-pages：`open(2)`、`read(2)`、`write(2)`。
 

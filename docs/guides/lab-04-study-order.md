@@ -12,22 +12,22 @@
 
 不穩時先讀：
 
-1. [`../onboarding/01-to-03-user-kernel-abi-bridge.md`](../onboarding/START-HERE.md)
+1. [`../onboarding/kernel-interfaces.md`](../onboarding/kernel-interfaces.md)：補 user/kernel ABI 與 filesystem surface 的銜接。
 2. [`../../labs/03-ioctl-poll-mmap/README.md`](../../labs/03-ioctl-poll-mmap/README.md)
 3. [`../concepts/concurrency-primer.md`](../concepts/concurrency-primer.md)
-4. [`../onboarding/kernel-api-parameter-roles.md`](../onboarding/kernel-interfaces.md)
+4. [`../onboarding/kernel-interfaces.md`](../onboarding/kernel-interfaces.md)：kernel API 與參數角色的整理。
 
 ## 建議閱讀順序
 
-1. [`../onboarding/03-to-05-concurrency-pci-bridge.md`](../onboarding/START-HERE.md) 的 `03 → 04`。
+1. [`../onboarding/START-HERE.md`](../onboarding/START-HERE.md) 的 `03 → 04`。
 2. [`../concepts/concurrency-primer.md`](../concepts/concurrency-primer.md)：先分清 mutex、spinlock、waitqueue、completion 解決的問題不同。
-3. [`lab-04-walkthrough.md`](lab-04-study-order.md)：建立 lost update 與 unsafe/safe 對照。
+3. [`lab-04-study-order.md`](lab-04-study-order.md)：建立 lost update 與 unsafe/safe 對照（本文件）。
 4. [`../../labs/04-locking-and-races/README.md`](../../labs/04-locking-and-races/README.md)：看本 lab 的邊界與驗收。
 5. [`../../labs/04-locking-and-races/driver_lab_race_uapi.h`](../../labs/04-locking-and-races/driver_lab_race_uapi.h)：先讀 ABI。
 6. [`../../tests/driver_lab_race_cli.c`](../../tests/driver_lab_race_cli.c)：看 userspace 如何產生並行 ioctl。
 7. [`../../labs/04-locking-and-races/driver_lab_race.c`](../../labs/04-locking-and-races/driver_lab_race.c)：照下方 source trace。
 8. [`../../labs/04-locking-and-races/test.sh`](../../labs/04-locking-and-races/test.sh)：理解 smoke test 能證明與不能證明的事。
-9. [`../../labs/04-locking-and-races/debug-checklist.md`](../../labs/04-locking-and-races/debug-checklist.md) 與 [`../reference/debugging-playbook.md`](../reference/debugging.md)。
+9. [`../../labs/04-locking-and-races/debug-checklist.md`](../../labs/04-locking-and-races/debug-checklist.md) 與 [`../reference/debugging.md`](../reference/debugging.md)。
 
 Companion `.c.md/.h.md/.sh.md` 若與 current source 或 accuracy audit 不一致，以 current source為準。
 

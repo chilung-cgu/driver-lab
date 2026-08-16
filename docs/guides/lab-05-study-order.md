@@ -22,7 +22,7 @@
 
 ## 建議閱讀順序
 
-1. [`../onboarding/03-to-05-concurrency-pci-bridge.md`](../onboarding/START-HERE.md) 的`04 → 05`。
+1. [`../onboarding/START-HERE.md`](../onboarding/START-HERE.md) 的`04 → 05`。
 2. [`../concepts/pcie-primer.md`](../concepts/pcie-primer.md)：先建立PCI function、BAR resource、`__iomem`與posted-write completion的正確區分。
 3. [`qemu-edu-first-pass.md`](qemu-edu-first-pass.md)。
 4. [`../../qemu/README.md`](../../qemu/README.md)與bring-up checklist。
@@ -30,8 +30,8 @@
 6. [`../../labs/05-pci-edu-mmio/README.md`](../../labs/05-pci-edu-mmio/README.md)。
 7. [`../../labs/05-pci-edu-mmio/driver_lab_edu_mmio.c`](../../labs/05-pci-edu-mmio/driver_lab_edu_mmio.c)：照下方source trace。
 8. [`../../labs/05-pci-edu-mmio/test.sh`](../../labs/05-pci-edu-mmio/test.sh)：看它實際驗什麼。
-9. [`../../labs/05-pci-edu-mmio/debug-checklist.md`](../../labs/05-pci-edu-mmio/debug-checklist.md)、[`../reference/common-failures.md`](../reference/debugging.md)、[`../reference/debugging-playbook.md`](../reference/debugging.md)。
-10. 最後讀 [`../onboarding/05-to-07-pci-irq-dma-bridge.md`](../onboarding/START-HERE.md)，只先看後續地圖。
+9. [`../../labs/05-pci-edu-mmio/debug-checklist.md`](../../labs/05-pci-edu-mmio/debug-checklist.md)、[`../reference/debugging.md`](../reference/debugging.md)。
+10. 最後讀 [`../onboarding/START-HERE.md`](../onboarding/START-HERE.md)，只先看後續地圖。
 
 Companion `.c.md/.sh.md` 若與current source或accuracy audit不同，以current source為準。
 
