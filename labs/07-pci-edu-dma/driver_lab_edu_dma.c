@@ -30,6 +30,7 @@
 #define DL_EDU_DEVICE_RAM_OFFSET 0x00040000ULL
 #define DL_EDU_DEVICE_RAM_BYTES 4096U
 #define DL_EDU_DMA_ADDRESS_BITS 28U
+#define DL_EDU_DMA_ADDRESS_BITS_MAX 32U
 #define DL_EDU_FACTORIAL_IRQ_MASK 0x00000001U
 #define DL_EDU_LAB06_TEST_IRQ_MASK 0x00000002U
 #define DL_EDU_DMA_IRQ_MASK 0x00000100U
@@ -50,7 +51,16 @@
 static bool streaming_probe;
 module_param(streaming_probe, bool, 0444);
 MODULE_PARM_DESC(streaming_probe,
-		 "run the single-buffer streaming DMA probe for swiotlb validation");
+			 "run the single-buffer streaming DMA probe for swiotlb validation");
+
+/*
+ * This lab deliberately programs the low 32 bits of EDU's DMA registers.
+ * Keep the default EDU aperture, but permit a matching 32-bit QEMU fixture.
+ */
+static unsigned int dma_address_bits = DL_EDU_DMA_ADDRESS_BITS;
+module_param(dma_address_bits, uint, 0444);
+MODULE_PARM_DESC(dma_address_bits,
+			 "EDU DMA aperture bits for this 32-bit-register lab (28 default; use 32 only with matching QEMU fixture)");
 
 struct dl_edu_dma_dev {
 	struct pci_dev *pdev;
@@ -73,7 +83,35 @@ struct dl_edu_dma_dev {
 	void *stream_tx_buf;
 	dma_addr_t stream_tx_dma;
 	bool stream_tx_mapped;
+	u64 dma_mask;
 };
+
+static int dl_edu_dma_configure_mask(struct dl_edu_dma_dev *dl)
+{
+	int ret;
+
+	if (dma_address_bits != DL_EDU_DMA_ADDRESS_BITS &&
+	    dma_address_bits != DL_EDU_DMA_ADDRESS_BITS_MAX) {
+		dev_err(&dl->pdev->dev,
+			"dma_address_bits=%u is unsupported; use matching %u- or %u-bit EDU fixture\n",
+			dma_address_bits, DL_EDU_DMA_ADDRESS_BITS,
+			DL_EDU_DMA_ADDRESS_BITS_MAX);
+		return -EINVAL;
+	}
+
+	dl->dma_mask = DMA_BIT_MASK(dma_address_bits);
+	ret = dma_set_mask_and_coherent(&dl->pdev->dev, dl->dma_mask);
+	if (ret) {
+		dev_err(&dl->pdev->dev,
+			"dma_set_mask_and_coherent(%u) failed: %d\n",
+			dma_address_bits, ret);
+		return ret;
+	}
+
+	dev_info(&dl->pdev->dev, "dma mask configured to %u bits\n",
+		 dma_address_bits);
+	return 0;
+}
 
 static irqreturn_t dl_edu_dma_handler(int irq, void *opaque)
 {
@@ -184,9 +222,8 @@ static int dl_edu_dma_wait_for_status_clear(struct dl_edu_dma_dev *dl,
 static int dl_edu_dma_program_addrs(struct dl_edu_dma_dev *dl,
 							 dma_addr_t src, dma_addr_t dst)
 {
-	/* EDU is configured with a 28-bit mask, so the 32-bit access is sufficient. */
-	if ((u64)src > DMA_BIT_MASK(DL_EDU_DMA_ADDRESS_BITS) ||
-	    (u64)dst > DMA_BIT_MASK(DL_EDU_DMA_ADDRESS_BITS)) {
+	/* This lab uses 32-bit MMIO accesses, so its fixture cannot exceed 32 bits. */
+	if ((u64)src > dl->dma_mask || (u64)dst > dl->dma_mask) {
 		dev_err(&dl->pdev->dev,
 			"DMA address exceeds EDU mask: src=%pad dst=%pad\n",
 			&src, &dst);
@@ -349,8 +386,7 @@ static int dl_edu_dma_run_streaming_probe(struct dl_edu_dma_dev *dl,
 		return -EIO;
 	}
 	dl->stream_tx_mapped = true;
-	if ((u64)dl->stream_tx_dma >
-	    DMA_BIT_MASK(DL_EDU_DMA_ADDRESS_BITS) - (PAGE_SIZE - 1UL)) {
+	if ((u64)dl->stream_tx_dma > dl->dma_mask - (PAGE_SIZE - 1UL)) {
 		dev_err(&dl->pdev->dev,
 			"streaming DMA range exceeds EDU mask: base=%pad bytes=%lu\n",
 			&dl->stream_tx_dma, PAGE_SIZE);
@@ -582,16 +618,9 @@ static int dl_edu_dma_probe(struct pci_dev *pdev,
 		 "probe takeover confirmed DMA command idle with BME disabled\n");
 	dl_edu_dma_ack_pending(dl);
 
-	ret = dma_set_mask_and_coherent(&pdev->dev,
-						DMA_BIT_MASK(DL_EDU_DMA_ADDRESS_BITS));
-	if (ret) {
-		dev_err(&pdev->dev,
-			"dma_set_mask_and_coherent(%u) failed: %d\n",
-			DL_EDU_DMA_ADDRESS_BITS, ret);
+	ret = dl_edu_dma_configure_mask(dl);
+	if (ret)
 		goto err_iounmap;
-	}
-	dev_info(&pdev->dev, "dma mask configured to %u bits\n",
-		 DL_EDU_DMA_ADDRESS_BITS);
 
 	dl->dma_buf = dma_alloc_coherent(&pdev->dev, DL_EDU_DMA_TOTAL_BYTES,
 					  &dl->dma_handle, GFP_KERNEL);
@@ -601,8 +630,7 @@ static int dl_edu_dma_probe(struct pci_dev *pdev,
 	}
 
 	if ((u64)dl->dma_handle >
-	    DMA_BIT_MASK(DL_EDU_DMA_ADDRESS_BITS) -
-	    (DL_EDU_DMA_TOTAL_BYTES - 1U)) {
+	    dl->dma_mask - (DL_EDU_DMA_TOTAL_BYTES - 1U)) {
 		dev_err(&pdev->dev,
 			"coherent DMA range exceeds EDU mask: base=%pad bytes=%u\n",
 			&dl->dma_handle, DL_EDU_DMA_TOTAL_BYTES);

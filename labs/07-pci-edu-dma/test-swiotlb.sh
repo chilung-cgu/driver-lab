@@ -9,6 +9,7 @@ fi
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
 ROOT_DIR=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
 MODULE_NAME=driver_lab_edu_dma
+DMA_ADDRESS_BITS=${EDU_DMA_ADDRESS_BITS:-28}
 DMESG_LOG=$(mktemp)
 DMESG_ALL=$(mktemp)
 TRACE_LOG=$(mktemp)
@@ -44,16 +45,33 @@ fi
 FS_SUDO=$SUDO
 . "$ROOT_DIR/scripts/fs-surface-checks.sh"
 
+case "$DMA_ADDRESS_BITS" in
+    28|32)
+        ;;
+    *)
+        printf 'ERROR: EDU_DMA_ADDRESS_BITS must be 28 (default EDU) or 32 (dedicated fixture).\n' >&2
+        exit 1
+        ;;
+esac
+
 if ! command -v lspci >/dev/null 2>&1; then
     printf 'ERROR: 找不到 lspci。請先安裝 pciutils。\n' >&2
     exit 1
 fi
-EDU_BDF=$(lspci -Dnn | awk '/1234:11e8/ { print $1; exit }')
-if [ -z "$EDU_BDF" ]; then
-    printf 'ERROR: guest 內看不到 QEMU EDU (1234:11e8)。\n' >&2
+EDU_BDFS=$(lspci -Dnn | awk '/1234:11e8/ { print $1 }')
+EDU_COUNT=$(printf '%s\n' "$EDU_BDFS" | awk 'NF { count++ } END { print count + 0 }')
+if [ "$EDU_COUNT" -ne 1 ]; then
+    printf 'ERROR: SWIOTLB fixture must expose exactly one QEMU EDU (1234:11e8); found %s.\n' \
+        "$EDU_COUNT" >&2
     exit 1
 fi
+EDU_BDF=$EDU_BDFS
 fs_expect_pci_device_id 0x1234 0x11e8
+
+if [ "$DMA_ADDRESS_BITS" -ne 28 ]; then
+    printf '%s\n' \
+        "INFO: non-default EDU aperture requires matching host configuration; record -device edu,dma_mask before treating this as evidence."
+fi
 
 if ! tr ' ' '\n' </proc/cmdline | grep -Fxq 'swiotlb=force'; then
     printf 'ERROR: 此測試只接受 boot 參數 swiotlb=force 的獨立 guest。\n' >&2
@@ -114,8 +132,15 @@ make
 printf '%s\n' "$DMESG_MARKER" | $SUDO tee /dev/kmsg >/dev/null
 printf '%s\n' "$TRACE_BEGIN" | $SUDO tee "$TRACE_MARKER" >/dev/null
 
-$SUDO insmod "./${MODULE_NAME}.ko" streaming_probe=1
+$SUDO insmod "./${MODULE_NAME}.ko" streaming_probe=1 \
+    dma_address_bits="$DMA_ADDRESS_BITS"
 loaded_by_test=1
+actual_dma_address_bits=$($SUDO cat "/sys/module/${MODULE_NAME}/parameters/dma_address_bits")
+if [ "$actual_dma_address_bits" != "$DMA_ADDRESS_BITS" ]; then
+    printf 'ERROR: module parameter mismatch: expected %s, got %s.\n' \
+        "$DMA_ADDRESS_BITS" "$actual_dma_address_bits" >&2
+    exit 1
+fi
 fs_expect_pci_driver_bound "$MODULE_NAME" 0x1234 0x11e8
 fs_expect_proc_interrupt "$MODULE_NAME"
 
@@ -149,19 +174,46 @@ awk -v marker="$DMESG_MARKER" '
 cat "$DMESG_LOG"
 
 PAGE_BYTES=$(getconf PAGESIZE)
-if ! grep -F "dev_name: $EDU_BDF " "$TRACE_WINDOW" |
-    grep -Fq "size=$PAGE_BYTES FORCE"; then
-    printf 'ERROR: 沒有觀察到 %s 的 %s-byte FORCE SWIOTLB bounce trace。\n' \
-        "$EDU_BDF" "$PAGE_BYTES" >&2
+EXPECTED_DMA_MASK=fffffff
+if [ "$DMA_ADDRESS_BITS" -eq 32 ]; then
+    EXPECTED_DMA_MASK=ffffffff
+fi
+if ! grep -F "dev_name: $EDU_BDF " "$TRACE_WINDOW" >"$TRACE_LOG"; then
+    printf 'ERROR: 沒有觀察到 %s 的 SWIOTLB trace event。\n' "$EDU_BDF" >&2
     cat "$TRACE_WINDOW" >&2
     exit 1
 fi
-cat "$TRACE_WINDOW"
+if ! grep -F "dma_mask=$EXPECTED_DMA_MASK" "$TRACE_LOG" |
+    grep -Fq "size=$PAGE_BYTES FORCE"; then
+    printf 'ERROR: 沒有觀察到 %s 的 %s-byte FORCE SWIOTLB bounce trace。\n' \
+        "$EDU_BDF" "$PAGE_BYTES" >&2
+    cat "$TRACE_LOG" >&2
+    exit 1
+fi
+if [ "$DMA_ADDRESS_BITS" -eq 32 ]; then
+    if ! sed -n 's/.*dev_addr=\([0-9a-f][0-9a-f]*\) .*/\1/p' "$TRACE_LOG" |
+        awk 'BEGIN { ok = 0; limit = 268435455 }
+             { val = 0
+               for (i = 1; i <= length($0); i++) {
+                   c = substr($0, i, 1)
+                   n = index("0123456789abcdef", c) - 1
+                   if (n < 0) { val = -1; break }
+                   val = val * 16 + n
+               }
+               if (val > limit) ok = 1 }
+             END { exit !ok }'; then
+        printf '%s\n' \
+            'ERROR: 32-bit fixture did not observe a streaming DMA address above the default 28-bit aperture.' >&2
+        cat "$TRACE_LOG" >&2
+        exit 1
+    fi
+fi
+cat "$TRACE_LOG"
 
 grep -q "${MODULE_NAME}:" "$DMESG_LOG"
 grep -q 'probe takeover confirmed DMA command idle with BME disabled' \
     "$DMESG_LOG"
-grep -q 'dma mask configured' "$DMESG_LOG"
+grep -Fq "dma mask configured to ${DMA_ADDRESS_BITS} bits" "$DMESG_LOG"
 grep -q 'coherent buffer allocated' "$DMESG_LOG"
 grep -q 'EDU IRQ ACK regression: unknown status=0x80000000 cleared without completion' \
     "$DMESG_LOG"
@@ -191,4 +243,5 @@ if grep -Eq 'BUG:|WARNING:|KASAN:|KCSAN:|Oops:|use-after-free|DMA-API:|cannot pr
 fi
 
 make clean
-printf '07-pci-edu-dma forced-SWIOTLB streaming smoke test passed.\n'
+printf '07-pci-edu-dma forced-SWIOTLB streaming smoke test passed (dma_address_bits=%s).\n' \
+    "$DMA_ADDRESS_BITS"

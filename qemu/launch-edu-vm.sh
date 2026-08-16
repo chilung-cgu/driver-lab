@@ -7,6 +7,7 @@ QEMU_IMAGE_FORMAT=${QEMU_IMAGE_FORMAT:-qcow2}
 QEMU_GUEST_ARCH=${QEMU_GUEST_ARCH:-}
 QEMU_ACCEL=${QEMU_ACCEL:-}
 QEMU_EXTRA_ARGS=${QEMU_EXTRA_ARGS:-}
+EDU_DMA_ADDRESS_BITS=${EDU_DMA_ADDRESS_BITS:-}
 SSH_PORT=${SSH_PORT:-2222}
 MEMORY_MB=${MEMORY_MB:-2048}
 SMP_CPUS=${SMP_CPUS:-2}
@@ -100,6 +101,24 @@ is_positive_integer() {
     esac
 }
 
+edu_device_argument() {
+    case "$EDU_DMA_ADDRESS_BITS" in
+        '')
+            printf '%s\n' edu
+            ;;
+        28)
+            printf '%s\n' edu,dma_mask=0x0fffffff
+            ;;
+        32)
+            printf '%s\n' edu,dma_mask=0xffffffff
+            ;;
+        *)
+            printf 'ERROR: EDU_DMA_ADDRESS_BITS must be empty, 28, or 32.\n' >&2
+            return 1
+            ;;
+    esac
+}
+
 if ! command -v "$QEMU_BIN" >/dev/null 2>&1; then
     printf 'ERROR: 找不到 QEMU binary: %s\n' "$QEMU_BIN" >&2
     exit 1
@@ -144,6 +163,8 @@ if [ -z "$QEMU_GUEST_ARCH" ]; then
     QEMU_GUEST_ARCH=$(infer_guest_arch)
 fi
 
+EDU_DEVICE=$(edu_device_argument) || exit 1
+
 if [ "$QEMU_GUEST_ARCH" = unknown ]; then
     printf 'ERROR: 無法從 %s 推斷 guest architecture；請設定 QEMU_GUEST_ARCH。\n' \
         "$QEMU_BIN" >&2
@@ -174,6 +195,7 @@ fi
 printf 'Launching QEMU: host=%s/%s guest=%s accel=%s image-format=%s\n' \
     "$HOST_OS" "$HOST_ARCH" "$QEMU_GUEST_ARCH" "$QEMU_ACCEL" \
     "$QEMU_IMAGE_FORMAT"
+printf 'EDU device: %s\n' "$EDU_DEVICE"
 
 # QEMU_EXTRA_ARGS is an explicitly trusted local escape hatch. For complex
 # quoting or untrusted input, use a local wrapper/array-capable shell instead.
@@ -185,6 +207,6 @@ exec "$QEMU_BIN" \
     -drive "file=$QEMU_IMAGE,if=virtio,format=$QEMU_IMAGE_FORMAT" \
     -netdev "user,id=n1,hostfwd=tcp::${SSH_PORT}-:22" \
     -device virtio-net-pci,netdev=n1 \
-    -device edu \
+    -device "$EDU_DEVICE" \
     -nographic \
     $QEMU_EXTRA_ARGS

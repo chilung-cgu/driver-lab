@@ -76,7 +76,7 @@ cat "$DMESG_LOG"
 grep -q "${MODULE_NAME}:" "$DMESG_LOG"
 grep -q 'probe takeover confirmed DMA command idle with BME disabled' \
     "$DMESG_LOG"
-grep -q 'dma mask configured' "$DMESG_LOG"
+grep -Fq 'dma mask configured to 28 bits' "$DMESG_LOG"
 grep -q 'coherent buffer allocated' "$DMESG_LOG"
 grep -q 'EDU IRQ ACK regression: unknown status=0x80000000 cleared without completion' \
     "$DMESG_LOG"
