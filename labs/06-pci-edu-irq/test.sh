@@ -1,10 +1,8 @@
 #!/bin/sh
 set -eu
 
-# 這支 smoke test 必須在看得到 QEMU EDU 的 Linux guest 內跑。
-# 它驗證 PCI IRQ request、raise、handler、acknowledge 與 self-test log。
 if [ "$(uname -s)" != "Linux" ]; then
-    printf 'ERROR: test.sh 必須在 Linux 主機或 Linux guest 上執行。\n' >&2
+    printf 'ERROR: test.sh 必須在 Linux guest 上執行。\n' >&2
     exit 1
 fi
 
@@ -12,13 +10,17 @@ SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
 ROOT_DIR=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
 MODULE_NAME=driver_lab_edu_irq
 DMESG_LOG=$(mktemp)
+DMESG_ALL=$(mktemp)
+DMESG_MARKER="${MODULE_NAME}: smoke-test marker pid=$$ epoch=$(date +%s)"
 SUDO=
+loaded_by_test=0
 
 cleanup() {
-    if lsmod | grep -q "^${MODULE_NAME} "; then
+    if [ "$loaded_by_test" -eq 1 ] && \
+       lsmod | grep -q "^${MODULE_NAME} "; then
         $SUDO rmmod "$MODULE_NAME" || true
     fi
-    rm -f "$DMESG_LOG"
+    rm -f "$DMESG_LOG" "$DMESG_ALL"
 }
 
 trap cleanup EXIT INT TERM
@@ -33,34 +35,68 @@ if ! command -v lspci >/dev/null 2>&1; then
     printf 'ERROR: 找不到 lspci。請先安裝 pciutils。\n' >&2
     exit 1
 fi
-
-if ! lspci -nn | grep -q '1234:11e8'; then
-    printf 'ERROR: guest 內看不到 QEMU edu (1234:11e8)。\n' >&2
+if ! lspci -Dnn | grep -q '1234:11e8'; then
+    printf 'ERROR: guest 內看不到 QEMU EDU (1234:11e8)。\n' >&2
     exit 1
 fi
 fs_expect_pci_device_id 0x1234 0x11e8
 
+if lsmod | grep -q "^${MODULE_NAME} "; then
+    printf 'ERROR: %s is already loaded; unload it before this isolated test.\n' \
+        "$MODULE_NAME" >&2
+    exit 1
+fi
+
 cd "$SCRIPT_DIR"
 make
 
-# 如果前一次測試留下同名 module，先卸載，避免 IRQ/vector 狀態混亂。
-if lsmod | grep -q "^${MODULE_NAME} "; then
-    $SUDO rmmod "$MODULE_NAME"
-fi
+printf '%s\n' "$DMESG_MARKER" | $SUDO tee /dev/kmsg >/dev/null
 
-# 清 dmesg 只是為了讓本次測試的成功訊號比較容易 grep。
-$SUDO dmesg -C || true
 $SUDO insmod "./${MODULE_NAME}.ko"
+loaded_by_test=1
 fs_expect_pci_driver_bound "$MODULE_NAME" 0x1234 0x11e8
 fs_expect_proc_interrupt "$MODULE_NAME"
-$SUDO dmesg | tee "$DMESG_LOG"
-
-grep -q 'request_irq ok' "$DMESG_LOG"
-grep -q 'irq status=' "$DMESG_LOG"
-grep -q 'irq self-test passed' "$DMESG_LOG"
 
 $SUDO rmmod "$MODULE_NAME"
-fs_expect_absent "/sys/bus/pci/drivers/$MODULE_NAME" "PCI driver sysfs directory"
-make clean
+loaded_by_test=0
+fs_expect_absent "/sys/bus/pci/drivers/$MODULE_NAME" \
+    "PCI driver sysfs directory"
 
+$SUDO dmesg >"$DMESG_ALL"
+if ! grep -Fq "$DMESG_MARKER" "$DMESG_ALL"; then
+    printf 'ERROR: kernel log marker was lost; cannot isolate this test run.\n' >&2
+    exit 1
+fi
+awk -v marker="$DMESG_MARKER" '
+    index($0, marker) { capture = 1; next }
+    capture { print }
+' "$DMESG_ALL" >"$DMESG_LOG"
+cat "$DMESG_LOG"
+
+grep -q "${MODULE_NAME}: probe start" "$DMESG_LOG"
+grep -q 'probe takeover confirmed DMA command idle with BME disabled' \
+    "$DMESG_LOG"
+grep -q 'request_irq ok' "$DMESG_LOG"
+grep -q 'EDU IRQ ACK regression: unknown status=0x80000000 cleared without completion' \
+    "$DMESG_LOG"
+grep -q 'EDU IRQ ACK regression: all-status=0xffffffff cleared; completion drained' \
+    "$DMESG_LOG"
+grep -q 'irq status=0x' "$DMESG_LOG"
+grep -q 'self-test passed count=2' "$DMESG_LOG"
+grep -q 'device removed' "$DMESG_LOG"
+
+if grep -F 'acknowledged unexpected known EDU IRQ status=' "$DMESG_LOG" >/dev/null ||
+    grep -F 'acknowledged EDU IRQ with unknown bits status=' "$DMESG_LOG" |
+        grep -Ev 'status=0x(80000000|ffffffff)' >/dev/null; then
+    printf 'ERROR: uncontrolled unexpected EDU IRQ status in this run.\n' >&2
+    exit 1
+fi
+
+if grep -Eq 'timed out|still set|BUG:|WARNING:|KASAN:|KCSAN:|Oops:|use-after-free' \
+    "$DMESG_LOG"; then
+    printf 'ERROR: IRQ failure, kernel warning, or sanitizer report in this run.\n' >&2
+    exit 1
+fi
+
+make clean
 printf '06-pci-edu-irq smoke test passed.\n'

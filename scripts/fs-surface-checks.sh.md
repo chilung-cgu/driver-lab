@@ -28,7 +28,7 @@ fs_expect_char_device "/dev/driver_lab_ctl0" \
     "driver_lab_ctl"
 ```
 
-它和 [`../docs/onboarding/kernel-filesystem-surfaces.md`](../docs/onboarding/kernel-filesystem-surfaces.md) 是一組搭配：
+它和 [`../docs/onboarding/kernel-interfaces.md`](../docs/onboarding/kernel-interfaces.md) 是一組搭配：
 
 - onboarding 文件解釋「為什麼會出現這些路徑」。
 - 這支 helper 讓 smoke test 實際檢查「路徑有沒有出現、型別是否正確、報表是否列出」。
@@ -382,7 +382,7 @@ fs_expect_proc_interrupt() {
 
 | 檔案 | 關係 |
 |---|---|
-| [`../docs/onboarding/kernel-filesystem-surfaces.md`](../docs/onboarding/kernel-filesystem-surfaces.md) | 解釋 `/dev`、`/sys`、`/proc`、debugfs 的學習模型。 |
+| [`../docs/onboarding/kernel-interfaces.md`](../docs/onboarding/kernel-interfaces.md) | 解釋 `/dev`、`/sys`、`/proc`、debugfs 的學習模型。 |
 | [`../labs/02-char-device/test.sh`](../labs/02-char-device/test.sh) | 使用 char device surface 檢查。 |
 | [`../labs/03-ioctl-poll-mmap/test.sh`](../labs/03-ioctl-poll-mmap/test.sh) | 使用 char device surface 檢查 Lab03 control device。 |
 | [`../labs/05-pci-edu-mmio/test.sh`](../labs/05-pci-edu-mmio/test.sh) | 使用 PCI device / driver bind 檢查。 |

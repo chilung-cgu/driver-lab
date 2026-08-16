@@ -1,0 +1,58 @@
+name: quality
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  static-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install static tools and a buildable kernel headers tree
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck linux-headers-generic
+
+      - name: Shell syntax, ShellCheck, Markdown links, kernel-facing checkpatch
+        run: ./scripts/quality.sh .
+
+      - name: Check Lab teaching structure
+        run: python3 scripts/check_pedagogy_structure.py
+
+      - name: Check canonical documentation architecture
+        run: python3 scripts/check_docs_architecture.py
+
+      - name: Check all Markdown links and superseded references
+        run: python3 scripts/check_docs_links_and_references.py
+
+      - name: Build userspace runtime and CLI
+        run: make -C runtime clean all test
+
+      - name: Compile Labs 00-07 as external modules
+        shell: bash
+        run: |
+          set -euo pipefail
+          KDIR=$(find /usr/src -maxdepth 1 -type d \
+            -name 'linux-headers-*-generic' | sort -V | tail -n 1)
+          test -n "$KDIR"
+          echo "Using KDIR=$KDIR"
+
+          for lab in \
+            labs/00-hello-module \
+            labs/01-debugfs-logging \
+            labs/02-char-device \
+            labs/03-ioctl-poll-mmap \
+            labs/04-locking-and-races \
+            labs/05-pci-edu-mmio \
+            labs/06-pci-edu-irq \
+            labs/07-pci-edu-dma; do
+            make -C "$lab" KDIR="$KDIR"
+          done
+
+      - name: Check whitespace
+        run: git diff --check

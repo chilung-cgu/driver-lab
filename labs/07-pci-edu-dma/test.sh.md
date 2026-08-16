@@ -40,7 +40,7 @@ confirm lspci sees 1234:11e8
 confirm PCI sysfs has vendor/device 0x1234:0x11e8
 make driver_lab_edu_dma.ko
 remove stale module if needed
-clear dmesg
+write a unique dmesg marker
 insmod
 confirm driver bound
 confirm /proc/interrupts lists driver_lab_edu_dma
@@ -83,7 +83,10 @@ SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
 ROOT_DIR=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
 MODULE_NAME=driver_lab_edu_dma
 DMESG_LOG=$(mktemp)
+DMESG_ALL=$(mktemp)
+DMESG_MARKER="${MODULE_NAME}: smoke-test marker pid=$$ epoch=$(date +%s)"
 SUDO=
+loaded_by_test=0
 ```
 
 | 變數 | 用途 |
@@ -92,6 +95,8 @@ SUDO=
 | `ROOT_DIR` | repo 根目錄，用來 source 共用 filesystem helper。 |
 | `MODULE_NAME` | `driver_lab_edu_dma`，用於 `lsmod`、`rmmod`、sysfs、grep。 |
 | `DMESG_LOG` | 保存本次 `dmesg`，讓後面 grep 成功訊號。 |
+| `DMESG_ALL` | 保存單次完整 snapshot，之後由 marker 切出本輪區段。 |
+| `DMESG_MARKER` | 含 PID 與 epoch 的唯一 kernel-log 起點，不清全域 log。 |
 | `SUDO` | 不是 root 時設為 `sudo`。 |
 
 ## 三、cleanup 與 trap
@@ -100,10 +105,11 @@ SUDO=
 
 ```sh
 cleanup() {
-    if lsmod | grep -q "^${MODULE_NAME} "; then
+    if [ "$loaded_by_test" -eq 1 ] && \
+       lsmod | grep -q "^${MODULE_NAME} "; then
         $SUDO rmmod "$MODULE_NAME" || true
     fi
-    rm -f "$DMESG_LOG"
+    rm -f "$DMESG_LOG" "$DMESG_ALL"
 }
 
 trap cleanup EXIT INT TERM
@@ -130,7 +136,7 @@ FS_SUDO=$SUDO
 . "$ROOT_DIR/scripts/fs-surface-checks.sh"
 ```
 
-不是 root 時，module load/unload 與 `dmesg -C` 需要 sudo。
+不是 root 時，module load/unload、寫 `/dev/kmsg` marker 與讀 `dmesg` 需要 sudo。
 
 source helper 後，Lab07 使用：
 
@@ -188,20 +194,23 @@ fi
 driver_lab_edu_dma.ko
 ```
 
-如果上一輪測試留下同名 module，先卸載。這對 DMA lab 很重要，因為殘留 module 可能保留 IRQ/vector/DMA allocation 狀態，干擾下一輪觀測。
+如果同名 module 已存在，測試直接拒絕執行，避免卸載其他 session
+擁有的 IRQ/vector/DMA allocation。
 
-## 七、清 dmesg、insmod、確認 bind
+## 七、寫唯一 marker、insmod、確認 bind
 
 原始碼：
 
 ```sh
-$SUDO dmesg -C || true
+printf '%s\n' "$DMESG_MARKER" | $SUDO tee /dev/kmsg >/dev/null
 $SUDO insmod "./${MODULE_NAME}.ko"
+loaded_by_test=1
 fs_expect_pci_driver_bound "$MODULE_NAME" 0x1234 0x11e8
 fs_expect_proc_interrupt "$MODULE_NAME"
 ```
 
-`dmesg -C` 只是為了讓本次 grep 更乾淨。某些環境可能不允許清 dmesg，所以有 `|| true`。
+測試不清全域 kernel log。marker 之後的 snapshot 才是本輪證據；
+marker 若因 ring-buffer wrap 消失，測試明確失敗。
 
 `insmod` 後，driver 的 `probe()` 會直接做完整 round-trip self-test。這代表：
 
@@ -222,8 +231,14 @@ fs_expect_proc_interrupt "$MODULE_NAME"
 原始碼：
 
 ```sh
-$SUDO dmesg | tee "$DMESG_LOG"
+$SUDO dmesg >"$DMESG_ALL"
+grep -Fq "$DMESG_MARKER" "$DMESG_ALL"
+awk -v marker="$DMESG_MARKER" '
+    index($0, marker) { capture = 1; next }
+    capture { print }
+' "$DMESG_ALL" >"$DMESG_LOG"
 
+grep -q 'probe takeover confirmed DMA command idle with BME disabled' "$DMESG_LOG"
 grep -q 'dma mask configured' "$DMESG_LOG"
 grep -q 'coherent buffer allocated' "$DMESG_LOG"
 grep -q 'round-trip compare passed' "$DMESG_LOG"
@@ -233,6 +248,7 @@ grep -q 'round-trip compare passed' "$DMESG_LOG"
 
 | dmesg 訊號 | 代表 |
 |---|---|
+| `probe takeover ... idle with BME disabled` | 在 INTx mask 下確認 inherited DMA engine idle。 |
 | `dma mask configured` | `dma_set_mask_and_coherent()` 成功。 |
 | `coherent buffer allocated` | `dma_alloc_coherent()` 成功，CPU pointer / DMA address 已取得。 |
 | `round-trip compare passed` | RAM -> EDU -> RAM 的資料一致。 |

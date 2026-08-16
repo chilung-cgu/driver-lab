@@ -1,195 +1,562 @@
 // SPDX-License-Identifier: GPL-2.0-only
-/*
- * 這一關在 PCI + IRQ 基礎上加入 DMA。
- * 核心觀念：不是 CPU 自己 memcpy，而是 driver 給裝置一個 device 可用的位址，
- * 由裝置去搬資料，再用 IRQ 通知完成。
- */
+/* PCI + MMIO + IRQ + coherent DMA round-trip on QEMU EDU. */
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
 #include <linux/completion.h>
+#include <linux/delay.h>
 #include <linux/dma-mapping.h>
+#include <linux/gfp.h>
+#include <linux/interrupt.h>
 #include <linux/io.h>
 #include <linux/jiffies.h>
 #include <linux/module.h>
 #include <linux/pci.h>
-#include <linux/interrupt.h>
-#include <linux/delay.h>
 #include <linux/string.h>
 
 #define DL_EDU_VENDOR_ID 0x1234
 #define DL_EDU_DEVICE_ID 0x11e8
-
 #define DL_EDU_BAR_INDEX 0
+#define DL_EDU_IDENT_REG 0x00
+#define DL_EDU_IDENT_SIGNATURE_MASK 0x0000ffffU
+#define DL_EDU_IDENT_SIGNATURE 0x000000edU
+#define DL_EDU_FACTORIAL_STATUS_REG 0x20
 #define DL_EDU_IRQ_STATUS_REG 0x24
+#define DL_EDU_IRQ_RAISE_REG 0x60
 #define DL_EDU_IRQ_ACK_REG 0x64
 #define DL_EDU_DMA_SRC_REG 0x80
 #define DL_EDU_DMA_DST_REG 0x88
 #define DL_EDU_DMA_COUNT_REG 0x90
 #define DL_EDU_DMA_CMD_REG 0x98
-
 #define DL_EDU_DEVICE_RAM_OFFSET 0x00040000ULL
+#define DL_EDU_DEVICE_RAM_BYTES 4096U
+#define DL_EDU_DMA_ADDRESS_BITS 28U
+#define DL_EDU_DMA_ADDRESS_BITS_MAX 32U
+#define DL_EDU_FACTORIAL_IRQ_MASK 0x00000001U
+#define DL_EDU_LAB06_TEST_IRQ_MASK 0x00000002U
 #define DL_EDU_DMA_IRQ_MASK 0x00000100U
+#define DL_EDU_UNKNOWN_IRQ_MASK 0x80000000U
+#define DL_EDU_ALL_IRQ_MASK (~0U)
+#define DL_EDU_KNOWN_IRQ_MASK \
+	(DL_EDU_FACTORIAL_IRQ_MASK | DL_EDU_LAB06_TEST_IRQ_MASK | \
+	 DL_EDU_DMA_IRQ_MASK)
 #define DL_EDU_DMA_CMD_START 0x01U
 #define DL_EDU_DMA_CMD_FROM_DEVICE 0x02U
 #define DL_EDU_DMA_CMD_IRQ 0x04U
 #define DL_EDU_DMA_WAIT_TIMEOUT_MS 1000
-#define DL_EDU_DMA_BUFFER_BYTES 256
+#define DL_EDU_DMA_BUFFER_BYTES 256U
+#define DL_EDU_DMA_TOTAL_BYTES (DL_EDU_DMA_BUFFER_BYTES * 2U)
+#define DL_EDU_DMA_MMIO_MIN_LEN (DL_EDU_DMA_CMD_REG + sizeof(u32))
+
+/* Opt-in: test-swiotlb.sh uses this to exercise a streaming DMA mapping. */
+static bool streaming_probe;
+module_param(streaming_probe, bool, 0444);
+MODULE_PARM_DESC(streaming_probe,
+			 "run the single-buffer streaming DMA probe for swiotlb validation");
 
 /*
- * DMA lab 的 per-device state。
- * 這裡把 PCI/MMIO/IRQ 資源和 coherent DMA buffer 放在同一個生命週期裡。
+ * This lab deliberately programs the low 32 bits of EDU's DMA registers.
+ * Keep the default EDU aperture, but permit a matching 32-bit QEMU fixture.
  */
+static unsigned int dma_address_bits = DL_EDU_DMA_ADDRESS_BITS;
+module_param(dma_address_bits, uint, 0444);
+MODULE_PARM_DESC(dma_address_bits,
+			 "EDU DMA aperture bits for this 32-bit-register lab (28 default; use 32 only with matching QEMU fixture)");
+
 struct dl_edu_dma_dev {
 	struct pci_dev *pdev;
-	void __iomem *bar0;
+	u8 __iomem *bar0;
+	resource_size_t bar0_len;
 	int irq_vector;
 	unsigned long irq_flags;
-	/* DMA 完成事件會靠 completion 把 IRQ path 與 probe() 接起來。 */
+	bool irq_registered;
+	bool bus_master_enabled;
+	bool legacy_intx_enabled;
+	bool dma_in_flight;
+	bool dma_mapping_safe_to_free;
 	struct completion irq_done;
 	u32 last_irq_status;
 	u32 irq_count;
-	/* 這一關用一塊 coherent buffer 切成 tx/rx 兩半做 round-trip。 */
 	void *dma_buf;
 	dma_addr_t dma_handle;
 	u8 *tx_buf;
 	u8 *rx_buf;
+	void *stream_tx_buf;
+	dma_addr_t stream_tx_dma;
+	bool stream_tx_mapped;
+	u64 dma_mask;
 };
 
-/*
- * DMA completion IRQ handler。
- * 它只做必要工作：確認 status、ack 裝置、喚醒等待 self-test 的 probe path。
- */
-static irqreturn_t dl_edu_dma_handler(int irq, void *opaque)
-{
-	struct dl_edu_dma_dev *dl = opaque;
-	u32 status;
-
-	/* DMA 完成後，EDU 會丟出 0x100 interrupt。 */
-	status = ioread32(dl->bar0 + DL_EDU_IRQ_STATUS_REG);
-	if (!(status & DL_EDU_DMA_IRQ_MASK))
-		return IRQ_NONE;
-
-	dl->last_irq_status = status;
-	dl->irq_count++;
-	iowrite32(status, dl->bar0 + DL_EDU_IRQ_ACK_REG);
-	complete(&dl->irq_done);
-	dev_info(&dl->pdev->dev, "dma irq status=0x%08x acknowledged\n", status);
-
-	return IRQ_HANDLED;
-}
-
-/*
- * 等待 DMA completion interrupt。
- * phase 只用來讓錯誤 log 說清楚是 RAM->EDU 還是 EDU->RAM 失敗。
- */
-static int dl_edu_dma_wait_for_irq(struct dl_edu_dma_dev *dl, const char *phase)
-{
-	unsigned long timeout_jiffies;
-
-	timeout_jiffies = msecs_to_jiffies(DL_EDU_DMA_WAIT_TIMEOUT_MS);
-	/* 參數角色：等待 IRQ handler complete 同一個 completion object。 */
-	if (!wait_for_completion_timeout(&dl->irq_done, timeout_jiffies)) {
-		dev_err(&dl->pdev->dev, "%s timed out after %u ms\n",
-				phase, DL_EDU_DMA_WAIT_TIMEOUT_MS);
-		return -ETIMEDOUT;
-	}
-
-	return 0;
-}
-
-/*
- * 等待 EDU command bit 清掉。
- * IRQ 代表事件抵達；command bit 清掉則代表裝置端狀態也回到 idle。
- */
-static int dl_edu_dma_wait_for_cmd_clear(struct dl_edu_dma_dev *dl, const char *phase)
-{
-	unsigned long deadline;
-
-	/* 官方範例會 poll command bit；這裡保留同樣概念，避免只靠 IRQ。 */
-	deadline = jiffies + msecs_to_jiffies(DL_EDU_DMA_WAIT_TIMEOUT_MS);
-	while (time_before(jiffies, deadline)) {
-		u32 cmd;
-
-		cmd = ioread32(dl->bar0 + DL_EDU_DMA_CMD_REG);
-		if (!(cmd & DL_EDU_DMA_CMD_START))
-			return 0;
-
-		usleep_range(1000, 2000);
-	}
-
-	dev_err(&dl->pdev->dev, "%s command bit did not clear in time\n", phase);
-	return -ETIMEDOUT;
-}
-
-/*
- * 把 source/destination DMA address 寫進 EDU register。
- * 這裡寫的是裝置視角的位址，不是 CPU 直接 dereference 的 kernel pointer。
- */
-static void dl_edu_dma_program_addrs(struct dl_edu_dma_dev *dl,
-									 dma_addr_t src, dma_addr_t dst)
-{
-	/*
-	 * QEMU EDU 預設 DMA mask 是 28 bits。
-	 * 這個 lab 先用 coherent DMA 配低位址，並以 32-bit access 寫入 source/destination。
-	 */
-	iowrite32(lower_32_bits(src), dl->bar0 + DL_EDU_DMA_SRC_REG);
-	iowrite32(lower_32_bits(dst), dl->bar0 + DL_EDU_DMA_DST_REG);
-}
-
-/*
- * 執行一次 DMA transaction。
- * probe() 會呼叫兩次：第一次 RAM->EDU，第二次 EDU->RAM。
- */
-static int dl_edu_dma_run_once(struct dl_edu_dma_dev *dl, dma_addr_t src,
-							   dma_addr_t dst, u32 cmd, const char *phase)
+static int dl_edu_dma_configure_mask(struct dl_edu_dma_dev *dl)
 {
 	int ret;
 
-	/*
-	 * 每次 DMA 都重新設定 source/destination/count/command。
-	 * 對新手來說，這裡就是「把一張搬運單交給裝置」。
-	 */
+	if (dma_address_bits != DL_EDU_DMA_ADDRESS_BITS &&
+	    dma_address_bits != DL_EDU_DMA_ADDRESS_BITS_MAX) {
+		dev_err(&dl->pdev->dev,
+			"dma_address_bits=%u is unsupported; use matching %u- or %u-bit EDU fixture\n",
+			dma_address_bits, DL_EDU_DMA_ADDRESS_BITS,
+			DL_EDU_DMA_ADDRESS_BITS_MAX);
+		return -EINVAL;
+	}
+
+	dl->dma_mask = DMA_BIT_MASK(dma_address_bits);
+	ret = dma_set_mask_and_coherent(&dl->pdev->dev, dl->dma_mask);
+	if (ret) {
+		dev_err(&dl->pdev->dev,
+			"dma_set_mask_and_coherent(%u) failed: %d\n",
+			dma_address_bits, ret);
+		return ret;
+	}
+
+	dev_info(&dl->pdev->dev, "dma mask configured to %u bits\n",
+		 dma_address_bits);
+	return 0;
+}
+
+static irqreturn_t dl_edu_dma_handler(int irq, void *opaque)
+{
+	struct dl_edu_dma_dev *dl = opaque;
+	u32 known;
+	u32 status;
+
+	status = ioread32(dl->bar0 + DL_EDU_IRQ_STATUS_REG);
+	if (!status)
+		return IRQ_NONE;
+
+	/* A nonzero per-device status word belongs to EDU; clear it in full. */
+	iowrite32(status, dl->bar0 + DL_EDU_IRQ_ACK_REG);
+	/* Deassert legacy INTx / complete the posted acknowledge before return. */
+	(void)ioread32(dl->bar0 + DL_EDU_IRQ_STATUS_REG);
+
+	known = status & DL_EDU_KNOWN_IRQ_MASK;
+	if (status & ~DL_EDU_KNOWN_IRQ_MASK)
+		dev_warn_ratelimited(&dl->pdev->dev,
+			"acknowledged EDU IRQ with unknown bits status=0x%08x\n",
+			status);
+	else if (known & ~DL_EDU_DMA_IRQ_MASK)
+		dev_warn_ratelimited(&dl->pdev->dev,
+			"acknowledged unexpected known EDU IRQ status=0x%08x\n",
+			status);
+	if (!(known & DL_EDU_DMA_IRQ_MASK))
+		return IRQ_HANDLED;
+
+	dl->last_irq_status = status;
+	dl->irq_count++;
+	complete(&dl->irq_done);
+	dev_dbg_ratelimited(&dl->pdev->dev,
+				"dma irq status=0x%08x acknowledged\n", status);
+	return IRQ_HANDLED;
+}
+
+static void dl_edu_dma_ack_pending(struct dl_edu_dma_dev *dl)
+{
+	u32 status;
+
+	status = ioread32(dl->bar0 + DL_EDU_IRQ_STATUS_REG);
+	if (!status)
+		return;
+
+	/* EDU accepts every status bit written to 0x60, including ~0U. */
+	iowrite32(status, dl->bar0 + DL_EDU_IRQ_ACK_REG);
+	(void)ioread32(dl->bar0 + DL_EDU_IRQ_STATUS_REG);
+}
+
+static void dl_edu_dma_disable_factorial(struct dl_edu_dma_dev *dl)
+{
+	iowrite32(0, dl->bar0 + DL_EDU_FACTORIAL_STATUS_REG);
+	(void)ioread32(dl->bar0 + DL_EDU_FACTORIAL_STATUS_REG);
+}
+
+static int dl_edu_dma_wait_for_irq(struct dl_edu_dma_dev *dl,
+						  const char *phase)
+{
+	unsigned long timeout;
+
+	timeout = msecs_to_jiffies(DL_EDU_DMA_WAIT_TIMEOUT_MS);
+	if (!wait_for_completion_timeout(&dl->irq_done, timeout)) {
+		dev_err(&dl->pdev->dev, "%s IRQ timed out after %u ms\n",
+			phase, DL_EDU_DMA_WAIT_TIMEOUT_MS);
+		return -ETIMEDOUT;
+	}
+	return 0;
+}
+
+static int dl_edu_dma_wait_for_cmd_clear(struct dl_edu_dma_dev *dl,
+								 const char *phase)
+{
+	unsigned long deadline;
+
+	deadline = jiffies + msecs_to_jiffies(DL_EDU_DMA_WAIT_TIMEOUT_MS);
+	while (time_before(jiffies, deadline)) {
+		if (!(ioread32(dl->bar0 + DL_EDU_DMA_CMD_REG) &
+		      DL_EDU_DMA_CMD_START))
+			return 0;
+		usleep_range(1000, 2000);
+	}
+
+	dev_err(&dl->pdev->dev, "%s command bit did not clear\n", phase);
+	return -ETIMEDOUT;
+}
+
+static int dl_edu_dma_wait_for_status_clear(struct dl_edu_dma_dev *dl,
+						     const char *phase)
+{
+	unsigned long deadline;
+	u32 status;
+
+	deadline = jiffies + msecs_to_jiffies(DL_EDU_DMA_WAIT_TIMEOUT_MS);
+	while (time_before(jiffies, deadline)) {
+		status = ioread32(dl->bar0 + DL_EDU_IRQ_STATUS_REG);
+		if (!status)
+			return 0;
+		usleep_range(1000, 2000);
+	}
+
+	status = ioread32(dl->bar0 + DL_EDU_IRQ_STATUS_REG);
+	dev_err(&dl->pdev->dev,
+		"%s IRQ status did not clear after %u ms: 0x%08x\n",
+		phase, DL_EDU_DMA_WAIT_TIMEOUT_MS, status);
+	return -ETIMEDOUT;
+}
+
+static int dl_edu_dma_program_addrs(struct dl_edu_dma_dev *dl,
+							 dma_addr_t src, dma_addr_t dst)
+{
+	/* This lab uses 32-bit MMIO accesses, so its fixture cannot exceed 32 bits. */
+	if ((u64)src > dl->dma_mask || (u64)dst > dl->dma_mask) {
+		dev_err(&dl->pdev->dev,
+			"DMA address exceeds EDU mask: src=%pad dst=%pad\n",
+			&src, &dst);
+		return -ERANGE;
+	}
+
+	iowrite32(lower_32_bits(src), dl->bar0 + DL_EDU_DMA_SRC_REG);
+	iowrite32(lower_32_bits(dst), dl->bar0 + DL_EDU_DMA_DST_REG);
+	return 0;
+}
+
+static int dl_edu_dma_run_once(struct dl_edu_dma_dev *dl, dma_addr_t src,
+						   dma_addr_t dst, u32 cmd,
+						   const char *phase)
+{
+	u32 expected_irq_count;
+	int ret;
+
+	if (!dl->bus_master_enabled)
+		return -EIO;
+
+	expected_irq_count = dl->irq_count + 1U;
 	reinit_completion(&dl->irq_done);
-	dl_edu_dma_program_addrs(dl, src, dst);
-	iowrite32(DL_EDU_DMA_BUFFER_BYTES, dl->bar0 + DL_EDU_DMA_COUNT_REG);
+	ret = dl_edu_dma_program_addrs(dl, src, dst);
+	if (ret)
+		return ret;
+
+	iowrite32(DL_EDU_DMA_BUFFER_BYTES,
+		  dl->bar0 + DL_EDU_DMA_COUNT_REG);
+
+	/*
+	 * A normal iowrite32() on the default mapping orders prior coherent-memory
+	 * CPU writes before the MMIO start command. Do not add a cargo-cult wmb().
+	 * A descriptor ring would still use dma_wmb() between descriptor fields and
+	 * its OWN/VALID publication before the normal MMIO doorbell.
+	 */
+	WRITE_ONCE(dl->dma_in_flight, true);
 	iowrite32(cmd, dl->bar0 + DL_EDU_DMA_CMD_REG);
 
 	ret = dl_edu_dma_wait_for_irq(dl, phase);
 	if (ret)
 		return ret;
-
 	ret = dl_edu_dma_wait_for_cmd_clear(dl, phase);
 	if (ret)
 		return ret;
+	if (dl->last_irq_status != DL_EDU_DMA_IRQ_MASK ||
+	    dl->irq_count != expected_irq_count) {
+		dev_err(&dl->pdev->dev,
+			"%s recorded IRQ status=0x%08x count=%u\n",
+			phase, dl->last_irq_status, dl->irq_count);
+		return -EIO;
+	}
 
+	/* Completion is established first; then order device writes before CPU use. */
+	if (cmd & DL_EDU_DMA_CMD_FROM_DEVICE)
+		dma_rmb();
+	WRITE_ONCE(dl->dma_in_flight, false);
 	dev_info(&dl->pdev->dev, "%s finished\n", phase);
 	return 0;
 }
 
 /*
- * 準備可預測的測試資料。
- * round-trip 後用 memcmp() 比對 tx/rx，驗證不是只有 IRQ 成功而已。
+ * QEMU EDU permits arbitrary bits at RAISE_REG. Exercise both an unknown-only
+ * word and the all-bits word before DMA so stale completions cannot satisfy a
+ * later transfer. This is intentionally QEMU-EDU-specific.
  */
-static void dl_edu_dma_fill_pattern(struct dl_edu_dma_dev *dl)
+static int dl_edu_dma_run_ack_regression(struct dl_edu_dma_dev *dl)
+{
+	unsigned long timeout;
+	u32 initial_count;
+	u32 initial_status;
+	int ret;
+
+	initial_count = dl->irq_count;
+	initial_status = dl->last_irq_status;
+	reinit_completion(&dl->irq_done);
+	iowrite32(DL_EDU_UNKNOWN_IRQ_MASK,
+		  dl->bar0 + DL_EDU_IRQ_RAISE_REG);
+	ret = dl_edu_dma_wait_for_status_clear(dl,
+					      "unknown-status regression");
+	if (ret)
+		return ret;
+	synchronize_irq(dl->irq_vector);
+	if (completion_done(&dl->irq_done) ||
+	    dl->irq_count != initial_count ||
+	    dl->last_irq_status != initial_status) {
+		dev_err(&dl->pdev->dev,
+			"unknown-status regression completed or changed IRQ state\n");
+		return -EIO;
+	}
+	dev_info(&dl->pdev->dev,
+		 "EDU IRQ ACK regression: unknown status=0x%08x cleared without completion\n",
+		 DL_EDU_UNKNOWN_IRQ_MASK);
+
+	reinit_completion(&dl->irq_done);
+	iowrite32(DL_EDU_ALL_IRQ_MASK, dl->bar0 + DL_EDU_IRQ_RAISE_REG);
+	timeout = msecs_to_jiffies(DL_EDU_DMA_WAIT_TIMEOUT_MS);
+	if (!wait_for_completion_timeout(&dl->irq_done, timeout)) {
+		dev_err(&dl->pdev->dev,
+			"all-status regression timed out after %u ms\n",
+			DL_EDU_DMA_WAIT_TIMEOUT_MS);
+		return -ETIMEDOUT;
+	}
+	ret = dl_edu_dma_wait_for_status_clear(dl, "all-status regression");
+	if (ret)
+		return ret;
+	synchronize_irq(dl->irq_vector);
+	if (dl->last_irq_status != DL_EDU_ALL_IRQ_MASK ||
+	    dl->irq_count != initial_count + 1U) {
+		dev_err(&dl->pdev->dev,
+			"all-status regression recorded status=0x%08x count=%u\n",
+			dl->last_irq_status, dl->irq_count);
+		return -EIO;
+	}
+	dev_info(&dl->pdev->dev,
+		 "EDU IRQ ACK regression: all-status=0x%08x cleared; completion drained\n",
+		 DL_EDU_ALL_IRQ_MASK);
+
+	/* Drain the controlled all-bits completion before the first DMA command. */
+	reinit_completion(&dl->irq_done);
+	return 0;
+}
+
+static void dl_edu_dma_fill_pattern(u8 *buf)
 {
 	size_t i;
 
-	/* 先準備一個固定 pattern，之後用來比對 round-trip 是否一致。 */
 	for (i = 0; i < DL_EDU_DMA_BUFFER_BYTES; ++i)
-		dl->tx_buf[i] = (u8)(i ^ 0x5a);
-
-	memset(dl->rx_buf, 0, DL_EDU_DMA_BUFFER_BYTES);
+		buf[i] = (u8)(i ^ 0x5a);
 }
 
 /*
- * PCI probe callback。
- * 完整建立 PCI/MMIO/IRQ/DMA path，最後用 round-trip self-test 當載入驗收。
+ * This is intentionally a single-buffer streaming mapping, not an SG or
+ * descriptor-ring implementation. The page is mapped once for DMA_TO_DEVICE
+ * and the CPU does not touch it again until dma_unmap_single() returns
+ * ownership. The coherent RX allocation remains the receiver so the probe can
+ * compare the exact payload after a second EDU command.
  */
-static int dl_edu_dma_probe(struct pci_dev *pdev, const struct pci_device_id *id)
+static int dl_edu_dma_run_streaming_probe(struct dl_edu_dma_dev *dl,
+						  dma_addr_t rx_dma)
+{
+	bool need_sync;
+	int ret;
+
+	dl->stream_tx_buf = (void *)get_zeroed_page(GFP_KERNEL);
+	if (!dl->stream_tx_buf) {
+		dev_err(&dl->pdev->dev, "streaming TX page allocation failed\n");
+		return -ENOMEM;
+	}
+
+	dl_edu_dma_fill_pattern(dl->stream_tx_buf);
+	memset(dl->rx_buf, 0, DL_EDU_DMA_BUFFER_BYTES);
+	dl->stream_tx_dma = dma_map_single(&dl->pdev->dev, dl->stream_tx_buf,
+						     PAGE_SIZE, DMA_TO_DEVICE);
+	if (dma_mapping_error(&dl->pdev->dev, dl->stream_tx_dma)) {
+		dev_err(&dl->pdev->dev,
+			"streaming TX map failed for %lu bytes\n", PAGE_SIZE);
+		free_page((unsigned long)dl->stream_tx_buf);
+		dl->stream_tx_buf = NULL;
+		return -EIO;
+	}
+	dl->stream_tx_mapped = true;
+	if ((u64)dl->stream_tx_dma > dl->dma_mask - (PAGE_SIZE - 1UL)) {
+		dev_err(&dl->pdev->dev,
+			"streaming DMA range exceeds EDU mask: base=%pad bytes=%lu\n",
+			&dl->stream_tx_dma, PAGE_SIZE);
+		dma_unmap_single(&dl->pdev->dev, dl->stream_tx_dma, PAGE_SIZE,
+				 DMA_TO_DEVICE);
+		dl->stream_tx_mapped = false;
+		free_page((unsigned long)dl->stream_tx_buf);
+		dl->stream_tx_buf = NULL;
+		return -ERANGE;
+	}
+	need_sync = dma_need_sync(&dl->pdev->dev, dl->stream_tx_dma);
+	dev_info(&dl->pdev->dev,
+		 "streaming TX map established: cpu=%p dma=%pad bytes=%lu dma_need_sync=%u\n",
+		 dl->stream_tx_buf, &dl->stream_tx_dma, PAGE_SIZE, need_sync);
+
+	ret = dl_edu_dma_run_once(dl, dl->stream_tx_dma,
+				  DL_EDU_DEVICE_RAM_OFFSET,
+				  DL_EDU_DMA_CMD_START | DL_EDU_DMA_CMD_IRQ,
+				  "streaming ram-to-edu transfer");
+	if (ret)
+		return ret;
+
+	dma_unmap_single(&dl->pdev->dev, dl->stream_tx_dma, PAGE_SIZE,
+			 DMA_TO_DEVICE);
+	dl->stream_tx_mapped = false;
+	dev_info(&dl->pdev->dev,
+		 "streaming TX mapping released after transfer\n");
+
+	ret = dl_edu_dma_run_once(dl, DL_EDU_DEVICE_RAM_OFFSET, rx_dma,
+				  DL_EDU_DMA_CMD_START |
+				  DL_EDU_DMA_CMD_FROM_DEVICE |
+				  DL_EDU_DMA_CMD_IRQ,
+				  "edu-to-coherent-rx transfer");
+	if (ret)
+		return ret;
+
+	if (memcmp(dl->stream_tx_buf, dl->rx_buf,
+		   DL_EDU_DMA_BUFFER_BYTES) != 0) {
+		dev_err(&dl->pdev->dev,
+			"streaming-to-EDU-to-coherent-RX compare failed\n");
+		return -EIO;
+	}
+
+	dev_info(&dl->pdev->dev,
+		 "streaming-to-EDU-to-coherent-RX compare passed, irq_count=%u last_status=0x%08x\n",
+		 dl->irq_count, dl->last_irq_status);
+	free_page((unsigned long)dl->stream_tx_buf);
+	dl->stream_tx_buf = NULL;
+	return 0;
+}
+
+/*
+ * Stop new device-originated transactions, prove the command engine is idle or
+ * reset the function, then detach the IRQ. If neither idle nor reset can be
+ * established, retain the coherent allocation rather than risk DMA UAF.
+ * Real hardware needs a device-specific stop/abort/reset/reinit state machine.
+ */
+static void dl_edu_dma_quiesce(struct dl_edu_dma_dev *dl)
+{
+	bool safe_to_free = true;
+	int ret;
+
+	if (!dl)
+		return;
+
+	if (dl->legacy_intx_enabled) {
+		pci_intx(dl->pdev, 0);
+		dl->legacy_intx_enabled = false;
+	}
+
+	if (dl->bar0) {
+		dl_edu_dma_disable_factorial(dl);
+		dl_edu_dma_ack_pending(dl);
+	}
+
+	if (dl->bus_master_enabled) {
+		pci_clear_master(dl->pdev);
+		dl->bus_master_enabled = false;
+	}
+
+	if (dl->bar0 && READ_ONCE(dl->dma_in_flight)) {
+		ret = dl_edu_dma_wait_for_cmd_clear(dl, "teardown");
+		if (ret) {
+			/*
+			 * pci_reset_function() saves/restores PCI config, including BAR/MSI
+			 * state, but it does not rebuild device-specific queues/firmware.
+			 */
+			ret = pci_reset_function(dl->pdev);
+			if (ret) {
+				safe_to_free = false;
+				dev_crit(&dl->pdev->dev,
+					 "cannot prove DMA quiescence: reset failed: %d; retaining coherent mapping until reboot/platform recovery\n",
+					 ret);
+			} else {
+				dev_warn(&dl->pdev->dev,
+					 "function reset used to quiesce EDU; production hardware needs device-specific recovery\n");
+			}
+		}
+		if (safe_to_free)
+			WRITE_ONCE(dl->dma_in_flight, false);
+	}
+
+	if (dl->bar0)
+		dl_edu_dma_ack_pending(dl);
+
+	if (!safe_to_free) {
+		/* Prevent a late QEMU EDU event falling back to legacy INTx. */
+		pci_intx(dl->pdev, 0);
+	}
+
+	if (dl->irq_registered) {
+		synchronize_irq(dl->irq_vector);
+		free_irq(dl->irq_vector, dl);
+		dl->irq_registered = false;
+	}
+
+	dl->dma_mapping_safe_to_free = safe_to_free;
+}
+
+static void dl_edu_dma_free_irq_vectors(struct dl_edu_dma_dev *dl)
+{
+	pci_free_irq_vectors(dl->pdev);
+	if (!dl->dma_mapping_safe_to_free)
+		pci_intx(dl->pdev, 0);
+}
+
+static void dl_edu_dma_free_buffer(struct dl_edu_dma_dev *dl)
+{
+	if (!dl || !dl->dma_buf)
+		return;
+
+	if (!dl->dma_mapping_safe_to_free) {
+		dev_crit(&dl->pdev->dev,
+			 "coherent allocation intentionally retained to avoid DMA use-after-free\n");
+		return;
+	}
+
+	dma_free_coherent(&dl->pdev->dev, DL_EDU_DMA_TOTAL_BYTES,
+				  dl->dma_buf, dl->dma_handle);
+	dl->dma_buf = NULL;
+}
+
+static void dl_edu_dma_free_streaming(struct dl_edu_dma_dev *dl)
+{
+	if (!dl || !dl->stream_tx_buf)
+		return;
+
+	/* A mapped page may still be reachable by the device after a failed reset. */
+	if (dl->stream_tx_mapped && !dl->dma_mapping_safe_to_free) {
+		dev_crit(&dl->pdev->dev,
+			 "streaming mapping intentionally retained to avoid DMA use-after-free\n");
+		return;
+	}
+
+	if (dl->stream_tx_mapped) {
+		dma_unmap_single(&dl->pdev->dev, dl->stream_tx_dma, PAGE_SIZE,
+				 DMA_TO_DEVICE);
+		dl->stream_tx_mapped = false;
+	}
+	free_page((unsigned long)dl->stream_tx_buf);
+	dl->stream_tx_buf = NULL;
+}
+
+static int dl_edu_dma_probe(struct pci_dev *pdev,
+					const struct pci_device_id *id)
 {
 	struct dl_edu_dma_dev *dl;
 	dma_addr_t tx_dma;
 	dma_addr_t rx_dma;
+	u32 ident;
 	int ret;
 
 	pr_info("probe start for %s\n", pci_name(pdev));
@@ -197,57 +564,78 @@ static int dl_edu_dma_probe(struct pci_dev *pdev, const struct pci_device_id *id
 	dl = devm_kzalloc(&pdev->dev, sizeof(*dl), GFP_KERNEL);
 	if (!dl)
 		return -ENOMEM;
-
 	dl->pdev = pdev;
+	dl->dma_mapping_safe_to_free = true;
 	init_completion(&dl->irq_done);
 	pci_set_drvdata(pdev, dl);
 
-	/* 參數角色：pdev 是 PCI core 交給 probe() 的 EDU device。 */
 	ret = pci_enable_device(pdev);
-	if (ret) {
-		dev_err(&pdev->dev, "pci_enable_device failed: %d\n", ret);
-		return ret;
+	if (ret)
+		return dev_err_probe(&pdev->dev, ret,
+						 "pci_enable_device failed\n");
+	pci_clear_master(pdev);
+	pci_intx(pdev, 0);
+
+	if (!(pci_resource_flags(pdev, DL_EDU_BAR_INDEX) & IORESOURCE_MEM)) {
+		ret = -ENODEV;
+		dev_err(&pdev->dev, "BAR%d is not an MMIO resource\n",
+			DL_EDU_BAR_INDEX);
+		goto err_disable_device;
 	}
-
-	/* DMA 裝置要先成為 bus master，才能主動對主記憶體發 DMA。 */
-	pci_set_master(pdev);
-
-	/* 參數角色：pdev + BAR index + owner name；宣告這個 driver 使用 BAR0。 */
-	ret = pci_request_region(pdev, DL_EDU_BAR_INDEX, KBUILD_MODNAME);
-	if (ret) {
-		dev_err(&pdev->dev, "pci_request_region BAR%d failed: %d\n",
-				DL_EDU_BAR_INDEX, ret);
+	dl->bar0_len = pci_resource_len(pdev, DL_EDU_BAR_INDEX);
+	if (dl->bar0_len < DL_EDU_DMA_MMIO_MIN_LEN) {
+		ret = -ENODEV;
+		dev_err(&pdev->dev, "BAR%d too small: len=%llu need>=%u\n",
+			DL_EDU_BAR_INDEX,
+			(unsigned long long)dl->bar0_len,
+			(unsigned int)DL_EDU_DMA_MMIO_MIN_LEN);
 		goto err_disable_device;
 	}
 
-	/* 參數角色：pdev + BAR index + max length；0 表示 map 整個 BAR。 */
+	ret = pci_request_region(pdev, DL_EDU_BAR_INDEX, KBUILD_MODNAME);
+	if (ret)
+		goto err_disable_device;
 	dl->bar0 = pci_iomap(pdev, DL_EDU_BAR_INDEX, 0);
 	if (!dl->bar0) {
-		dev_err(&pdev->dev, "pci_iomap BAR%d failed\n", DL_EDU_BAR_INDEX);
 		ret = -ENOMEM;
 		goto err_release_region;
 	}
 
-	/* 參數角色：device + DMA address mask；EDU lab 使用 28-bit 限制。 */
-	ret = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(28));
-	if (ret) {
-		dev_err(&pdev->dev, "dma_set_mask_and_coherent(28) failed: %d\n", ret);
+	ident = ioread32(dl->bar0 + DL_EDU_IDENT_REG);
+	if ((ident & DL_EDU_IDENT_SIGNATURE_MASK) != DL_EDU_IDENT_SIGNATURE) {
+		dev_err(&pdev->dev,
+			"unexpected EDU identification signature: ident=0x%08x\n",
+			ident);
+		ret = -ENODEV;
 		goto err_iounmap;
 	}
-	dev_info(&pdev->dev, "dma mask configured to 28 bits\n");
 
-	/*
-	 * 第一版先用 coherent buffer，避免一開始就把 sync 細節混進來。
-	 * dma_handle 是給裝置看的 DMA address，dma_buf 是 CPU 在 kernel 裡用的指標。
-	 * 參數角色：device、size、DMA address output、allocation flag。
-	 */
-	dl->dma_buf = dma_alloc_coherent(&pdev->dev,
-									 DL_EDU_DMA_BUFFER_BYTES * 2,
-									 &dl->dma_handle, GFP_KERNEL);
+	dl_edu_dma_disable_factorial(dl);
+	ret = dl_edu_dma_wait_for_cmd_clear(dl, "probe takeover");
+	if (ret)
+		goto err_iounmap;
+	dev_info(&pdev->dev,
+		 "probe takeover confirmed DMA command idle with BME disabled\n");
+	dl_edu_dma_ack_pending(dl);
+
+	ret = dl_edu_dma_configure_mask(dl);
+	if (ret)
+		goto err_iounmap;
+
+	dl->dma_buf = dma_alloc_coherent(&pdev->dev, DL_EDU_DMA_TOTAL_BYTES,
+					  &dl->dma_handle, GFP_KERNEL);
 	if (!dl->dma_buf) {
-		dev_err(&pdev->dev, "dma_alloc_coherent failed\n");
 		ret = -ENOMEM;
 		goto err_iounmap;
+	}
+
+	if ((u64)dl->dma_handle >
+	    dl->dma_mask - (DL_EDU_DMA_TOTAL_BYTES - 1U)) {
+		dev_err(&pdev->dev,
+			"coherent DMA range exceeds EDU mask: base=%pad bytes=%u\n",
+			&dl->dma_handle, DL_EDU_DMA_TOTAL_BYTES);
+		ret = -ERANGE;
+		goto err_free_dma;
 	}
 
 	dl->tx_buf = dl->dma_buf;
@@ -255,98 +643,100 @@ static int dl_edu_dma_probe(struct pci_dev *pdev, const struct pci_device_id *id
 	tx_dma = dl->dma_handle;
 	rx_dma = dl->dma_handle + DL_EDU_DMA_BUFFER_BYTES;
 
-	dev_info(&pdev->dev, "coherent buffer allocated: cpu=%p dma=%pad bytes=%u\n",
-			 dl->dma_buf, &dl->dma_handle, DL_EDU_DMA_BUFFER_BYTES * 2);
+	dev_info(&pdev->dev,
+		 "coherent buffer allocated: cpu=%p dma=%pad bytes=%u\n",
+		 dl->dma_buf, &dl->dma_handle, DL_EDU_DMA_TOTAL_BYTES);
 
-	/* 參數角色：pdev、最少 1 條、最多 1 條、允許的 IRQ 類型。 */
 	ret = pci_alloc_irq_vectors(pdev, 1, 1, PCI_IRQ_ALL_TYPES);
-	if (ret < 0) {
-		dev_err(&pdev->dev, "pci_alloc_irq_vectors failed: %d\n", ret);
+	if (ret < 0)
 		goto err_free_dma;
-	}
-
-	/* 參數角色：取第 0 條已分配 IRQ vector。 */
 	dl->irq_vector = pci_irq_vector(pdev, 0);
-	dl->irq_flags = (pdev->msi_enabled || pdev->msix_enabled) ? 0 : IRQF_SHARED;
+	dl->irq_flags = (pdev->msi_enabled || pdev->msix_enabled) ?
+				0 : IRQF_SHARED;
 
-	/*
-	 * 參數角色：vector、handler、flags、名稱、dev_id。
-	 * dev_id 會傳回 dl_edu_dma_handler()，用來找回 DMA lab state。
-	 */
+	dl_edu_dma_disable_factorial(dl);
+	dl_edu_dma_ack_pending(dl);
 	ret = request_irq(dl->irq_vector, dl_edu_dma_handler, dl->irq_flags,
-					  KBUILD_MODNAME, dl);
-	if (ret) {
-		dev_err(&pdev->dev, "request_irq failed: %d\n", ret);
+				  KBUILD_MODNAME, dl);
+	if (ret)
 		goto err_free_vectors;
+	dl->irq_registered = true;
+	if (!(pdev->msi_enabled || pdev->msix_enabled)) {
+		pci_intx(pdev, 1);
+		dl->legacy_intx_enabled = true;
 	}
 
-	dl_edu_dma_fill_pattern(dl);
+	/* DMA and MSI are device-originated memory transactions; enable BME last. */
+	pci_set_master(pdev);
+	dl->bus_master_enabled = true;
 
-	/* 第一次：把 tx_buf 的內容搬進 EDU 內部 0x40000 buffer。 */
+	ret = dl_edu_dma_run_ack_regression(dl);
+	if (ret)
+		goto err_quiesce;
+
+	dl_edu_dma_fill_pattern(dl->tx_buf);
+	memset(dl->rx_buf, 0, DL_EDU_DMA_BUFFER_BYTES);
 	ret = dl_edu_dma_run_once(dl, tx_dma, DL_EDU_DEVICE_RAM_OFFSET,
-							  DL_EDU_DMA_CMD_START | DL_EDU_DMA_CMD_IRQ,
-							  "ram-to-edu transfer");
+				  DL_EDU_DMA_CMD_START | DL_EDU_DMA_CMD_IRQ,
+				  "ram-to-edu transfer");
 	if (ret)
-		goto err_free_irq;
+		goto err_quiesce;
 
-	/* 第二次：再把 EDU 內部 buffer 搬回 rx_buf。 */
 	ret = dl_edu_dma_run_once(dl, DL_EDU_DEVICE_RAM_OFFSET, rx_dma,
-							  DL_EDU_DMA_CMD_START |
-							  DL_EDU_DMA_CMD_FROM_DEVICE |
-							  DL_EDU_DMA_CMD_IRQ,
-							  "edu-to-ram transfer");
+				  DL_EDU_DMA_CMD_START |
+				  DL_EDU_DMA_CMD_FROM_DEVICE |
+				  DL_EDU_DMA_CMD_IRQ,
+				  "edu-to-ram transfer");
 	if (ret)
-		goto err_free_irq;
+		goto err_quiesce;
 
-	/* 最後才做資料正確性驗證，確認 round-trip 真的沒壞。 */
 	if (memcmp(dl->tx_buf, dl->rx_buf, DL_EDU_DMA_BUFFER_BYTES) != 0) {
 		dev_err(&pdev->dev, "round-trip compare failed\n");
 		ret = -EIO;
-		goto err_free_irq;
+		goto err_quiesce;
 	}
 
-	dev_info(&pdev->dev, "round-trip compare passed, irq_count=%u\n",
-			 dl->irq_count);
+	dev_info(&pdev->dev,
+		 "round-trip compare passed, irq_count=%u last_status=0x%08x\n",
+		 dl->irq_count, dl->last_irq_status);
+
+	if (streaming_probe) {
+		ret = dl_edu_dma_run_streaming_probe(dl, rx_dma);
+		if (ret)
+			goto err_quiesce;
+	}
 	return 0;
 
-err_free_irq:
-	free_irq(dl->irq_vector, dl);
+err_quiesce:
+	dl_edu_dma_quiesce(dl);
 err_free_vectors:
-	pci_free_irq_vectors(pdev);
+	dl_edu_dma_free_irq_vectors(dl);
+	dl_edu_dma_free_streaming(dl);
 err_free_dma:
-	dma_free_coherent(&pdev->dev, DL_EDU_DMA_BUFFER_BYTES * 2,
-					  dl->dma_buf, dl->dma_handle);
+	dl_edu_dma_free_buffer(dl);
 err_iounmap:
 	pci_iounmap(pdev, dl->bar0);
 err_release_region:
+	pci_disable_device(pdev);
 	pci_release_region(pdev, DL_EDU_BAR_INDEX);
+	return ret;
 err_disable_device:
 	pci_disable_device(pdev);
 	return ret;
 }
 
-/*
- * PCI remove callback。
- * cleanup 順序要保守：先停止 IRQ path，再釋放 DMA buffer，最後拆 MMIO/PCI。
- */
 static void dl_edu_dma_remove(struct pci_dev *pdev)
 {
 	struct dl_edu_dma_dev *dl = pci_get_drvdata(pdev);
 
-	/* 先停 IRQ，再釋放 DMA buffer，最後拆 MMIO 與 PCI resource。 */
-	if (dl) {
-		free_irq(dl->irq_vector, dl);
-		pci_free_irq_vectors(pdev);
-		if (dl->dma_buf) {
-			dma_free_coherent(&pdev->dev, DL_EDU_DMA_BUFFER_BYTES * 2,
-							  dl->dma_buf, dl->dma_handle);
-		}
-		if (dl->bar0)
-			pci_iounmap(pdev, dl->bar0);
-	}
-
-	pci_release_region(pdev, DL_EDU_BAR_INDEX);
+	dl_edu_dma_quiesce(dl);
+	dl_edu_dma_free_irq_vectors(dl);
+	dl_edu_dma_free_streaming(dl);
+	dl_edu_dma_free_buffer(dl);
+	if (dl && dl->bar0)
+		pci_iounmap(pdev, dl->bar0);
 	pci_disable_device(pdev);
+	pci_release_region(pdev, DL_EDU_BAR_INDEX);
 	pr_info("device removed for %s\n", pci_name(pdev));
 }
 
@@ -359,13 +749,11 @@ MODULE_DEVICE_TABLE(pci, dl_edu_dma_ids);
 static struct pci_driver dl_edu_dma_driver = {
 	.name = KBUILD_MODNAME,
 	.id_table = dl_edu_dma_ids,
-	/* probe 建立 PCI/MMIO/IRQ/DMA path；remove 反向釋放所有資源。 */
 	.probe = dl_edu_dma_probe,
 	.remove = dl_edu_dma_remove,
 };
-
 module_pci_driver(dl_edu_dma_driver);
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Codex");
-MODULE_DESCRIPTION("Week 7 QEMU EDU DMA lab for driver-lab");
+MODULE_DESCRIPTION("QEMU EDU coherent DMA lab with validated identity and quiesce");

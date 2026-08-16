@@ -39,7 +39,7 @@ confirm lspci sees 1234:11e8
 confirm PCI sysfs has vendor/device 0x1234:0x11e8
 make driver_lab_edu_irq.ko
 remove stale module if needed
-clear dmesg
+write a unique dmesg marker
 insmod
 confirm driver bound
 confirm /proc/interrupts lists driver_lab_edu_irq
@@ -81,7 +81,10 @@ SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
 ROOT_DIR=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
 MODULE_NAME=driver_lab_edu_irq
 DMESG_LOG=$(mktemp)
+DMESG_ALL=$(mktemp)
+DMESG_MARKER="${MODULE_NAME}: smoke-test marker pid=$$ epoch=$(date +%s)"
 SUDO=
+loaded_by_test=0
 ```
 
 | 變數 | 用途 |
@@ -90,6 +93,8 @@ SUDO=
 | `ROOT_DIR` | repo 根目錄，用來 source 共用 filesystem helper。 |
 | `MODULE_NAME` | `driver_lab_edu_irq`，用於 `lsmod`、`rmmod`、sysfs、grep。 |
 | `DMESG_LOG` | 保存本次 `dmesg`，讓後面 grep 成功訊號。 |
+| `DMESG_ALL` | 保存單次完整 snapshot，之後由 marker 切出本輪區段。 |
+| `DMESG_MARKER` | 含 PID 與 epoch 的唯一 kernel-log 起點，不清全域 log。 |
 | `SUDO` | 不是 root 時設為 `sudo`。 |
 
 ## 三、cleanup 與 trap
@@ -98,10 +103,11 @@ SUDO=
 
 ```sh
 cleanup() {
-    if lsmod | grep -q "^${MODULE_NAME} "; then
+    if [ "$loaded_by_test" -eq 1 ] && \
+       lsmod | grep -q "^${MODULE_NAME} "; then
         $SUDO rmmod "$MODULE_NAME" || true
     fi
-    rm -f "$DMESG_LOG"
+    rm -f "$DMESG_LOG" "$DMESG_ALL"
 }
 
 trap cleanup EXIT INT TERM
@@ -127,7 +133,7 @@ FS_SUDO=$SUDO
 . "$ROOT_DIR/scripts/fs-surface-checks.sh"
 ```
 
-不是 root 時，module load/unload 與 `dmesg -C` 需要 sudo。
+不是 root 時，module load/unload、寫 `/dev/kmsg` marker 與讀 `dmesg` 需要 sudo。
 
 source helper 後，Lab06 使用：
 
@@ -187,7 +193,8 @@ cd "$SCRIPT_DIR"
 make
 
 if lsmod | grep -q "^${MODULE_NAME} "; then
-    $SUDO rmmod "$MODULE_NAME"
+    printf 'ERROR: module already loaded; test will not unload it.\n' >&2
+    exit 1
 fi
 ```
 
@@ -197,19 +204,22 @@ fi
 driver_lab_edu_irq.ko
 ```
 
-如果上一輪測試留下同名 module，先卸載。這對 IRQ lab 很重要，因為殘留的 handler/vector 狀態會干擾新一輪觀測。
+若同名 module 已存在，測試直接拒絕執行，避免卸載其他 session 擁有的 handler/vector。
 
-## 八、清 dmesg、insmod、確認 bind
+## 八、寫唯一 marker、insmod、確認 bind
 
 原始碼：
 
 ```sh
-$SUDO dmesg -C || true
+printf '%s\n' "$DMESG_MARKER" | $SUDO tee /dev/kmsg >/dev/null
 $SUDO insmod "./${MODULE_NAME}.ko"
+loaded_by_test=1
 fs_expect_pci_driver_bound "$MODULE_NAME" 0x1234 0x11e8
 ```
 
-`dmesg -C` 是為了讓本次 grep 只看這一輪測試 log。某些環境可能不允許清 dmesg，所以用 `|| true` 不讓它阻止測試。
+測試不清全域 kernel log。它先寫唯一 marker；卸載後只分析 marker
+之後的 snapshot。若 ring buffer 已 wrap 到 marker 消失，測試明確失敗，
+不會把舊 log 當成本輪證據。
 
 `insmod` 後：
 
@@ -247,20 +257,27 @@ probe 有等到 completion
 原始碼：
 
 ```sh
-$SUDO dmesg | tee "$DMESG_LOG"
+$SUDO dmesg >"$DMESG_ALL"
+grep -Fq "$DMESG_MARKER" "$DMESG_ALL"
+awk -v marker="$DMESG_MARKER" '
+    index($0, marker) { capture = 1; next }
+    capture { print }
+' "$DMESG_ALL" >"$DMESG_LOG"
 
+grep -q 'probe takeover confirmed DMA command idle with BME disabled' "$DMESG_LOG"
 grep -q 'request_irq ok' "$DMESG_LOG"
 grep -q 'irq status=' "$DMESG_LOG"
-grep -q 'irq self-test passed' "$DMESG_LOG"
+grep -q 'self-test passed count=' "$DMESG_LOG"
 ```
 
 這三個訊號對應三個階段：
 
 | dmesg 訊號 | 代表 |
 |---|---|
+| `probe takeover ... idle with BME disabled` | 在 INTx mask 下確認 inherited DMA engine idle。 |
 | `request_irq ok` | `request_irq()` 成功，handler 已註冊。 |
 | `irq status=` | handler 真的被呼叫，讀到 EDU interrupt status，並寫 acknowledge。 |
-| `irq self-test passed` | probe 等到 completion，且確認 status bit 已清掉。 |
+| `self-test passed count=` | probe 等到 completion，且確認 status bit 已清掉。 |
 
 如果只看到 `request_irq ok`，沒有 `irq status=`，代表 handler 沒進來。優先查 IRQ delivery、`pci_set_master()`、EDU raise register。
 

@@ -55,7 +55,7 @@ if [ -r /proc/sys/kernel/tainted ]; then
     if [ "$taint_value" = "0" ]; then
         info "Taint summary: kernel is currently clean/untainted"
     else
-        warn "kernel taint is non-zero; see docs/check-kernel-env-explained.md before debugging strange failures."
+        warn "kernel taint is non-zero; see docs/onboarding/linux-environment.md before debugging strange failures."
     fi
 fi
 

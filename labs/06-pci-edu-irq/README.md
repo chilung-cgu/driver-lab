@@ -1,192 +1,502 @@
-# 06 - PCI EDU IRQ
+# 06 — QEMU EDU IRQ：讓 device 主動通知 CPU
 
-## 目標
+> **定位**：在 Lab05 已驗證的 PCI/BAR/MMIO 路徑上，加上一條 interrupt notification path。
+>
+> **先備知識**：完成或理解 Lab05，先讀
+> [`../../docs/concepts/pcie-primer.md`](../../docs/concepts/pcie-primer.md)。
+>
+> **完成標準**：能說明 vector allocation、Linux IRQ number、handler registration、device status/ACK、
+> shared INTx、MSI/MSI-X、BME，以及 remove 前為何要先quiesce source再同步in-flight handler。
 
-在 `edu` 裝置上補上 interrupt path。
+## 先講結論
 
-> [!NOTE]
-> 這一關現在已經有第一版可 build 的 driver code 與 smoke test。
-> 真正的載入與驗證仍必須在 Linux guest 內完成。
+IRQ（Interrupt Request，中斷請求）讓 device 主動告訴 CPU：「有事件要處理」。但收到 IRQ 只代表
+notification path 發生，不會自動證明資料正確，也不會自動清除 device 的 interrupt source。
 
-## 開始前先看
-
-- [`../../docs/onboarding/05-to-07-pci-irq-dma-bridge.md`](../../docs/onboarding/05-to-07-pci-irq-dma-bridge.md)
-- [`../../docs/concepts/pcie-primer.md`](../../docs/concepts/pcie-primer.md)
-- [`../../docs/guides/qemu-edu-first-pass.md`](../../docs/guides/qemu-edu-first-pass.md)
-
-## 先備條件
-
-- `05-pci-edu-mmio` 已完成
-- 你知道 `probe` 成功後 driver 目前已拿到哪些 resource
-
-## 這一關要練什麼
-
-- request IRQ
-- INTx / MSI 基本概念
-- interrupt status / acknowledge
-- top-half 最小設計
-
-## 成功標準
-
-- 能成功註冊 IRQ handler
-- 能觸發中斷
-- handler 會清 interrupt acknowledge register
-
-## 第一次只要先懂這件事
-
-前一關你是主動去讀 register。
-
-這一關開始，是裝置主動通知你：
-
-> 有事情了，請進 handler 看一下。
-
-## 第一次實作順序
-
-1. 先保證 `05` 的 `probe()` 已穩定
-2. 再註冊 IRQ handler
-3. 再找方法觸發中斷
-4. 最後確認 handler 真的清掉 acknowledge register
-
-## 目前已實作的內容
-
-- `pci_alloc_irq_vectors()`
-- `request_irq()` / `free_irq()`
-- 用 `0x60` interrupt raise register 觸發中斷
-- handler 讀 `0x24` interrupt status
-- handler 寫 `0x64` acknowledge register
-- completion-based 的最小自我測試
-
-主要檔案：
-
-- [`driver_lab_edu_irq.c`](driver_lab_edu_irq.c)
-- [`test.sh`](test.sh)
-
-## Source 旁讀文件
-
-讀 source 時可以直接打開同目錄的 companion doc，不需要回到 `docs/` 裡找對應解釋：
-
-| Source | 旁讀文件 | 建議用途 |
-|---|---|---|
-| [`driver_lab_edu_irq.c`](driver_lab_edu_irq.c) | [`driver_lab_edu_irq.c.md`](driver_lab_edu_irq.c.md) | 逐段理解 PCI/MMIO 前置、IRQ vector allocation、`request_irq()`、handler acknowledge、completion self-test 與 cleanup。 |
-| [`Makefile`](Makefile) | [`Makefile.md`](Makefile.md) | 理解 Lab06 external module kbuild 與 guest IRQ 驗證分工。 |
-| [`test.sh`](test.sh) | [`test.sh.md`](test.sh.md) | 理解 smoke test 如何檢查 EDU、driver bind、`/proc/interrupts`、dmesg gate 與 teardown。 |
-
-## 第一次驗收時你要看到什麼
-
-- `request_irq()` 成功
-- handler 有 log
-- 同一個中斷不會無限重進
-
-## 這一關會出現哪些 filesystem 入口
-
-`06` 沿用 `05` 的 PCI sysfs 入口，另外多一個常用 IRQ 觀測點：
-
-| 入口 | 第一輪用途 |
-|---|---|
-| `lspci -nn | grep 1234:11e8` | 確認 EDU device 仍在 guest PCI bus。 |
-| `/sys/bus/pci/devices/...` | 觀察 PCI device / driver bind 狀態。 |
-| `/sys/bus/pci/drivers/driver_lab_edu_irq` | 觀察 IRQ lab 的 PCI driver 是否註冊。 |
-| `/proc/interrupts` | 輔助觀察 IRQ 計數是否有變化。 |
-| `dmesg` | 第一輪最重要，確認 `request_irq ok`、`irq status=`、`irq self-test passed`。 |
-
-`/proc/interrupts` 是輔助，不是唯一驗收。這關真正要看的是 handler 有沒有讀 status、寫 acknowledge、喚醒 completion。
-
-## 第一次理想上要看到的輸出
-
-`dmesg` 裡第一版通常至少要看到：
+Lab06流程：
 
 ```text
-driver_lab_edu_irq: request_irq ok
-driver_lab_edu_irq: irq status=0x00000001 acknowledged
-driver_lab_edu_irq: irq self-test passed
+先完成Lab05 BAR/MMIO validation
+→ allocate一條PCI IRQ vector
+→ 清除device殘留pending status
+→ request_irq()安裝handler
+→ 若選到MSI/MSI-X，啟用Bus Master Enable
+→ 寫EDU raise register
+→ handler讀status、辨識、ACK、read-back
+→ complete()喚醒等待者
+→ remove前先清source/BME、同步handler，再free
 ```
 
-這裡最重要的不是 log 漂不漂亮，而是：
+最重要的分層：
 
-- handler 真的進來
-- acknowledge 真的做了
+```text
+Device interrupt source  ≠ Linux IRQ handler registration
+ACK posted-write arrival ≠ handler已退出
+IRQ arrived              ≠ payload correctness
+```
 
-## 現在怎麼跑
+## 不確定處與驗證狀態
+
+- **已由官方文件查證**：PCI IRQ vector allocation、generic IRQ handler lifecycle、shared IRQ回傳值、
+  MSI/MSI-X為device-originated Memory Write，以及posted MMIO ACK/read-back的通用contract。
+- **已對照 Current source**：`driver_lab_edu_irq.c` 驗BAR/identity、清pending、配置一vector、辨識/ACK
+  EDU bit、read-back、completion與quiesce。
+- **Compile/static 狀態**：audit branch建立external-module compile與script checks。
+- **待 runtime / fault-injection 驗證**：需在guest實跑legacy INTx、MSI/MSI-X、repeated event、timeout、
+  repeated unload，以及lockdep/KASAN與late-handler測試。
+- **Device-specific**：EDU status/raise/ACK offsets與bit定義只適用QEMU EDU。
+
+## 這一關要解決什麼問題
+
+初學者常把「中斷」想成一個單一物件：
+
+```text
+Device發中斷 → handler執行
+```
+
+實際上至少有四層：
+
+1. Device內部某個event source變pending；
+2. PCI function以INTx/MSI/MSI-X把event送到host；
+3. Linux IRQ subsystem把Linux IRQ number dispatch到handler；
+4. Handler讀device status，判斷是否真的屬於自己，並依device規格ACK/mask。
+
+如果在 `request_irq()` 前device source已經pending，handler可能在probe尚未完成時立刻被呼叫。
+如果handler只回 `IRQ_HANDLED` 卻沒ACK source，legacy level-like interrupt可能持續assert，形成interrupt storm。
+如果remove先unmap BAR，再等待handler，late handler可能讀已失效的MMIO。
+
+本關就是建立完整notification lifecycle。
+
+## 名詞先說清楚
+
+| 名詞 | 本關中的意思 | 不代表什麼 |
+|---|---|---|
+| **Interrupt source** | Device內部造成IRQ的event/status bit | 不等於Linux IRQ number |
+| **Vector** | PCI/MSI-X/MSI/legacy資源抽象中的一條中斷路徑 | 不一定等於固定硬體pin |
+| **Linux IRQ number** | Kernel用來註冊/dispatch handler的編號 | 不等於PCI vector index或BDF |
+| **Handler** | Hard IRQ context中執行的callback | 不能呼叫可能睡眠的API |
+| **INTx** | Legacy、通常level-triggered且可shared的interrupt路徑 | 不等於MSI message |
+| **MSI/MSI-X** | Device向平台指定address發出Memory Write Request | 不使用實體中斷線 |
+| **`IRQ_NONE`** | Shared handler判定事件不是自己的 | 不是「handler失敗」 |
+| **ACK** | 依device protocol清除已處理source | 不等於free handler |
+| **Read-back** | 確認prior posted ACK到達相應point | 不等於等待handler退出 |
+| **Completion object** | Kernel同步工具，讓handler喚醒sleepable waiter | 不等於device completion queue |
+| **BME** | PCI Command中的Bus Master Enable，允許device-originated memory transaction | 不會自動產生IRQ或配置handler |
+| **`synchronize_irq()`** | 等指定IRQ上目前in-flight handler完成 | 不會停止device產生新source |
+| **Quiesce** | 先阻止/清除device source，再同步software path | 不只是free_irq() |
+
+## 心智模型
+
+### 門鈴、總機與值班人員
+
+```text
+Device status bit = 門外有人按鈴的原因
+INTx/MSI/MSI-X   = 門鈴訊號送進大樓的方式
+Linux IRQ number = 總機內部使用的分機號
+IRQ handler      = 接電話的值班人員
+ACK               = 處理後解除門鈴來源
+```
+
+Shared INTx像多間公司共用一條總機線。每個handler都可能被叫到，所以必須先查自己的status；不是自己的
+事件就回 `IRQ_NONE`。
+
+> **比喻的邊界**：實際interrupt controller、MSI routing、affinity、masking與PCI ordering更複雜。
+> 這個比喻只用來區分device source、transport、Linux dispatch與handler protocol。
+
+## 先備 gate
+
+在Linux guest：
+
+```sh
+lspci -Dnn | grep '1234:11e8'
+test -e "/lib/modules/$(uname -r)/build"
+```
+
+並確認：
+
+- Lab05 identity/liveness path可理解或已通過；
+- EDU未被其他driver擁有；
+- 同名module尚未載入；
+- guest kernel允許取得至少一條IRQ vector。
+
+## Resource 與 data flow
+
+### Setup
+
+```text
+pci_enable_device
+→ validate/request/map BAR0
+→ validate EDU identity
+→ pci_alloc_irq_vectors(1, 1, PCI_IRQ_ALL_TYPES)
+→ pci_irq_vector(pdev, 0)
+→ clear/ACK stale pending source + read-back
+→ request_irq()
+→ 若實際模式為MSI/MSI-X，pci_set_master()
+```
+
+### Self-test data flow
+
+```text
+probe reinit_completion()
+→ iowrite32(TEST_BIT, RAISE_REG)
+→ device產生INTx/MSI/MSI-X
+→ Linux dispatch handler
+→ handler ioread32(STATUS)
+→ 若不是本device bit：IRQ_NONE
+→ ACK owned bit
+→ read-back STATUS
+→ complete(&irq_done)
+→ probe waiter醒來並確認source清除
+```
+
+### Error unwind
+
+依失敗點撤銷：
+
+```text
+request_irq失敗：free vectors → iounmap → release BAR → disable
+self-test失敗：quiesce source/BME/handler → free vector → unmap/release/disable
+```
+
+### Teardown
+
+```text
+ACK / clear device source
+→ read-back prior ACK
+→ 若MSI/MSI-X曾啟用BME，pci_clear_master()
+→ synchronize_irq()
+→ free_irq()
+→ pci_free_irq_vectors()
+→ iounmap / release BAR
+→ pci_disable_device()
+```
+
+順序重點是：handler仍可能使用 `dl` state與BAR0，所以它必須在這些resource被free/unmap之前退出。
+
+## 從簡單到精確
+
+### 1. Vector allocation不保證選到哪種模式
+
+```c
+ret = pci_alloc_irq_vectors(pdev, 1, 1, PCI_IRQ_ALL_TYPES);
+irq = pci_irq_vector(pdev, 0);
+```
+
+實際可能選MSI-X、MSI或legacy INTx，取決於device/platform/kernel policy與能力。Driver不硬編Linux IRQ number。
+
+### 2. Legacy shared IRQ需要unique non-NULL `dev_id`
+
+```c
+flags = (pdev->msi_enabled || pdev->msix_enabled) ? 0 : IRQF_SHARED;
+request_irq(irq, handler, flags, KBUILD_MODNAME, dl);
+```
+
+對shared IRQ，`dev_id`用來區分handler instance，並在 `free_irq(irq, dl)` 時解除正確registration。
+Current source使用stable per-device state pointer。
+
+### 3. 為什麼request前先清pending
+
+EDU可能保留舊status。若source在 `request_irq()` 時已assert：
+
+```text
+handler剛註冊就立刻執行
+→ probe尚未建立預期的self-test state
+→ 測試結果與真實event混在一起
+```
+
+所以先：
+
+```text
+read STATUS
+→ ACK stale bits
+→ read-back STATUS
+```
+
+Read-back確保posted ACK推進，也有助legacy INTx source deassert。
+
+### 4. Handler為何先filter再ACK
+
+```c
+status = ioread32(bar0 + STATUS_REG);
+handled = status & TEST_IRQ_MASK;
+if (!handled)
+    return IRQ_NONE;
+```
+
+Shared INTx可能呼叫不相關handler；即使MSI/MSI-X通常不shared，filter status仍是確認device event與錯誤診斷的重要protocol。
+
+ACK只寫 `handled` bit，避免把同一status register中的其他合法event一起清掉。
+
+### 5. Hard IRQ context限制
+
+Handler應：
+
+- 不睡眠；
+- 不做無界迴圈；
+- 不做高頻大量 `dev_info()`；
+- 只保存最小state、ACK/mask、喚醒/排程後續工作；
+- 較重或可睡工作交給threaded IRQ/workqueue等合適機制。
+
+Current source用ratelimited debug log與 `complete()` 喚醒probe中的sleepable wait。
+
+### 6. ACK後為什麼要read-back
+
+```c
+iowrite32(handled, bar0 + ACK_REG);
+(void)ioread32(bar0 + STATUS_REG);
+```
+
+PCI write可能posted。Handler返回前若ACK尚未到device，legacy INTx source可能仍assert，造成立即重進。
+Read-back建立prior ACK arrival point；它不等待其他CPU handler，也不等任意device工作完成。
+
+### 7. BME與MSI/MSI-X
+
+MSI/MSI-X是device發出的Memory Write Request，因此function需要被允許bus-master transaction。
+Current source在handler/state ready後才於message-signaled模式啟用BME，並在teardown先clear。
+
+Legacy INTx是不同傳輸機制；本lab不為純legacy路徑無條件打開BME。
+
+BME只是一項授權，不會：
+
+- allocate vector；
+- install handler；
+- trigger event；
+- 保證delivery；
+- 證明in-flight event已停止。
+
+### 8. Completion object與device completion不要混淆
+
+```c
+complete(&dl->irq_done);
+```
+
+這是Linux同步物件，表示handler已觀察並處理本次event，讓probe的 `wait_for_completion_timeout()` 醒來。
+它不是PCIe Completion TLP，也不是device completion queue entry。
+
+### 9. 為什麼timeout必須bounded
+
+若IRQ未到，probe不能永遠卡住：
+
+```c
+wait_for_completion_timeout(..., timeout)
+```
+
+Timeout是failure evidence，不代表可直接free所有resource。Driver仍需quiesce device source、同步可能late到的handler，
+再cleanup。
+
+## 最小正確範式
+
+### Handler
+
+```c
+static irqreturn_t handler(int irq, void *opaque)
+{
+    struct device_state *dev = opaque;
+    u32 status = ioread32(dev->regs + STATUS);
+    u32 handled = status & OWNED_MASK;
+
+    if (!handled)
+        return IRQ_NONE;
+
+    iowrite32(handled, dev->regs + ACK);
+    (void)ioread32(dev->regs + STATUS);
+    complete(&dev->done);
+    return IRQ_HANDLED;
+}
+```
+
+### Teardown
+
+```text
+stop/ACK device source
+→ ensure posted control write arrived
+→ synchronize_irq()
+→ free_irq()
+→ free dependencies
+```
+
+這兩段共同建立完整lifecycle，不能只看handler happy path。
+
+## 看似合理但錯誤的寫法
+
+### 錯誤 1：request_irq前不清pending
+
+可能在probe state尚未ready時立即進handler，或把舊event誤認為self-test成功。
+
+### 錯誤 2：shared handler無條件回IRQ_HANDLED
+
+```c
+return IRQ_HANDLED;
+```
+
+若status不是自己的，會污染shared IRQ accounting並掩蓋spurious/other-device事件。應回 `IRQ_NONE`。
+
+### 錯誤 3：ACK整個status值，不分owned bit
+
+可能清掉其他interrupt source，造成event loss。只ACK此handler真正處理的bits。
+
+### 錯誤 4：先iounmap BAR，再free/synchronize IRQ
+
+Late handler會access已unmapped MMIO與freed state。先stop source並同步handler，最後才unmap。
+
+### 錯誤 5：收到一次IRQ就宣稱無loss/高效能
+
+Probe-time self-test只證明一個event path；不證明高rate、affinity、coalescing、concurrency或no-loss。
+
+## 如何執行與觀察
 
 ```sh
 cd labs/06-pci-edu-irq
 ./test.sh
 ```
 
-這支腳本會 build module，載入後檢查：
+### Current test 檢查
 
-- `request_irq ok`
-- `irq status=...`
-- `irq self-test passed`
+- 不卸載非本次載入的module；
+- 不清空全系統 `dmesg`；
+- 驗EDU enumeration、bind與 `/proc/interrupts`；
+- 要求probe、request handler、status/ACK、self-test、remove；
+- timeout、source未清、kernel warning/sanitizer report視為失敗。
 
-`test.sh` 逐段在驗什麼：
+### 成功證據
 
-1. 確認目前是 Linux，並確認 guest 看得到 `1234:11e8`。
-2. `make` 建出 `driver_lab_edu_irq.ko`。
-3. 如果前一次留下同名 module，先卸載，避免 IRQ/vector 狀態混亂。
-4. 清本次 `dmesg` 後載入 module。
-5. 檢查 PCI driver sysfs directory、bind 狀態，以及 `/proc/interrupts` 是否列出 `driver_lab_edu_irq`。
-6. grep `request_irq ok`，確認 IRQ handler registration 成功。
-7. grep `irq status=`，確認 handler 真的進來並讀到 status。
-8. grep `irq self-test passed`，確認 completion 等到 handler 結果。
-9. 卸載 module，確認 PCI driver sysfs directory 消失，並 `make clean`。
+```text
+request_irq ok: vector=... mode=...
+irq status=... acknowledged
+self-test passed count=1
+device removed
+06-pci-edu-irq smoke test passed
+```
 
-第一輪不要只看「有沒有 log」。真正重點是 handler 有沒有 acknowledge，否則中斷可能一直重進。
+Exact IRQ number與mode依平台，不應寫死。
 
-## 第一輪閱讀界線
+### 這個 test 不能證明
 
-| 分類 | 內容 |
-|---|---|
-| 第一輪必懂 | IRQ 是裝置通知 driver 的路徑；handler 要讀 status、判斷事件、寫 acknowledge、喚醒 completion；MSI 需要 bus mastering。 |
-| 可以先略過 | INTx/MSI/MSI-X 的完整硬體差異；interrupt affinity；threaded IRQ；shared IRQ 的所有 corner cases。 |
-| 之後再回來補 | 為什麼 handler 要短、哪些工作不能在 hard IRQ context 做、真實裝置如何設計多個 IRQ vector。 |
+- sustained rate/no-loss；
+- CPU affinity/NUMA；
+- multiple vectors/queues；
+- concurrent remove/reset；
+- 所有legacy/MSI/MSI-X模式；
+- payload correctness；
+- production interrupt mitigation/coalescing。
 
-## 完成後你應該能回答
+## Debug order
 
-| 問題 | 標準答案 |
-|---|---|
-| 這一關建立在哪一關的基礎上？ | 建立在 `05` 的 PCI enable、BAR map、MMIO register access 之上，再加入 IRQ path。 |
-| IRQ handler 要做什麼？ | 不只印 log；它要讀 interrupt status、判斷是不是自己的事件、寫 acknowledge register，最後喚醒 completion。 |
-| 這一關如何觸發中斷？ | probe 自我測試會寫 EDU 的 interrupt raise register `0x60`。 |
-| 為什麼 `06` 也呼叫 `pci_set_master()`？ | 因為 PCI MSI 是 device-originated memory write；若 PCI core 配到 MSI，裝置需要 bus mastering 才能把 MSI 送出。 |
-| 第一個觀測點是什麼？ | `dmesg` 中的 `request_irq ok`、`irq status=`、`irq self-test passed`。 |
-| 這一關主要拿到什麼 resource？ | BAR0 MMIO mapping、IRQ vector、IRQ handler registration。 |
-| cleanup 要釋放哪些東西？ | 先 `free_irq()` 與 `pci_free_irq_vectors()`，再 unmap BAR、release region、disable device。 |
-| handler 一直重進時第一個看哪裡？ | 優先檢查 handler 是否正確寫 interrupt acknowledge register `0x64`。 |
+```text
+1. Lab05 BAR/identity仍正常
+2. pci_alloc_irq_vectors回傳與選到的mode
+3. Linux IRQ number / request_irq return
+4. request前stale status是否清除
+5. MSI/MSI-X時BME是否ready後啟用
+6. RAISE write是否到device
+7. handler是否被dispatch
+8. status是否含owned bit
+9. ACK bit與read-back後source是否clear
+10. completion timeout / late handler
+11. remove時是否先quiesce再unmap
+```
 
-## 新手先記住這一關在補什麼
+## 工具分工
 
-- 前一關是「我能碰到 device」
-- 這一關是「device 主動通知我事件時，我能接住並清掉它」
-
-## 看 source code 時先抓哪幾個點
-
-先把 IRQ 當成「裝置敲門」來讀：
-
-1. `dl_edu_irq_probe()`：沿用 `05` 的 PCI enable / BAR map，然後多申請 IRQ vector
-2. `request_irq()`：把 `dl_edu_irq_handler()` 登記成中斷進來時的 handler
-3. `iowrite32(... DL_EDU_IRQ_RAISE_REG)`：自我測試如何叫 EDU 觸發一次中斷
-4. `dl_edu_irq_handler()`：handler 如何讀 status、判斷是不是自己的事件、寫 acknowledge
-5. `complete()` / `wait_for_completion_timeout()`：probe 如何等待 handler 確認中斷真的發生
-6. `dl_edu_irq_remove()`：卸載時先停 IRQ，再釋放 PCI resource
-
-遇到 kernel API 時，先套用「參數角色」模板，完整方法見 [`../../docs/onboarding/kernel-api-parameter-roles.md`](../../docs/onboarding/kernel-api-parameter-roles.md)。
-
-| API | 參數角色 | 第一輪理解 |
+| 工具／API | 解決什麼 | 不解決什麼 |
 |---|---|---|
-| `pci_set_master(pdev)` | PCI device | 允許裝置主動發起 bus transaction；MSI/某些主動通知路徑需要它。 |
-| `pci_alloc_irq_vectors(pdev, 1, 1, PCI_IRQ_ALL_TYPES)` | device、最少/最多 vector、IRQ 類型 | 向 PCI core 要 1 條 IRQ vector，允許 MSI/MSI-X/INTx。 |
-| `pci_irq_vector(pdev, 0)` | device、vector index | 取回第 0 條 IRQ vector number。 |
-| `request_irq(dl->irq_vector, dl_edu_irq_handler, flags, name, dl)` | vector、handler、flags、名字、dev_id | 把 IRQ 接到 handler；`dl` 會傳回 handler 當 per-device state。 |
-| `wait_for_completion_timeout(&dl->irq_done, timeout)` | completion、timeout | probe 等 handler 呼叫 `complete()`，確認 IRQ 真的抵達。 |
+| `pci_alloc_irq_vectors()` | 取得可用PCI interrupt vector | 安裝handler/觸發event |
+| `pci_irq_vector()` | 取得Linux IRQ number | 固定選定MSI或INTx |
+| `request_irq()` | 註冊CPU-side handler | 清device pending source |
+| device status | 判定event來源 | ACK / software synchronization |
+| ACK MMIO | 清device source | 等handler退出 |
+| read-back | prior posted ACK arrival | handler synchronization |
+| `complete()` | 喚醒sleepable waiter | device payload correctness |
+| `synchronize_irq()` | 等in-flight handler結束 | 阻止新device event |
+| `free_irq()` | 移除registration | 自動停止device source |
+| BME | 允許device-originated memory transaction | 配置vector/handler |
 
-第一輪先記住：handler 裡不能只印 log，還必須把裝置端的中斷狀態清掉，否則可能一直重進。
+## 與 pcie-study 的對應
 
-## 第一次卡住先看哪裡
+- P1-11：hard IRQ context與deferred work。
+- P1-12：interrupt storm、polling與NAPI邊界。
+- P2-07：MMIO ACK與posted read-back。
+- P2-10：INTx/MSI/MSI-X差異。
+- P2-11：vector allocation、handler與teardown。
+- P2-18：quiesce、reset與resource lifetime。
 
-- handler 沒進來
-  - 先確認你真的有觸發 interrupt raise register
-- handler 一直重進
-  - 優先懷疑 acknowledge 沒清乾淨
-- 只想用 MSI，不想理 INTx
-  - 先不要跳步；先把「handler 能正常清中斷」做對
+## 常見誤解
+
+### 誤解 1：Vector index就是Linux IRQ number
+
+- **為什麼錯**：`pci_irq_vector(pdev, index)`才取得kernel IRQ number，數值由平台配置。
+- **正確說法**：index是driver向PCI API取第幾條vector的索引。
+
+### 誤解 2：MSI是PCIe Message TLP
+
+- **為什麼錯**：MSI/MSI-X使用Memory Write Request送到配置的message address。
+- **正確說法**：它是message-signaled interrupt，但transaction type是Memory Write。
+
+### 誤解 3：ACK寫出後source一定立刻清
+
+- **為什麼錯**：PCI MMIO write可能posted。
+- **正確說法**：必要時讀同device safe status形成arrival point，再依device語意確認clear。
+
+### 誤解 4：`free_irq()`前不需要先停device
+
+- **為什麼錯**：Device仍可產生source，造成late/spurious/fallback behavior。
+- **正確說法**：先mask/ACK/stop producer，再同步與free。
+
+### 誤解 5：IRQ到了就是工作完成
+
+- **為什麼錯**：Event可能是error、unrelated source或notification早於payload validation。
+- **正確說法**：讀matching status/ownership，必要時再驗payload。
+
+## 適用邊界與尚未驗證
+
+- Current QEMU EDU target使用status `0x24`、raise `0x60`、ACK `0x64`；真實device不可套用。
+- Current source一次只分配一vector，不涵蓋MSI-X table、多queue affinity與per-CPU/NUMA design。
+- Hard IRQ log、locking與PREEMPT_RT語意在production/RT kernel需再設計。
+- `synchronize_irq()`與`free_irq()`有各自同步語意；此lab明示dependency，不代表所有driver都需完全相同排列。
+- 仍需runtime強制legacy/MSI、repeated events、timeout、unload race、KASAN/lockdep與fault injection。
+
+## 第一次閱讀先記住
+
+1. **Device source、PCI transport、Linux IRQ number、handler是不同層。**
+2. **Request handler前先處理stale pending source。**
+3. **Shared handler不是自己的event要回 `IRQ_NONE`。**
+4. **ACK只清owned bits，posted ACK必要時read-back。**
+5. **Hard IRQ只做短且不睡眠的工作。**
+6. **Teardown先stop source，再同步handler，最後free/unmap。**
+7. **一次self-test IRQ不等於production no-loss。**
+
+## Self-check
+
+1. 為什麼 `request_irq()` 前要先清EDU pending status？
+2. Shared INTx handler何時回 `IRQ_NONE`？
+3. 為什麼ACK只寫handled bit，並在需要時read-back？
+4. MSI/MSI-X為什麼與BME有關？BME又不能替代哪些步驟？
+5. `complete()`、read-back與 `synchronize_irq()` 各解什麼問題？
+6. Remove為什麼必須先quiesce source，再free IRQ與unmap BAR？
+7. Probe-time self-test能證明與不能證明什麼？
+
+<details>
+<summary>參考答案</summary>
+
+1. Source若已assert，handler可能在probe其餘state尚未ready時立刻執行，且舊event會污染self-test。
+2. 讀status後發現沒有本device/handler所擁有的bit時回 `IRQ_NONE`，讓shared IRQ正確accounting。
+3. 只ACKowned bit可保留其他source；read-back讓prior posted ACK到達相應point並有助level-like source deassert。
+4. MSI/MSI-X是device-originated Memory Write，需要bus-master授權。BME不會allocate vector、request handler、
+   trigger event或保證delivery。
+5. `complete()`喚醒waiter；read-back處理posted ACK arrival；`synchronize_irq()`等待in-flight handler退出。
+6. Handler仍會使用state/MMIO。先阻止新event並清source，再等所有handler完成，才能安全free/unmap。
+7. 證明一個trigger能在timeout內進handler、辨識、ACK並喚醒；不證明高rate/no-loss、affinity、多vector、
+   concurrent reset/remove或payload correctness。
+
+</details>
+
+## 來源與查證
+
+- Current source：`driver_lab_edu_irq.c`
+- Current test：`test.sh`
+- PCIe primer：[`../../docs/concepts/pcie-primer.md`](../../docs/concepts/pcie-primer.md)
+- Linux MSI guide: <https://docs.kernel.org/PCI/msi-howto.html>
+- Generic IRQ: <https://docs.kernel.org/core-api/genericirq.html>
+- PCI APIs: <https://docs.kernel.org/driver-api/pci/pci.html>
+- Device I/O / posted write: <https://docs.kernel.org/driver-api/device-io.html>
+- QEMU EDU: <https://www.qemu.org/docs/master/specs/edu.html>

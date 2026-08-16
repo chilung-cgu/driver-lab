@@ -1,200 +1,657 @@
-# 07 - PCI EDU DMA
+# 07 — QEMU EDU DMA：讓 device 搬資料，再安全回收資源
 
-## 目標
+> **定位**：在 Lab05 MMIO 與 Lab06 IRQ 基礎上，加入 coherent DMA round-trip，完成第一個
+> PCI host-driver teaching loop。
+>
+> **先備知識**：先理解 Lab05/06，以及
+> [`../../docs/concepts/pcie-primer.md`](../../docs/concepts/pcie-primer.md) 的DMA段落。
+>
+> **完成標準**：能分清 CPU pointer、DMA address與EDU-local address；能解釋mask、coherent mapping、
+> BME、MMIO command、IRQ、command idle、`dma_rmb()`、payload compare與quiesce-before-free。
 
-在 `edu` 裝置上補上 DMA buffer 與 round-trip 驗證。
+## 先講結論
 
-> [!NOTE]
-> 這一關現在已經有第一版可 build 的 driver code 與 smoke test。
-> 真正的載入與驗證仍必須在 Linux guest 內完成。
+DMA（Direct Memory Access）讓device直接讀寫host memory；CPU不必自己逐byte `memcpy()`。但driver必須
+提供device可用的DMA address，並管理address能力、ownership、ordering、completion與lifetime。
 
-## 開始前先看
-
-- [`../../docs/onboarding/05-to-07-pci-irq-dma-bridge.md`](../../docs/onboarding/05-to-07-pci-irq-dma-bridge.md)
-- [`../../docs/concepts/pcie-primer.md`](../../docs/concepts/pcie-primer.md)
-- [`../../docs/guides/qemu-edu-first-pass.md`](../../docs/guides/qemu-edu-first-pass.md)
-
-## 先備條件
-
-- `05` 與 `06` 已完成
-- 你已經理解 userspace buffer、kernel buffer、device-visible buffer 不是同一件事
-
-## 這一關要練什麼
-
-- `dma_set_mask_and_coherent()`
-- coherent DMA buffer
-- DMA register programming
-- completion / poll / timeout
-
-## 成功標準
-
-- DMA mask 設定正確
-- buffer 分配成功
-- round-trip data 驗證成功
-- 錯誤與 timeout path 有 cleanup
-
-## 第一次只要先懂這件事
-
-這一關不是在學「CPU 自己 copy 一段記憶體」。
-
-而是在學：
-
-- 哪一塊 buffer 可以安全地暴露給裝置
-- 裝置搬完資料後，你怎麼確認它真的對
-
-## 第一次實作順序
-
-1. 先設 DMA mask
-2. 再分配 coherent buffer
-3. 再填測試資料
-4. 再寫 DMA register
-5. 最後驗 round-trip 結果
-
-## 目前已實作的內容
-
-- `dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(28))`
-- `dma_alloc_coherent()`
-- RAM -> EDU 的 DMA
-- EDU -> RAM 的 DMA
-- interrupt completion path
-- 最後用 `memcmp()` 驗 round-trip 結果
-
-主要檔案：
-
-- [`driver_lab_edu_dma.c`](driver_lab_edu_dma.c)
-- [`test.sh`](test.sh)
-
-## Source 旁讀文件
-
-讀 source 時可以直接打開同目錄的 companion doc，不需要回到 `docs/` 裡找對應解釋：
-
-| Source | 旁讀文件 | 建議用途 |
-|---|---|---|
-| [`driver_lab_edu_dma.c`](driver_lab_edu_dma.c) | [`driver_lab_edu_dma.c.md`](driver_lab_edu_dma.c.md) | 逐段理解 DMA mask、coherent buffer、CPU pointer/DMA address、EDU DMA register、IRQ completion、round-trip 與 cleanup。 |
-| [`Makefile`](Makefile) | [`Makefile.md`](Makefile.md) | 理解 Lab07 external module kbuild 與 guest DMA 驗證分工。 |
-| [`test.sh`](test.sh) | [`test.sh.md`](test.sh.md) | 理解 smoke test 如何檢查 EDU、driver bind、DMA dmesg gate、`/proc/interrupts` 與 teardown。 |
-
-## 第一次驗收時你要看到什麼
-
-- buffer 配置成功
-- DMA 完成後資料一致
-- timeout / error path 能清乾淨
-
-## 這一關會出現哪些 filesystem 入口
-
-`07` 仍是 PCI driver，不會把 coherent DMA buffer 變成一個 `/dev` 或 `/sys` 裡的普通檔案。
-
-| 入口 | 第一輪用途 |
-|---|---|
-| `lspci -nn | grep 1234:11e8` | 確認 EDU device 存在。 |
-| `/sys/bus/pci/devices/...` | 觀察 PCI device / driver bind 狀態。 |
-| `/sys/bus/pci/drivers/driver_lab_edu_dma` | 觀察 DMA lab 的 PCI driver 是否註冊。 |
-| `/proc/interrupts` | 輔助觀察 DMA completion IRQ。 |
-| `dmesg` | 主要驗收：`dma mask configured`、`coherent buffer allocated`、`round-trip compare passed`。 |
-
-第一輪請記住：DMA buffer 有 CPU pointer 和 device DMA address 兩種視角，但它不是給你 `cat /sys/...` 讀的普通檔案。
-
-## 第一次理想上要看到的輸出
-
-`dmesg` 裡第一版通常至少要看到：
+Lab07做兩次搬運：
 
 ```text
-driver_lab_edu_dma: dma mask configured
-driver_lab_edu_dma: coherent buffer allocated
-driver_lab_edu_dma: ram-to-edu transfer finished
-driver_lab_edu_dma: edu-to-ram transfer finished
-driver_lab_edu_dma: round-trip compare passed
+CPU填TX coherent buffer
+→ EDU DMA：host RAM → EDU local RAM
+→ EDU DMA：EDU local RAM → host RX coherent buffer
+→ IRQ + command START bit clear
+→ dma_rmb()
+→ CPU memcmp(TX, RX)
 ```
 
-如果第一次做不到這麼完整，也沒關係。
+四個證據不能混在一起：
 
-你可以先把驗收拆成：
+```text
+IRQ          ：notification path發生
+START clear  ：QEMU EDU-specific engine idle
+_dma_rmb()   ：completion後，device writes排在CPU reads前
+memcmp       ：address、direction、length與payload結果正確
+```
 
-1. DMA mask 先成功
-2. buffer 先配置成功
-3. 再追 round-trip
+最危險的錯誤是timeout後直接free mapping。若device仍可能使用DMA address，free後記憶體被重用會造成
+DMA use-after-free與任意資料毀損。Current source在無法證明quiesce且reset失敗時，寧可保留mapping。
 
-## 現在怎麼跑
+## 不確定處與驗證狀態
+
+- **已由官方文件查證**：DMA mask、`dma_alloc_coherent()`的CPU/DMA雙address、coherent仍需ordering、
+  MMIO accessor、IRQ與PCI reset API的通用contract。
+- **已對照 Current source**：`driver_lab_edu_dma.c` 使用28-bit預設（可選32-bit fixture）mask、
+  單一coherent allocation切TX/RX、late BME、兩方向transfer、IRQ + command-clear、
+  `dma_rmb()`與fail-safe quiesce。
+- **Compile/static 狀態**：audit branch有external-module compile與script gate。
+- **已於 2026-08-16 runtime 驗證**：Lab05–07 smoke、forced-SWIOTLB streaming（28/32-bit）與
+  repeated load/unload（Lab09 stress 50 iterations）已在隔離 QEMU EDU guest 實跑，dmesg gate 無 BUG/WARNING/Oops。
+- **尚需其他工具才能驗證**：IRQ/command timeout 與 reset failure 無法用 stock QEMU EDU 觸發
+  （無效 DMA range 會讓 QEMU `hw_error()` 直接終止進程，且 EDU reset 恆成功）；
+  需自訂 QEMU/device model 或 real hardware fault injection。KASAN/lockdep 需要 debug kernel
+  （目前 guest 為 Ubuntu generic kernel，未啟用 `PROVE_LOCKING`/KASAN），fault injection 需要
+  kernel fault-injection infrastructure。
+- **Device-specific**：EDU 28-bit mask、local RAM offset、command/status/IRQ bits與reset behavior不代表真實硬體。
+- **Endianness boundary**：Current target是x86_64 little-endian guest；跨endian target需重新核對QEMU EDU model與accessor。
+
+## 這一關要解決什麼問題
+
+初學者常看到：
+
+```c
+void *buffer = kmalloc(...);
+device_reg = (u64)buffer;
+```
+
+並以為把CPU pointer寫給device就能DMA。這是錯的，因為：
+
+- CPU pointer只在kernel virtual address space有意義；
+- Physical page layout可能不連續；
+- IOMMU可能把device address映射到不同IOVA；
+- Platform可能使用bounce buffer；
+- Device只能表示有限address bits；
+- Mapping還有direction、ownership與lifetime。
+
+即使address正確，也還要回答：
+
+```text
+CPU何時把buffer交給device？
+Device何時真的完成？
+CPU何時可以讀回？
+Timeout / remove時，何時才可以free？
+```
+
+## 名詞先說清楚
+
+| 名詞 | 本關中的意思 | 不代表什麼 |
+|---|---|---|
+| **CPU virtual address** | Kernel CPU code可dereference的pointer | Device不能直接使用 |
+| **DMA address (`dma_addr_t`)** | DMA API回傳、device放進register/descriptor的address | 不保證等於physical address |
+| **EDU-local address** | EDU內部RAM aperture使用的device內部offset | 不是host DMA mapping |
+| **DMA mask** | Hardware能表示的DMA address bits | 不是設越大越安全 |
+| **Coherent allocation** | CPU/device能互見、免一般per-transfer cache maintenance的mapping | 不免除ordering/completion/lifetime |
+| **BME** | Bus Master Enable，允許device發出memory transaction | 不建立mapping、不啟動engine |
+| **Direction** | 資料是host→device或device→host | 不等於source/destination欄位可隨意交換 |
+| **Completion evidence** | IRQ、status、OWN、CQ、engine idle等device protocol證據 | 不自動保證payload正確 |
+| **`dma_rmb()`** | 完成後排序device writes與CPU reads | 不主動等待device完成 |
+| **Quiesce** | 阻止新DMA並證明/等待in-flight使用結束 | 不只是clear BME |
+| **DMA UAF** | Mapping free後device仍使用舊address | 可能破壞其他subsystem記憶體 |
+
+## 心智模型
+
+### CPU地址、物流地址與倉庫內編號
+
+```text
+CPU pointer      = 員工在辦公室內使用的座位編號
+DMA address      = 物流公司看得懂的配送地址
+EDU local 0x40000= EDU自己倉庫裡的貨架編號
+```
+
+三者可能數值不同，不能互相cast。
+
+搬運前，driver必須：
+
+```text
+確認物流車能表示這個address範圍（DMA mask）
+→ 取得CPU與device各自的address view
+→ 準備IRQ/completion state
+→ 最後才允許device bus mastering
+```
+
+搬運後，不能只聽到門鈴（IRQ）就拆掉倉庫；要確認engine idle、同步software path，再free mapping。
+
+> **比喻的邊界**：真實DMA還有scatter-gather、IOMMU permissions、cache lines、descriptor rings、
+> multi-queue、ATS/PASID等；本lab只教最小coherent single-buffer path。
+
+## 先備 gate
+
+在能看見EDU的Linux guest：
+
+```sh
+uname -m
+uname -r
+lspci -Dnn | grep '1234:11e8'
+test -e "/lib/modules/$(uname -r)/build"
+```
+
+並先確認：
+
+- Lab05 BAR/identity path正確；
+- Lab06 IRQ status/ACK path正確；
+- EDU未被其他driver擁有；
+- 同名module未載入；
+- Guest是本repo目前承諾的x86_64 little-endian target。
+
+## Resource 與 data flow
+
+### Setup
+
+```text
+pci_enable_device()
+→ validate/request/map BAR0
+→ verify EDU identity
+→ dl_edu_dma_configure_mask()（28 預設；32 僅限配對 fixture）
+→ dma_alloc_coherent(TX + RX)
+→ allocate IRQ vector / request handler
+→ clear stale pending source
+→ pci_set_master()（最後，準備開始device-originated traffic）
+```
+
+### Coherent allocation的兩個回傳值
+
+```c
+void *dma_buf;
+dma_addr_t dma_handle;
+
+dma_buf = dma_alloc_coherent(dev, total_bytes, &dma_handle, GFP_KERNEL);
+```
+
+- `dma_buf`：CPU pointer；
+- `dma_handle`：device DMA address；
+- TX = base；RX = base + 256 bytes；
+- Current source確認整個TX/RX range都落在設定好的mask（28 預設或 32 fixture）內，
+  避免截斷或錯誤假設。
+
+### RAM → EDU
+
+```text
+CPU填TX pattern
+→ program SRC = tx_dma
+→ program DST = EDU local 0x40000
+→ program COUNT
+→ normal iowrite32(START | IRQ)
+→ wait IRQ
+→ wait START bit clear
+```
+
+### EDU → RAM
+
+```text
+program SRC = EDU local 0x40000
+→ program DST = rx_dma
+→ START | FROM_DEVICE | IRQ
+→ wait IRQ
+→ wait START bit clear
+→ dma_rmb()
+→ CPU讀RX
+→ memcmp(TX, RX)
+```
+
+### Error / teardown
+
+```text
+clear BME，阻止新的device-originated traffic
+→ 若command仍in-flight，bounded wait START clear
+→ 若仍active，嘗試pci_reset_function()
+→ ACK pending source
+→ synchronize/free IRQ
+→ 只有在quiescence可證明時才free coherent mapping
+→ unmap/release BAR
+→ disable device
+```
+
+若reset失敗且無法證明idle：
+
+```text
+保留coherent mapping
+→ 避免device寫入已被重用的記憶體
+→ 需要reboot/platform recovery回收
+```
+
+這是安全優先的teaching fail-safe，不是production recovery設計。
+
+## 從簡單到精確
+
+### 1. DMA mask是真實hardware限制
+
+```c
+ret = dma_set_mask_and_coherent(dev, DMA_BIT_MASK(28));
+if (ret)
+    fail;
+```
+
+Mask告訴DMA subsystem：device最多能產生哪些address bits。若device只支援28-bit，宣稱64-bit可能讓driver
+拿到device無法表示的address，造成截斷與錯誤DMA。
+
+QEMU EDU current teaching model使用28-bit限制；記錄QEMU version，因model behavior可能變動。
+
+Current source透過唯讀module parameter `dma_address_bits` 支援 28（預設）或 32
+兩種值，其他值在probe時回傳 `-EINVAL`：
+
+```c
+static unsigned int dma_address_bits = DL_EDU_DMA_ADDRESS_BITS;
+module_param(dma_address_bits, uint, 0444);
+
+static int dl_edu_dma_configure_mask(struct dl_edu_dma_dev *dl)
+{
+	if (dma_address_bits != DL_EDU_DMA_ADDRESS_BITS &&
+	    dma_address_bits != DL_EDU_DMA_ADDRESS_BITS_MAX)
+		return -EINVAL;
+	dl->dma_mask = DMA_BIT_MASK(dma_address_bits);
+	return dma_set_mask_and_coherent(&dl->pdev->dev, dl->dma_mask);
+}
+```
+
+32-bit不是「driver變強」：EDU的DMA register仍只有32-bit，且host必須以
+`-device edu,dma_mask=0xffffffff` 啟動，module才應以 `dma_address_bits=32` 載入。
+
+### 2. CPU pointer與DMA address分離
+
+```c
+dl->dma_buf = dma_alloc_coherent(..., &dl->dma_handle, ...);
+```
+
+絕對不要：
+
+```c
+dma_addr = virt_to_phys(cpu_ptr);
+dma_addr = (dma_addr_t)cpu_ptr;
+```
+
+DMA API可能建立IOMMU mapping、bounce與platform offset；driver只使用回傳的 `dma_addr_t`。
+
+### 3. Host DMA address與EDU local address分域
+
+RAM→EDU：
+
+```text
+source      = tx_dma（host DMA address）
+destination = 0x40000（EDU內部RAM offset）
+```
+
+EDU→RAM：
+
+```text
+source      = 0x40000
+destination = rx_dma
+```
+
+`0x40000`不是host physical/DMA address。Direction寫反可能仍有IRQ或command變化，所以最後必須compare payload。
+
+### 4. 為什麼BME最後才開
+
+BME授權device發出DMA與MSI/MSI-X等memory transaction。若mapping、handler、state尚未ready就打開，
+misbehaving device可能提早存取host memory或送event。
+
+Current source在：
+
+```text
+BAR/identity ready
+→ DMA mapping ready
+→ IRQ handler ready
+→ 最後pci_set_master()
+```
+
+這縮短device有bus-master權限但driver尚未準備好的時間。
+
+### 5. RAM→device為什麼沒有固定 `dma_wmb()`
+
+本lab不是descriptor ownership ring。它是：
+
+```text
+CPU寫一塊coherent TX buffer
+→ normal iowrite32()寫MMIO START command
+```
+
+Default mapping的normal accessor已提供prior coherent/normal memory writes→MMIO trigger ordering。
+因此Current source刻意不加沒有對應ownership publication的cargo-cult：
+
+```c
+dma_wmb();
+wmb();
+iowrite32(START, ...);
+```
+
+真正descriptor ring則不同：
+
+```text
+填descriptor fields
+→ dma_wmb()
+→ publish OWN/VALID
+→ normal doorbell
+```
+
+Barrier必須對應實際protocol，不是看到DMA就固定套公式。
+
+### 6. Device→RAM為什麼在completion後做 `dma_rmb()`
+
+Current path先：
+
+```text
+IRQ arrived
+→ START bit clear
+```
+
+建立QEMU EDU-specific completion/idle evidence；接著：
+
+```c
+dma_rmb();
+```
+
+才讓CPU消費device-written RX data。`dma_rmb()`不是wait；放在completion之前不能讓device加速完成。
+
+### 7. IRQ、command clear與compare各自必要
+
+- IRQ可遺失/錯配或只是notification；
+- START clear是engine state，但不驗資料內容；
+- compare能抓source/destination/direction/count/data錯誤，但前提是CPU在正確completion/order後讀取。
+
+所以三者一起使用，而不是選一個。
+
+### 8. Handler為什麼只ACK DMA bit
+
+EDU status可能包含其他event bit。Handler：
+
+```text
+read status
+→ handled = status & DMA_IRQ_MASK
+→ ACK only handled
+→ read-back status
+→ complete waiter
+```
+
+這避免丟掉unrelated source，並確保legacy level-like ACK推進。
+
+### 9. Clear BME不等於所有DMA已停止
+
+`pci_clear_master()`阻止新的bus-master transaction，但不能普遍證明已發出的transaction、device internal command或
+queue state已完成。Current source還會bounded wait command clear，必要時function reset。
+
+### 10. `pci_reset_function()`也不是萬能production recovery
+
+Helper處理PCI function reset與相關PCI config state，但不重建device-specific firmware、queue、software ownership或
+application protocol。Current EDU lab把它當teaching fallback；真實device要有自己的abort/reset/reinit state machine。
+
+## 最小正確範式
+
+### Address views
+
+```c
+void *cpu_addr;
+dma_addr_t dma_addr;
+
+cpu_addr = dma_alloc_coherent(dev, size, &dma_addr, GFP_KERNEL);
+if (!cpu_addr)
+    return -ENOMEM;
+
+/* CPU uses cpu_addr; device registers use dma_addr. */
+```
+
+### Submit / complete / consume
+
+```text
+CPU準備buffer
+→ normal MMIO command
+→ wait matching device completion
+→ dma_rmb()（device→CPU coherent data path需要時）
+→ CPU驗資料
+```
+
+### Safe teardown
+
+```text
+reject new work
+→ clear BME / stop device
+→ prove command idle or reset
+→ ACK source
+→ synchronize IRQ
+→ free mapping only when quiescence is proven
+```
+
+## 看似合理但錯誤的寫法
+
+### 錯誤 1：把CPU pointer寫進DMA register
+
+```c
+iowrite32((u32)(uintptr_t)dma_buf, DMA_SRC);
+```
+
+CPU virtual pointer不是device address；IOMMU/platform下可能完全無意義。使用DMA API回傳的 `dma_handle`。
+
+### 錯誤 2：Mask一律設64-bit
+
+```c
+dma_set_mask_and_coherent(dev, DMA_BIT_MASK(64));
+```
+
+若hardware只有28-bit，這是虛假宣告，可能拿到不可表示address。Mask必須符合device能力。
+
+### 錯誤 3：收到IRQ立刻讀RX，不確認command/status
+
+IRQ可能不匹配或只是notification。依device protocol確認START clear/ownership/CQ，再做ordering與consume。
+
+### 錯誤 4：Timeout後直接free
+
+```c
+if (timeout)
+    dma_free_coherent(...);
+```
+
+Device可能仍持有address，造成DMA UAF。先quiesce/reset；無法證明時不可重用該memory。
+
+### 錯誤 5：`dma_rmb()`放在等待前當作wait
+
+Barrier只排序access，不讓hardware完成。先observe completion，再barrier，再讀data。
+
+### 錯誤 6：所有doorbell前固定加兩個barrier
+
+沒有descriptor OWN publication時可能多餘，也可能掩蓋真正缺少的read-back/completion。依accessor/mapping/protocol選擇。
+
+## 如何執行與觀察
 
 ```sh
 cd labs/07-pci-edu-dma
 ./test.sh
 ```
 
-這支腳本會 build module，載入後檢查：
+### Current test 檢查
 
-- `dma mask configured`
-- `coherent buffer allocated`
-- `round-trip compare passed`
+- 不卸載非本次載入的module；
+- 不清空global `dmesg`；
+- 驗EDU enumeration、bind與 `/proc/interrupts`；
+- 要求兩方向transfer完成；
+- 要求 `round-trip compare passed`；
+- timeout、warning、sanitizer、unproven quiescence視為失敗。
 
-`test.sh` 逐段在驗什麼：
+### 成功證據
 
-1. 確認目前是 Linux，並確認 guest 看得到 `1234:11e8`。
-2. `make` 建出 `driver_lab_edu_dma.ko`。
-3. 如果前一次留下同名 module，先卸載，避免 DMA/IRQ resource 狀態混亂。
-4. 清本次 `dmesg` 後載入 module。
-5. 檢查 PCI driver sysfs directory、bind 狀態，以及 `/proc/interrupts` 是否列出 `driver_lab_edu_dma`。
-6. grep `dma mask configured`，確認 device 可定址範圍已設定。
-7. grep `coherent buffer allocated`，確認 CPU/device 共享 buffer 配置成功。
-8. grep `round-trip compare passed`，確認 RAM -> EDU -> RAM 的資料一致。
-9. 卸載 module，確認 PCI driver sysfs directory 消失，並 `make clean`。
+```text
+dma mask configured to 28 bits
+coherent buffer allocated
+ram-to-edu transfer finished
+edu-to-ram transfer finished
+round-trip compare passed
+device removed
+07-pci-edu-dma smoke test passed
+```
 
-第一輪卡住時，先把問題拆成三段：DMA mask、buffer allocation、round-trip compare，不要一次追完整 DMA subsystem。
+### 這個 test 不能證明
 
-## 第一輪閱讀界線
+- streaming/SG DMA；
+- descriptor ring/OWN/phase；
+- multi-queue/MSI-X/NUMA；
+- user-pinned memory/IOMMU security；
+- hot-unplug/AER/PM；
+- deterministic timeout/reset failure（stock QEMU EDU 無法製造：無效 DMA range 會 `hw_error()` 終止 QEMU，reset 恆成功）；
+- real hardware firmware/PHY/performance；
 
-| 分類 | 內容 |
-|---|---|
-| 第一輪必懂 | coherent DMA buffer 同時有 CPU pointer 和 device DMA address；round-trip 是 RAM -> EDU -> RAM；最後用 `memcmp()` 驗資料一致。 |
-| 可以先略過 | streaming DMA API、cache coherency 細節、IOMMU、scatter-gather、DMA engine framework。 |
-| 之後再回來補 | DMA direction、mapping lifetime、硬體 DMA mask 限制、錯誤路徑如何避免 buffer 或 IRQ resource 泄漏。 |
+### 選用：forced-SWIOTLB streaming probe（`test-swiotlb.sh`）
 
-## 完成後你應該能回答
+`test.sh` 只走 coherent allocation 路徑。`test-swiotlb.sh` 是預設不跑的
+streaming TX 驗證：在獨立、無 IOMMU、`swiotlb=force` 的 guest 中，以
+`dma_map_single()` 映射整頁、由 EDU 搬前 256 bytes、unmap 後再讀回比較，並要求
+kernel 的 `swiotlb_bounced` trace 顯示 `FORCE`。
 
-| 問題 | 標準答案 |
-|---|---|
-| coherent DMA buffer 有哪兩種視角？ | CPU 用 kernel pointer 存取同一塊 buffer；裝置用 DMA address 存取同一塊 buffer。 |
-| 為什麼要先設 DMA mask？ | 要確認裝置能定址 driver 分配給它的 DMA address 範圍；EDU lab 使用 28-bit mask。 |
-| round-trip 驗證在驗什麼？ | 先 RAM -> EDU，再 EDU -> RAM，最後用 `memcmp()` 比對 tx/rx buffer 是否一致。 |
-| 第一個觀測點是什麼？ | `dmesg` 中的 `dma mask configured`、`coherent buffer allocated`、`round-trip compare passed`。 |
-| 這一關主要拿到什麼 resource？ | BAR0 MMIO mapping、IRQ vector/handler、coherent DMA buffer。 |
-| cleanup 要釋放哪些東西？ | `free_irq()`、`pci_free_irq_vectors()`、`dma_free_coherent()`、`pci_iounmap()`、`pci_release_region()`、`pci_disable_device()`。 |
-| round-trip 失敗時第一個看哪裡？ | 先核對 DMA source/destination register、方向 bit、count，再看 timeout 或 IRQ completion log。 |
+```sh
+cd labs/07-pci-edu-dma
+./test-swiotlb.sh                    # 預設 28-bit EDU（guest RAM <= 256 MiB）
+EDU_DMA_ADDRESS_BITS=32 ./test-swiotlb.sh   # 32-bit 專用 fixture
+```
 
-## 新手先記住這一關在補什麼
+- module parameter `dma_address_bits` 只接受 28（預設）或 32；32 必須搭配 host
+  launcher 的 `EDU_DMA_ADDRESS_BITS=32`（`-device edu,dma_mask=0xffffffff`）。
+- boot log 檢查相容兩種訊息：舊 `PCI-DMA: Using software bounce buffering for IO (SWIOTLB)`
+  與 kernel 6.8+ 的 `software IO TLB: `。
+- `swiotlb_bounced` 的 `dev_addr` 是 bounce 前的原始位址；要看 bounce 後實際
+  mapped address，以 driver log 的 `streaming TX map established: ... dma=0x...` 為準。
+- 32-bit fixture 會以 sysfs 回讀 module parameter，並要求 driver log 的 mapped DMA
+  address 高於 `0x0fffffff`；低位址結果不接受為 32-bit 證據。
+- 256 MiB guest 編譯 module 若 OOM，先在 guest 建 1 GiB swapfile；不改變 fixture 語意。
+- 所有條件都依 architecture/QEMU version 核對；換版本需重新驗證。
 
-- 這一關不只是「搬資料」
-- 你在學的是：哪些記憶體可以安全地讓裝置看到，以及失敗時怎麼收乾淨
+## Debug order
 
-## 看 source code 時先抓哪幾個點
+```text
+1. Lab05 BAR/identity正常
+2. Lab06 IRQ/status/ACK正常
+3. dma_set_mask_and_coherent return
+4. dma_alloc_coherent CPU pointer / DMA handle
+5. 整個range是否落在設定好的mask（28 或 32）內
+6. BME是否在mapping/handler ready後啟用
+7. RAM→EDU source/destination/count/direction
+8. IRQ status與ACK
+9. START bit是否清除
+10. EDU→RAM source/destination/count/direction
+11. dma_rmb位置
+12. memcmp差異
+13. timeout時clear master / wait / reset / retained mapping
+14. remove後有無late IRQ、warning、UAF或resource殘留
+```
 
-DMA 這關容易一次看到太多名詞。第一次先抓「buffer 是誰看得到」：
+## 工具分工
 
-1. `dl_edu_dma_probe()`：先完成 PCI enable、BAR map、IRQ setup，再進 DMA setup
-2. `dma_set_mask_and_coherent()`：先確認裝置能定址 driver 要給它的 DMA 位址範圍
-3. `dma_alloc_coherent()`：配置 CPU 與 device 都能安全存取的 coherent buffer
-4. `dl_edu_dma_program_addrs()`：把 source / destination DMA address 寫進 EDU register
-5. `dl_edu_dma_run_once()`：每次 DMA transfer 如何設定 count、command、等待完成
-6. `dl_edu_dma_handler()`：DMA 完成中斷如何 acknowledge 並喚醒等待路徑
-7. `dl_edu_dma_remove()`：卸載時如何 free IRQ、釋放 coherent buffer、unmap BAR
-
-遇到 kernel API 時，先套用「參數角色」模板，完整方法見 [`../../docs/onboarding/kernel-api-parameter-roles.md`](../../docs/onboarding/kernel-api-parameter-roles.md)。
-
-| API | 參數角色 | 第一輪理解 |
+| 工具／API | 解決什麼 | 不解決什麼 |
 |---|---|---|
-| `dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(28))` | device、可定址範圍 | 告訴 DMA API 這顆 EDU 可用的 DMA address 範圍。 |
-| `dma_alloc_coherent(&pdev->dev, size, &dl->dma_handle, GFP_KERNEL)` | device、size、DMA address output、allocation flag | 回傳 CPU pointer，並把 device 要用的 DMA address 填進 `dma_handle`。 |
-| `dl_edu_dma_program_addrs(dl, src, dst)` | per-device state、source DMA address、destination DMA address | 寫進 EDU DMA source/destination register；這些是 device 視角的位址。 |
-| `dl_edu_dma_run_once(dl, src, dst, cmd, phase)` | device state、位址、命令、log 名稱 | 設定一次 DMA transfer，等 IRQ 與 command bit 完成。 |
-| `dma_free_coherent(&pdev->dev, size, dl->dma_buf, dl->dma_handle)` | device、size、CPU pointer、DMA address | 釋放前面 coherent allocation 拿到的兩種位址。 |
+| DMA mask | 宣告device address能力 | 建立mapping/啟動DMA |
+| `dma_alloc_coherent()` | CPU pointer + DMA address、coherent view | ownership order/completion |
+| normal `iowrite32()` | prior memory→MMIO command ordering | posted arrival/engine completion |
+| `dma_wmb/rmb` | coherent shared-memory ownership ordering | MMIO、wait、resource lifetime |
+| IRQ | notification | payload correctness/engine idle |
+| START clear | EDU-specific idle evidence | 地址/資料內容正確 |
+| `memcmp()` | round-trip payload correctness | teardown安全 |
+| `pci_clear_master()` | 阻止新的bus-master transaction | 普遍證明in-flight已結束 |
+| `pci_reset_function()` | 嘗試function reset | 重建vendor firmware/queue/software state |
+| `synchronize_irq()` | 等in-flight handler退出 | 停DMA engine |
+| Retain mapping | 避免unproven-quiesce DMA UAF | 正常可回收的production recovery |
 
-先不要把 DMA 想成 `memcpy()`。這裡的核心是「裝置拿到一個它能用的位址，自己去搬資料」。
+## 與 pcie-study 的對應
 
-## 第一次卡住先看哪裡
+- P1-10：coherence、ordering、barrier、completion分層。
+- P2-07：normal MMIO accessor與posted read-back。
+- P2-10/11：MSI/MSI-X、IRQ status/ACK/teardown。
+- P2-12：CPU pointer、physical、DMA address。
+- P2-13：coherent vs streaming DMA。
+- P2-14：descriptor ownership、doorbell與completion。
+- P2-18：reset、quiesce與lifetime。
 
-- DMA mask 設不過
-  - 先回去看 QEMU EDU 預設 `dma_mask` 限制
-- 資料方向不對
-  - 先重新核對 source / destination register
-- round-trip 結果不對
-  - 先把傳輸長度壓小，再逐步確認每一步
+本Lab刻意是single-buffer EDU command，不是descriptor ring；不要把P2-14的OWN範式硬套成不存在的protocol。
+
+## 常見誤解
+
+### 誤解 1：DMA address就是physical address
+
+- **為什麼錯**：IOMMU、bounce與platform translation可能改變device view。
+- **正確說法**：只使用DMA API回傳的 `dma_addr_t`。
+
+### 誤解 2：Coherent代表不用任何barrier
+
+- **為什麼錯**：coherent解cache visibility，不保證不同control fields的ownership order。
+- **正確說法**：本single-buffer path用normal accessor；descriptor ring仍在OWN publication前用DMA barrier。
+
+### 誤解 3：IRQ到達等於DMA完成且資料正確
+
+- **為什麼錯**：IRQ是notification，仍要matching status/idle與payload compare。
+- **正確說法**：completion與correctness分開。
+
+### 誤解 4：Clear BME後可立即free
+
+- **為什麼錯**：它不普遍證明已發出transaction或internal engine已停止。
+- **正確說法**：還要bounded wait、device-specific idle/reset與software synchronization。
+
+### 誤解 5：Memory leak一定比任何情況都糟
+
+- **為什麼錯**：在無法證明DMA quiesce時，free可能造成跨subsystem memory corruption。
+- **正確說法**：暫時保留mapping是fail-safe；production需可恢復的stop/reset/reinit。
+
+## 適用邊界與尚未驗證
+
+- 本lab只承諾current x86_64 little-endian QEMU EDU target；跨endian/architecture需重驗。
+- EDU local `0x40000`、28-bit mask與command bits是model-specific。
+- Coherent single-buffer不能代表streaming/SG、descriptor ring、multi-queue或user memory。
+- Function reset能否真正停所有real-hardware DMA取決於device；不能泛化。
+- Current fail-safe retain mapping避免UAF，但需要reboot/platform recovery，並非可接受的長期production behavior。
+- Stock QEMU EDU 無法製造deterministic timeout/reset fault（無效range會`hw_error()`，reset恆成功）；
+  此類路徑需自訂emulator或real hardware才能取得failure-injection evidence。
+- IOMMU on/off、KASAN/lockdep與fault-injection logs需要對應的kernel/device config，尚未驗證。
+
+## 第一次閱讀先記住
+
+1. **CPU pointer與DMA address是兩個view；device只用DMA API回傳address。**
+2. **DMA mask要如實描述hardware能力。**
+3. **EDU local address不是host DMA address。**
+4. **BME最後才開，且不等於mapping/engine/completion。**
+5. **IRQ、idle、`dma_rmb()`、compare各驗一層。**
+6. **本lab不是descriptor ring，不固定堆cargo-cult barrier。**
+7. **未證明quiesce時不能free mapping。**
+
+## Self-check
+
+1. `dma_alloc_coherent()`回傳的CPU pointer與DMA handle分別給誰使用？
+2. 為什麼EDU預設使用28-bit DMA mask，何時才允許32-bit？不能直接宣稱64-bit？
+3. RAM→EDU與EDU→RAM時，host DMA address與 `0x40000` 各放在哪個欄位？
+4. 為什麼本single-buffer start path沒有固定加入 `dma_wmb(); wmb();`？
+5. IRQ、START clear、`dma_rmb()`與 `memcmp()`各證明什麼？
+6. 為什麼clear BME後仍不能立即free coherent mapping？
+7. Reset失敗且無法證明idle時，為什麼Current source選擇保留mapping？
+
+<details>
+<summary>參考答案</summary>
+
+1. CPU用virtual pointer dereference；EDU register用DMA handle。兩者可能因IOMMU/platform translation而不同。
+2. Mask是device可表示address bits的真實能力；虛假設64-bit可能拿到EDU無法表示且會被截斷的address。
+3. RAM→EDU：SRC=tx_dma、DST=0x40000；EDU→RAM：SRC=0x40000、DST=rx_dma。
+4. 沒有獨立descriptor OWN publication；default mapping的normal `iowrite32()`已排序prior coherent writes與MMIO start。
+   真正ring才在fields與OWN間用 `dma_wmb()`。
+5. IRQ=notification；START clear=EDU engine idle；`dma_rmb()`=completion後device writes→CPU reads ordering；
+   `memcmp()`=payload/address/direction/count correctness。
+6. Clear BME只阻止新的bus-master transaction，不普遍證明已發出的transaction、command或engine已完成。
+   還需idle/reset與software synchronization。
+7. Free後memory可能被重用，而device仍使用舊DMA address，造成DMA UAF/corruption。保留是較安全fail-safe，
+   但production仍需device-specific recovery。
+
+</details>
+
+## 來源與查證
+
+- Current source：`driver_lab_edu_dma.c`
+- Current test：`test.sh`
+- PCIe primer：[`../../docs/concepts/pcie-primer.md`](../../docs/concepts/pcie-primer.md)
+- DMA API HOWTO: <https://docs.kernel.org/core-api/dma-api-howto.html>
+- Memory barriers / DMA barriers: <https://docs.kernel.org/core-api/wrappers/memory-barriers.html>
+- Device I/O: <https://docs.kernel.org/driver-api/device-io.html>
+- PCI APIs / reset: <https://docs.kernel.org/driver-api/pci/pci.html>
+- Generic IRQ: <https://docs.kernel.org/core-api/genericirq.html>
+- QEMU EDU: <https://www.qemu.org/docs/master/specs/edu.html>
+- QEMU source `hw/misc/edu.c`（v8.2.2）：`edu_check_range()` 對無效 DMA range 直接 `hw_error()`；
+  `edu_dma_timer()` 對可接受 range 完成後清除 START 並 raise DMA IRQ。<https://github.com/qemu/qemu/blob/v8.2.2/hw/misc/edu.c>

@@ -1,244 +1,173 @@
-# 03 - ioctl / poll / mmap
+# 03 — ioctl、poll、blocking read 與 read-only mmap snapshot
 
-## 目標
+> **定位**：Lab03 在同一 char device 中分開 data、control、event 與 mapping 四條路徑。Blocking/poll wakeup 只要求重新檢查 predicate；多 reader 取得 mutex 後仍要 recheck。Kernel mutex 無法保護 arbitrary userspace mmap load，因此 snapshot 使用 read-only odd/even sequence publication。
+>
+> **完成標準**：能畫出 resource/data flow，指出 current source 的入口、live resource、failure unwind、test evidence 與尚未驗證範圍。
 
-把 `02-char-device` 的最小字元裝置，升級成比較像真正 driver ABI 的版本。
+## 先講結論
 
-## 先備條件
-
-- 你已經理解 `02-char-device` 的 `read/write`
-- 你知道 `/dev/...` 背後是 `file_operations`
-- 你已經能用自己的話解釋 userspace -> VFS -> driver callback
-
-## 這一關要補的能力
-
-- `ioctl` 命令編號設計
-- `poll` / waitqueue
-- blocking vs non-blocking path
-- 基本 `mmap`
-- runtime library 擴充
-
-## 建議輸出
-
-- kernel module
-- user-space runtime API
-- CLI / smoke test
-- 邊界條件測試
-
-## 這一關現在已實作的介面
-
-module 載入後會建立：
+Lab03 在同一 char device 中分開 data、control、event 與 mapping 四條路徑。Blocking/poll wakeup 只要求重新檢查 predicate；多 reader 取得 mutex 後仍要 recheck。Kernel mutex 無法保護 arbitrary userspace mmap load，因此 snapshot 使用 read-only odd/even sequence publication。
 
 ```text
-/dev/driver_lab_ctl0
+先確認 environment gate
+→ 讀 current source 的入口與 resource
+→ 跑正常路徑
+→ 驗 error/unwind/teardown
+→ 保存可重現 evidence
 ```
 
-## 這一關會出現哪些 filesystem 入口
+## 不確定處與驗證狀態
 
-`03` 沿用 `02` 的 char device 建立流程，只是 callback 變多。若你忘了 `/dev`、`/sys/class`、devtmpfs/udev 的分工，先回頭看 [`../../docs/onboarding/kernel-filesystem-surfaces.md`](../../docs/onboarding/kernel-filesystem-surfaces.md)。
+- **已對照 current source**：本 README 以 pedagogy branch 的 `.c/.h/.sh` 與 test 為準。
+- **目前 evidence**：Current source/test 已修正 multi-reader、actual PAGE_SIZE、read-only VMA、mprotect rejection、sequence snapshot 與 fixed-width UAPI；仍需 target runtime/KCSAN 與 VMA lifetime stress。
+- **仍待驗證**：未附 target kernel/QEMU/repo SHA 與完整 log 的 module 行為，不稱 runtime-verified。
+- **架構／device-specific**：遇到 kernel config、QEMU model、real hardware protocol 時回官方文件與實測。
 
-| 路徑 | 第一輪用途 |
-|---|---|
-| `/dev/driver_lab_ctl0` | userspace 對 `read/write/ioctl/poll/mmap` 的主要操作入口。 |
-| `/sys/class/driver_lab_ctl/driver_lab_ctl0` | 確認 `class_create()` / `device_create()` 已建立 device model entry。 |
-| `/sys/devices/virtual/driver_lab_ctl/driver_lab_ctl0` | 很多系統上 `/sys/class/...` 會指向的實際 virtual device 位置。 |
-| `/proc/devices` | 輔助確認 `driver_lab_ctl` 的 major number 已註冊。 |
+## 這一關要解決什麼問題
 
-`mmap()` 不是建立一個新的檔案路徑；它是把 driver 維護的一頁 memory 映射進目前 process 的 address space。
+把 wakeup 當成『條件一定成立』會讓第二個 reader 錯誤返回；把 kernel mutex 當成 userspace mmap reader 也會取得的鎖，則會接受 torn snapshot。
 
-這個 device node 目前支援：
+## 名詞先說清楚
 
-- `read/write`
-- `ioctl`
-- `poll`
-- `mmap`
+| 名詞 | 本章中的意思 | 不代表什麼 |
+|---|---|---|
+| **predicate** | wait/poll 每次醒來重新判斷的 readiness 條件 | wake 本身不等於 ready |
+| **wait queue** | 讓 task sleep 並在 event 後重新排程的 mechanism | 不儲存 payload |
+| **VMA** | 一段 userspace virtual memory mapping 的 kernel object | 不等於 backing page owner |
+| **sequence publication** | odd=更新中、even=穩定的 snapshot protocol | 不提供 writer mutual exclusion |
 
-## 這一關的 ABI
+## 心智模型
 
-### `write()`
+把四條 path 想成同一設備的資料窗口、控制表單、門鈴與唯讀儀表板。門鈴只叫你回來看狀態；儀表板讀者用 sequence 確認前後是同一個完整畫面。
 
-- 把 userspace 字串直接寫進 kernel buffer
-- 每次 write 都會覆蓋前一次訊息
+> **比喻的邊界**：心智模型只幫助理解角色與順序；精確 semantics 仍以 current source、Linux API 與 device protocol 為準。
 
-### `read()`
+## Resource 與 data flow
 
-- 從 kernel buffer 讀回目前訊息
-- 這一關的 `read()` 是消費型語意：完整讀完一次後，buffer 會被清空
-- 如果 buffer 為空：
-  - blocking fd 會等待
-  - non-blocking fd 會回 `-EAGAIN`
-
-### `ioctl`
-
-共用 header：
-
-- [`../../runtime/include/driver_lab_uapi.h`](../../runtime/include/driver_lab_uapi.h)
-
-目前支援：
-
-- `DL_IOC_SET_MESSAGE`
-- `DL_IOC_GET_STATUS`
-- `DL_IOC_TRIGGER_EVENT`
-- `DL_IOC_CLEAR_BUFFER`
-
-### `poll`
-
-- `poll()` 會等待：
-  - 有可讀資料
-  - 或 driver event 被 trigger
-
-### `mmap`
-
-- 映射一頁 shared page 到 userspace
-- 裡面放的是：
-  - magic
-  - version
-  - event count
-  - event pending
-  - buffer length
-  - buffer 內容
-
-## 資料流
-
-```mermaid
-flowchart LR
-    U["userspace CLI / test"] --> A["write() or ioctl()"]
-    A --> K["kernel state\nbuffer / event_count / event_pending"]
-    K --> P["poll waitqueue"]
-    K --> M["shared mmap page"]
-    K --> R["read()"]
+```text
+writer copies input
+→ mutex protects kernel state
+→ seq odd
+→ update snapshot fields
+→ seq even
+→ wake waiters
+→ reader/poll rechecks predicate; mmap reader retries on odd/change
 ```
 
-> **逐步說明：**
->
-> 1. **CLI 發出不同操作**：同一支 CLI 可能呼叫 `write()`、`ioctl()`、`poll()` 或 `mmap()`。
-> 2. **driver 更新共享狀態**：不管是寫入訊息或觸發 event，最後都會改到 `buffer`、`event_count`、`event_pending` 這類 kernel state。
-> 3. **`read()` 讀 data path**：userspace 透過 `read()` 把目前 buffer 取回，這是最像 `02` 的路徑。
-> 4. **`poll()` 等 event path**：如果目前沒有資料或事件，userspace 可以睡著等 driver 喚醒，不需要一直輪詢。
-> 5. **`mmap()` 看 shared page**：userspace 讀到的是 driver 維護的一頁 snapshot，不是任意 kernel memory。
->
-> **白話總結**：`03` 像把同一個櫃台分成資料、控制、等待通知、公告欄四種服務；入口一樣是 device node，但用途變多了。
+## 從簡單到精確
 
-## 成功標準
+### Current source map
 
-- userspace 能透過 `ioctl` 控制 driver
-- `poll` 能等待事件
-- `mmap` 能暴露一塊受控 buffer
-- README 有清楚描述 ABI
+- `driver_lab_ioctl_poll_mmap.c`：read/write/ioctl/poll/mmap 與 `dl_sync_shared_page_locked()`。
+- `runtime/include/driver_lab_uapi.h`：fixed-width UAPI/snapshot layout。
+- `runtime/src/driver_lab_runtime.c`：userspace atomic snapshot reader。
+- `test.sh`：two-reader、empty poll、read-only mmap/mprotect 與 cleanup regressions。
 
-## 使用方式
+### 第一次讀 source 的順序
+
+1. 找 init/probe/open 或 userspace entry。
+2. 列出每一步取得的 resource，以及何時開始 live。
+3. 找正常資料／事件路徑。
+4. 找每個 failure label 與 teardown。
+5. 對照 `test.sh` 的 observable evidence，不先追 generated companion 的固定行號。
+
+## 最小正確範式
+
+```c
+WRITE_ONCE(shared->seq, odd);
+smp_wmb();              /* odd visible before fields */
+update_fields();
+smp_wmb();              /* fields visible before even */
+WRITE_ONCE(shared->seq, even);
+```
+Userspace 先讀 even seq、複製 snapshot、再讀 seq；前後不同或 odd 就 retry。
+
+## 看似合理但錯誤的寫法
+
+錯誤做法：wait_event 醒來後不在 mutex 下 recheck global record，或 mmap 成 writable，讓 userspace 可破壞 kernel-published metadata。
+
+## 如何執行與觀察
 
 ```sh
-make
-make -C ../../runtime
-sudo insmod ./driver_lab_ioctl_poll_mmap.ko
-../../tests/driver_lab_char_cli /dev/driver_lab_ctl0 ioctl-write hello-03
-../../tests/driver_lab_char_cli /dev/driver_lab_ctl0 status
-../../tests/driver_lab_char_cli /dev/driver_lab_ctl0 read
-../../tests/driver_lab_char_cli /dev/driver_lab_ctl0 mmap-read
-../../tests/driver_lab_char_cli /dev/driver_lab_ctl0 poll 3000
-../../tests/driver_lab_char_cli /dev/driver_lab_ctl0 trigger
-sudo rmmod driver_lab_ioctl_poll_mmap
-```
-
-命令逐行在做什麼：
-
-- `make`：建出 `driver_lab_ioctl_poll_mmap.ko`
-- `make -C ../../runtime`：重建 userspace runtime 與 CLI
-- `insmod`：載入這支 week-3 lab module
-- `ioctl-write`：改用 `ioctl` 而不是純 `write` 來設定訊息
-- `status`：讀回目前 driver 狀態
-- `read`：從 device node 讀回 kernel buffer
-- `mmap-read`：直接從 shared page 觀察 driver 狀態
-- `poll`：等待 driver event
-- `trigger`：主動觸發一個 event 來喚醒 poll
-- `rmmod`：卸載 module
-
-## 自動化 smoke test
-
-```sh
+cd labs/03-ioctl-poll-mmap
 ./test.sh
 ```
 
-`test.sh` 逐段在驗什麼：
+測試會同時使用 kernel module、runtime/CLI 與多 process helpers；注意它驗的是本次 run 的 predicates、permissions、snapshot 與 cleanup。
 
-1. 確認目前是 Linux，並進入本 lab 目錄。
-2. `make` 建 module，`make -C ../../runtime` 建 userspace runtime 與 CLI。
-3. 若前一次留下 module，先卸載，避免 device node 狀態混亂。
-4. `insmod` 載入 `driver_lab_ioctl_poll_mmap.ko`。
-5. 檢查 `/dev/driver_lab_ctl0`、`/sys/class/driver_lab_ctl/driver_lab_ctl0`、`/proc/devices`。
-6. `ioctl-write hello-ioctl` 驗 control path 可以設定訊息。
-7. `status` 驗 `DL_IOC_GET_STATUS` 能回報 driver 狀態。
-8. `read` 驗 data path 能讀回剛設定的訊息。
-9. `mmap-read` 驗 shared page 可被 userspace 讀到。
-10. 背景啟動 `poll 3000`，主流程再 `trigger`，確認 waitqueue event path 真的會醒。
-11. `clear`、`rmmod`，確認 sysfs class device 消失，再 `make clean` 收尾。
+### 能證明／不能證明
 
-第一輪重點不是 shell 技巧，而是確認四條 ABI 路徑都有被跑到。
+Two-reader regression、poll timeout/readiness、mmap read-only、mprotect rejection、sequence snapshot 與卸載可提供具體 evidence。仍不能證明所有 weak-memory interleaving 或 malicious UAPI input。
 
-## 第一輪閱讀界線
+## Debug order
 
-| 分類 | 內容 |
-|---|---|
-| 第一輪必懂 | `03` 把 `02` 的 read/write 擴成四條路：data path、control path、event path、shared memory path；每條路都有對應 CLI subcommand 可觀測。 |
-| 可以先略過 | `_IOW/_IOR` macro 的所有位元編碼細節；`poll_table` 內部；page fault 與 VMA 的完整 memory-management 流程。 |
-| 之後再回來補 | ABI versioning、blocking/non-blocking 的完整錯誤語意、runtime 如何把 ioctl/poll/mmap 包成穩定 API。 |
+1. 先分清是 read predicate、poll mask、ioctl state 還是 mmap snapshot 問題。
+2. 確認 wakeup 前 state 已在 mutex 下發布。
+3. 多 reader 問題要看拿鎖後的第二次 predicate check。
+4. mmap 問題要看 PAGE_SIZE、VMA flags、vm_insert_page 與 mapping lifetime。
+5. snapshot 問題保存 begin/end seq 與接受/重試條件。
 
-## Source companion docs
+## 工具分工
 
-如果你正在 trace 某一份 source，優先打開原檔旁邊的 companion doc，不需要先回到 `docs/` 裡找對應解釋：
-
-| Source | 旁讀文件 |
-|---|---|
-| [`driver_lab_ioctl_poll_mmap.c`](driver_lab_ioctl_poll_mmap.c) | [`driver_lab_ioctl_poll_mmap.c.md`](driver_lab_ioctl_poll_mmap.c.md) |
-| [`test.sh`](test.sh) | [`test.sh.md`](test.sh.md) |
-| [`Makefile`](Makefile) | [`Makefile.md`](Makefile.md) |
-| [`../../runtime/src/driver_lab_runtime.c`](../../runtime/src/driver_lab_runtime.c) | [`../../runtime/src/driver_lab_runtime.c.md`](../../runtime/src/driver_lab_runtime.c.md) |
-| [`../../runtime/include/driver_lab_runtime.h`](../../runtime/include/driver_lab_runtime.h) | [`../../runtime/include/driver_lab_runtime.h.md`](../../runtime/include/driver_lab_runtime.h.md) |
-| [`../../runtime/include/driver_lab_uapi.h`](../../runtime/include/driver_lab_uapi.h) | [`../../runtime/include/driver_lab_uapi.h.md`](../../runtime/include/driver_lab_uapi.h.md) |
-| [`../../tests/driver_lab_char_cli.c`](../../tests/driver_lab_char_cli.c) | [`../../tests/driver_lab_char_cli.c.md`](../../tests/driver_lab_char_cli.c.md) |
-
-完整清單見 [`../../docs/reference/companion-docs-index.md`](../../docs/reference/companion-docs-index.md)。
-
-## 完成後你應該能回答
-
-| 問題 | 標準答案 |
-|---|---|
-| 這一關的 userspace 入口在哪裡？ | `/dev/driver_lab_ctl0`；同一個 device node 同時提供 `read/write`、`ioctl`、`poll`、`mmap`。 |
-| data path 是什麼？ | `write()` 更新 driver buffer，`read()` 從 driver buffer 讀回資料。 |
-| control path 是什麼？ | `ioctl` command，例如 `DL_IOC_SET_MESSAGE`、`DL_IOC_GET_STATUS`、`DL_IOC_TRIGGER_EVENT`、`DL_IOC_CLEAR_BUFFER`。 |
-| event path 是什麼？ | `poll()` 透過 waitqueue 等待可讀資料或 pending event，不需要 userspace busy loop。 |
-| shared memory path 是什麼？ | `mmap()` 映射 driver 維護的一頁 shared page，userspace 可讀到 magic、event count、buffer snapshot。 |
-| 這一關主要拿到什麼 resource？ | char device resource、waitqueue、共享狀態 buffer，以及一頁用來 mmap 的 shared page。 |
-| cleanup 要釋放哪些東西？ | 先移除 `/dev`/class/cdev/major-minor，再 `free_page()` 釋放 shared page。 |
-| `poll` 沒醒時第一個看哪裡？ | 先確認是否真的執行了 `trigger` 或寫入資料，再看 `dmesg` 與 `driver_lab_char_cli ... status`。 |
-
-## 新手先記住這一關在補什麼
-
-- `read/write` 不夠時，要用 `ioctl` 放控制命令
-- 如果 userspace 要等事件，不應一直 busy loop，要有 `poll`
-- 如果資料量變大，可能不想每次都 `copy_to_user` / `copy_from_user`，這時才會碰到 `mmap`
-
-## 看 source code 時先抓哪幾個點
-
-這一關內容比 `02` 多很多，不建議第一次逐行硬讀。先把它拆成四條路徑：
-
-1. `driver_lab_ioctl_poll_mmap_init()`：建立 `/dev/driver_lab_ctl0` 與 shared page
-2. `dl_fops`：確認 `read/write/ioctl/poll/mmap` 分別接到哪個 callback
-3. `dl_publish_message_locked()`：所有寫入與事件觸發最後如何更新同一份 kernel state
-4. `dl_unlocked_ioctl()`：control path 如何依 `cmd` 分派不同動作
-5. `dl_poll()`：userspace 等事件時，driver 如何把 waitqueue 接進來
-6. `dl_mmap()`：userspace 如何看到一頁由 driver 維護的 shared page
-7. `driver_lab_ioctl_poll_mmap_exit()`：device node、cdev、class、page 如何被清掉
-
-讀這關時要一直問：這個 callback 是 control path、data path、event path，還是 shared memory path？
-
-遇到 kernel API 時，先套用「參數角色」模板，完整方法見 [`../../docs/onboarding/kernel-api-parameter-roles.md`](../../docs/onboarding/kernel-api-parameter-roles.md)。
-
-| API | 參數角色 | 第一輪理解 |
+| 工具／機制 | 解決什麼 | 不解決什麼 |
 |---|---|---|
-| `copy_from_user(&msg, (void __user *)arg, sizeof(msg))` | kernel destination、userspace source、size | `ioctl arg` 是 userspace pointer，必須安全複製進 kernel struct。 |
-| `copy_to_user((void __user *)arg, &status, sizeof(status))` | userspace destination、kernel source、size | 把 driver status struct 複製回 userspace。 |
-| `poll_wait(file, &dl_read_wq, wait)` | opened file、waitqueue、poll context | 把目前 fd 和 read waitqueue 接起來，之後狀態改變才能喚醒 poll。 |
-| `remap_pfn_range(vma, vma->vm_start, pfn, size, ...)` | VMA、userspace address、page frame、size、protection | 把 driver 控制的一頁 shared page 映射到 userspace。 |
-| `alloc_chrdev_region()` / `cdev_add()` / `device_create()` | char device resource pipeline | 和 `02` 同一套 `/dev` 建立流程，只是 callback 更多。 |
+| `mutex` | kernel writers/readers 的 shared-state invariant | userspace mmap loads |
+| `wait queue/wake` | sleep/wakeup 與重新檢查 | 條件一定成立 |
+| `smp_wmb + sequence` | snapshot publication order/detection | writer mutual exclusion |
+| `VMA flags` | mapping permission/lifetime policy | device DMA mapping |
+
+## 與 pcie-study 的對應
+
+這四條 path 會演進為 accelerator 的 data/control/event/mapping UAPI；但 PCIe 還加入 MMIO、IRQ、DMA ownership、IOMMU 與 hot-remove。對應 `pcie-study` P1-10、P1-14、P2-20、P3-04。
+
+## 常見誤解
+
+### 誤解：wake 會讓 poll 成功回 revents=0
+
+wake 只促使重新評估；條件仍 false 時通常繼續睡。
+
+### 誤解：mutex 可保護 mmap reader
+
+任意 userspace load 不會取得 kernel mutex。
+
+### 誤解：頁面一定 4096 bytes
+
+PAGE_SIZE 依 architecture/kernel build。
+
+## 適用邊界與尚未驗證
+
+- Sequence protocol 只提供 snapshot consistency detection，不是 general shared-memory transaction。
+- 本 lab 沒有 hot-unplug、multiple devices、VMA close refcount 或 pinned user DMA。
+- Weak-memory correctness 仍應在 target architecture/KCSAN/stress 下驗證。
+
+## 第一次閱讀先記住
+
+1. Wakeup 與 predicate 是兩件事。
+2. 拿到 mutex 後仍要 recheck shared condition。
+3. Mmap reader 需要 publication protocol與 permission/lifetime。
+
+## Self-check
+
+1. 為什麼兩個 blocking reader 被同一 write 喚醒後，第二個仍要 recheck？
+2. Wakeup 能證明 poll 的什麼？
+3. Kernel mutex 為什麼不能讓 userspace mmap snapshot 一致？
+4. Odd/even sequence reader 的接受條件是什麼？
+5. Read-only VMA 為什麼還要清 VM_MAYWRITE？
+
+<details>
+<summary>參考答案</summary>
+
+1. 第一個 reader 可能先取得 mutex 並消費 global record；第二個拿鎖時 predicate 已改變，必須繼續等或回 EAGAIN。
+2. 只證明 waiter 被要求重新排程/評估；不保證 readiness、成功 return 或 payload。
+3. Userspace load 不參與 kernel lock protocol，可能在 writer 更新中間讀到欄位組合；需要 sequence publication/retry。
+4. 開始 seq 為 even，複製後 end 與 begin 相同且仍 even，snapshot 內 seq 也一致。
+5. 避免 userspace 之後用 mprotect 把 mapping 升級成 writable，破壞 kernel-owned page。
+
+</details>
+
+## 來源與查證
+
+- Poll/wait queues: <https://docs.kernel.org/driver-api/basics.html>
+- Memory barriers: <https://docs.kernel.org/core-api/wrappers/memory-barriers.html>
+- Memory mapping APIs: <https://docs.kernel.org/core-api/mm-api.html>
+- Current source: `labs/03-ioctl-poll-mmap/driver_lab_ioctl_poll_mmap.c`

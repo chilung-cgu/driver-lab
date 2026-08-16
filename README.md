@@ -1,242 +1,138 @@
-# driver-lab
+# driver-lab — 從 kernel module 到 PCIe MMIO / IRQ / DMA
 
-> 給 `0 driver 經驗` 工程師的 Linux host driver 學習專案，目標是為 PCIe AI 加速卡 host driver 工作做準備。
+> 一套可 build、load、觀察、故障排查與反覆驗證的 Linux host-driver labs。概念教材：[`chilung-cgu/pcie-study`](https://github.com/chilung-cgu/pcie-study)。
 
-## 這個專案在做什麼
+## 先講結論
 
-這不是只講理論的筆記集，而是一套可反覆操作的學習路線。它把學習內容拆成：
-
-- 可在 Linux 上反覆 `build / load / unload / 觀測` 的最小 lab
-- 從 `module lifecycle`、`debugfs`、`char device`，一路走到 `PCIe + MMIO + IRQ + DMA`
-- 早期就引入 user-space runtime 與 CLI，讓你建立「driver 不只是一個 `.ko`」的觀念
-- 以 `QEMU edu` 當第一個完整 PCI 教學裝置，再把心智模型翻譯到 AI 加速卡 driver
-
-## 如果你是完全新手，先照這個順序
-
-1. 看 [閱讀地圖](docs/onboarding/reading-map.md)
-2. 看 [0 基礎學習儀表板](docs/onboarding/learning-dashboard.md)
-3. 看 [新手前導](docs/onboarding/beginner-primer.md)
-4. 看 [Lab 檔案角色導讀](docs/onboarding/lab-file-roles.md)
-5. 看 [Linux Host 建置與風險檢查](docs/onboarding/linux-host-setup.md)
-6. 看 [第一次環境檢查輸出怎麼看](docs/onboarding/check-kernel-env-explained.md)
-7. 然後只做 [`labs/00-hello-module`](labs/00-hello-module)
-
-你現在看不懂大部分內容是正常的。這個 repo 的正確打開方式不是先把全部文件讀完，而是先跑通最小閉環，再回頭理解 code。
-
-## 建議執行模型
-
-- `macOS`：編輯器、Git、筆記、QEMU host
-- `Linux 主機`：直接 build / load / 測試早期 labs
-- `Linux guest`：執行 `05-07` 的 QEMU EDU driver build / load / smoke test
-
-> [!WARNING]
-> 你可以在 `macOS` 上跑 QEMU，但不能在 `macOS` 直接 build / load Linux kernel module。
-> `05-07` 的實際 driver 驗證位置是 `Linux guest`。
-
-## Lab 成熟度矩陣
-
-| Lab | 目標 | 建議環境 | 目前驗證程度 | 下一份要讀的文件 |
-|---|---|---|---|---|
-| `00-hello-module` | 建立最小 `build / load / unload / dmesg` 閉環 | Linux host | 可直接練習 | [`labs/00-hello-module/README.md`](labs/00-hello-module/README.md) |
-| `01-debugfs-logging` | 學會基本觀測與 debugfs | Linux host | 可直接練習 | [`labs/01-debugfs-logging/README.md`](labs/01-debugfs-logging/README.md) |
-| `02-char-device` | 熟悉 user-kernel 邊界與 `read/write` | Linux host | 可直接練習 | [`labs/02-char-device/README.md`](labs/02-char-device/README.md) |
-| `03-ioctl-poll-mmap` | 練 `ioctl / poll / mmap` 與 shared buffer | Linux host | driver、runtime、CLI、smoke test 已落地 | [`labs/03-ioctl-poll-mmap/README.md`](labs/03-ioctl-poll-mmap/README.md) |
-| `04-locking-and-races` | 練 race 重現、對照與 cleanup 對稱性 | Linux host | driver、CLI、smoke test 已落地 | [`docs/concepts/concurrency-primer.md`](docs/concepts/concurrency-primer.md) |
-| `05-pci-edu-mmio` | 練 PCI `probe`、BAR map、基本 MMIO | Linux guest | 已在遠端 Linux host 啟動 QEMU EDU guest 實測通過；macOS 不作 kernel module load 驗證 | [`docs/guides/qemu-edu-first-pass.md`](docs/guides/qemu-edu-first-pass.md) |
-| `06-pci-edu-irq` | 練 IRQ request、raise、acknowledge | Linux guest | 已在遠端 Linux host 啟動 QEMU EDU guest 實測通過；macOS 不作 kernel module load 驗證 | [`docs/guides/linux-guest-05-to-07-walkthrough.md`](docs/guides/linux-guest-05-to-07-walkthrough.md) |
-| `07-pci-edu-dma` | 練 coherent DMA 與 round-trip 驗證 | Linux guest | 已在遠端 Linux host 啟動 QEMU EDU guest 實測通過；macOS 不作 kernel module load 驗證 | [`docs/guides/linux-guest-05-to-07-walkthrough.md`](docs/guides/linux-guest-05-to-07-walkthrough.md) |
-| `08-runtime-library` | 把 `02/03` 的 ABI 封裝成 runtime | Linux host | `build` 與 `02/03` 對應封裝已驗證；不是產品級 runtime | [`labs/08-runtime-library/README.md`](labs/08-runtime-library/README.md) |
-| `09-stress-and-fault-injection` | 把「能跑」提升成「能重複驗證」 | Linux host | 已有 `03` 專用 stress 腳本；fault injection 尚未自動化 | [`labs/09-stress-and-fault-injection/README.md`](labs/09-stress-and-fault-injection/README.md) |
-
-## 文件入口
-
-如果你想先看 `docs/` 目錄的分類總覽，再進各份文件，可先看 [Docs Index](docs/README.md)。
-
-### 起步必讀
-
-- [閱讀地圖](docs/onboarding/reading-map.md)
-- [新手前導](docs/onboarding/beginner-primer.md)
-- [Lab 檔案角色導讀](docs/onboarding/lab-file-roles.md)
-- [Linux Host 建置與風險檢查](docs/onboarding/linux-host-setup.md)
-- [第一次環境檢查輸出怎麼看](docs/onboarding/check-kernel-env-explained.md)
-
-### 章節過渡導讀
-
-- [00 到 01：debugfs 過渡導讀](docs/onboarding/00-to-01-debugfs-bridge.md)
-- [01 到 03：user-kernel ABI 過渡導讀](docs/onboarding/01-to-03-user-kernel-abi-bridge.md)
-- [03 到 05：併發與 PCI 過渡導讀](docs/onboarding/03-to-05-concurrency-pci-bridge.md)
-- [05 到 07：PCI、IRQ、DMA 過渡導讀](docs/onboarding/05-to-07-pci-irq-dma-bridge.md)
-- [07 到 09：runtime 與驗證過渡導讀](docs/onboarding/07-to-09-runtime-validation-bridge.md)
-
-### 概念前導
-
-- [新手術語表](docs/onboarding/beginner-glossary.md)
-- [併發與同步白話前導](docs/concepts/concurrency-primer.md)
-- [PCIe / MMIO / IRQ / DMA 白話前導](docs/concepts/pcie-primer.md)
-- [AI 加速卡 Host Driver 架構對映](docs/concepts/accelerator-driver-architecture.md)
-
-### 操作 Runbook
-
-- [16 週學習路線](docs/guides/learning-roadmap.md)
-- [04 Locking and Races 導讀](docs/guides/lab-04-walkthrough.md)
-- [QEMU EDU 新手起手式](docs/guides/qemu-edu-first-pass.md)
-- [Linux Guest 操作手冊：05 到 07](docs/guides/linux-guest-05-to-07-walkthrough.md)
-- [Linux Guest 快速檢查表：05 到 07](docs/guides/linux-guest-05-to-07-checklist.md)
-
-### 除錯與參考
-
-- [Source companion docs 索引](docs/reference/companion-docs-index.md)
-- [常見失敗圖鑑](docs/reference/common-failures.md)
-- [官方來源索引](docs/reference/source-index.md)
-- [程式閱讀指南](docs/reference/code-reading-guide.md)
-- [Debug / 測試 Playbook](docs/reference/debugging-playbook.md)
-- [QEMU 說明](qemu/README.md)
-
-### 專案 / Agent Workflow
-
-- [AI Agent + Git Checkpoint 規則範本](docs/workflow/ai-agent-git-checkpoint-policy.md)
-- [Git hooks 安裝腳本](scripts/install-git-hooks.sh)
-
-## 建議的第一天流程
-
-1. 完成 [閱讀地圖](docs/onboarding/reading-map.md) 指定的起步文件
-2. 用 [0 基礎學習儀表板](docs/onboarding/learning-dashboard.md) 確認今天只追 `00`
-3. 在 Linux 環境執行 [`scripts/check-kernel-env.sh`](scripts/check-kernel-env.sh)
-4. 完成 [`labs/00-hello-module/README.md`](labs/00-hello-module/README.md)
-5. 回答 `00` README 裡的「完成後你應該能回答」
-
-## 建議的第一週流程
-
-1. 反覆跑通 `00`，直到你能說明 `insmod`、`rmmod`、`module_init()`、`dmesg`
-2. 完成 [`labs/01-debugfs-logging/README.md`](labs/01-debugfs-logging/README.md)，理解 debugfs 是 debug 介面
-3. 完成 [`labs/02-char-device/README.md`](labs/02-char-device/README.md)，理解 `/dev/...` 與 `file_operations`
-4. 能清楚解釋 `read/write`、`debugfs`、cleanup path 之後，再前進 `03` 與 `04`
-
-## 專案結構
+十個 Lab 已使用同一套 beginner-first 結構：
 
 ```text
-driver-lab/
-  README.md
-  docs/
-  labs/
-    00-hello-module/
-    01-debugfs-logging/
-    02-char-device/
-    03-ioctl-poll-mmap/
-    04-locking-and-races/
-    05-pci-edu-mmio/
-    06-pci-edu-irq/
-    07-pci-edu-dma/
-    08-runtime-library/
-    09-stress-and-fault-injection/
-  runtime/
-  tests/
-  scripts/
-  qemu/
-  notes/
+結論與驗證狀態
+→ 問題與名詞
+→ 心智模型
+→ resource/data flow
+→ current source
+→ 正反範式
+→ test evidence / debug order
+→ limits / Self-check / sources
 ```
 
-## 品質檢查
+目前分支：
 
-在 repo 根目錄執行：
+```text
+main
+  └─ review/accuracy-audit-2026-08
+       └─ review/pedagogy-pass-2026-08
+```
+
+- Accuracy audit 修正 source、tests 與高風險技術語意。
+- Pedagogy pass 保留 audit contract，改善全部 Lab README、核心 concepts、導航與 docs 結構。
+
+**唯一新手入口：[`docs/onboarding/START-HERE.md`](docs/onboarding/START-HERE.md)**
+
+## 不確定處與驗證狀態
+
+- CI 已覆蓋 shell/Markdown/static style、userspace runtime build、Labs00～07 external-module compile、pedagogy structure 與 docs graph。
+- 真正 `insmod/rmmod`、MMIO、IRQ、DMA、timeout/reset、sanitizer、IOMMU/SWIOTLB 仍需指定 Linux/QEMU guest logs。
+- QEMU EDU 不是 production accelerator；不涵蓋 vendor firmware、PHY/link、完整 AER/PM/hotplug/reset、multi-queue MSI-X、pinned memory 與 security-reviewed UAPI。
+- `migrated` 表示結構/source/static gates 通過，不等於獨立人工 sign-off 或 target runtime verification。
+
+## 學習路線
+
+| Lab | 核心概念 | 第一層 evidence | 重要邊界 |
+|---|---|---|---|
+| 00 | module lifecycle | init/exit、parameters | failed init 自己 unwind |
+| 01 | debugfs/logging | trigger/status/log | debugfs 非 stable UAPI |
+| 02 | cdev/read-write | `/dev`/sysfs/proc/readback | 不是 multi-client queue |
+| 03 | ioctl/poll/mmap | predicates、read-only snapshot | wake 只要求 recheck |
+| 04 | race/mutex/kthread | unsafe/safe、stop | probabilistic test 非 proof |
+| 05 | PCI/BAR/MMIO | enumeration/bind/liveness | read-back 非任意 command completion |
+| 06 | IRQ | vector/status/ACK/complete | 先停 source 再 sync handler |
+| 07 | coherent DMA | mask/transfers/idle/compare | 未 quiesce 不可 free |
+| 08 | userspace runtime | unit/CLI/device UAPI | partial I/O、handle lifetime |
+| 09 | stress/fault scaffold | reload/parallel oracle | 不是完整 fault framework |
+
+## Host / guest
+
+```text
+macOS or Linux host
+  └─ QEMU + guest image/network/storage
+       └─ Linux guest
+            ├─ matching kernel build tree
+            ├─ QEMU EDU 1234:11e8
+            └─ build/load/test Labs05～07
+```
+
+Labs00～04 可在合適 Linux host/guest；Labs05～07 需要 Linux PCI hierarchy 中的 EDU。Cross-ISA 通常使用 TCG。
+
+## 快速開始
+
+```sh
+./scripts/check-kernel-env.sh
+(cd labs/00-hello-module && ./test.sh)
+```
+
+依 [`START-HERE`](docs/onboarding/START-HERE.md) 逐關前進。進 PCI 前先讀 [`PCIe primer`](docs/concepts/pcie-primer.md)。遇到陌生術語可查 [`Driver glossary`](docs/reference/glossary.md)。
+
+## Static/build gates
 
 ```sh
 ./scripts/quality.sh .
+python3 scripts/check_pedagogy_structure.py
+python3 scripts/check_docs_architecture.py
+make -C runtime clean all
 ```
 
-或針對單一 lab：
+這些是必要 gate，不是 runtime proof。
+
+## Runtime gates
+
+Labs00～04：
 
 ```sh
-cd labs/00-hello-module
-./quality.sh
+for lab in \
+  labs/00-hello-module \
+  labs/01-debugfs-logging \
+  labs/02-char-device \
+  labs/03-ioctl-poll-mmap \
+  labs/04-locking-and-races; do
+  (cd "$lab" && ./test.sh)
+done
 ```
 
-## Clangd / Compile Commands
-
-如果你在 VS Code 使用 `clangd` 做 `Go to Definition`、hover、diagnostics，這個 repo 依賴根目錄的 `compile_commands.json` 讓 clangd 知道每個 `.c` 檔案應該用什麼編譯參數解析。
-
-這份資料特別重要，因為本專案同時包含：
-
-- `labs/00-07` 的 kernel module source
-- `runtime/` 與 `tests/` 的 userspace source
-
-如果沒有正確的 compile commands，clangd 很容易把 `tests/` 或 `runtime/` 的 userspace 檔案誤套成 kernel 編譯旗標，導致像 `fprintf()`、`open()`、`pthread_create()` 這類標準函式或系統標頭無法正確跳轉。
-
-### 相關檔案
-
-- `scripts/gen_compile_commands.sh`
-  - 給人直接執行的入口
-- `scripts/gen_compile_commands.py`
-  - 真正負責生成 `compile_commands.json`
-  - 會把 kernel module 的 `.cmd` 編譯資訊，和 userspace `runtime/`、`tests/` 的編譯參數合併到同一份資料庫
-
-### 什麼時候要跑
-
-- 第一次 clone repo 後
-- 跑過新的 lab `make` 之後
-- 修改 Makefile、include path、編譯旗標之後
-- clangd 開始出現錯誤解析、F12 跳不到定義時
-
-### 正確使用方式
-
-1. 先讓你要分析的 kernel lab 至少 build 過一次，產生 `.cmd` 檔
+EDU guest：
 
 ```sh
-make -C labs/00-hello-module
-make -C labs/01-debugfs-logging
-make -C labs/02-char-device
-make -C labs/03-ioctl-poll-mmap
-make -C labs/04-locking-and-races
-make -C labs/05-pci-edu-mmio
-make -C labs/06-pci-edu-irq
-make -C labs/07-pci-edu-dma
+lspci -Dnn | grep '1234:11e8'
+for lab in \
+  labs/05-pci-edu-mmio \
+  labs/06-pci-edu-irq \
+  labs/07-pci-edu-dma; do
+  (cd "$lab" && ./test.sh)
+done
 ```
 
-2. 在 repo 根目錄重新生成 `compile_commands.json`
+Runtime report 至少記錄 kernel/QEMU/two-repo SHA、IOMMU/sanitizer state、commands、stdout/stderr/dmesg。
 
-```sh
-./scripts/gen_compile_commands.sh
-```
+## Docs architecture
 
-3. 回到 VS Code，重啟 clangd
+- [`Docs index`](docs/README.md)
+- [`START-HERE`](docs/onboarding/START-HERE.md)
+- [`Linux/QEMU environment`](docs/onboarding/linux-environment.md)
+- [`Kernel interfaces`](docs/onboarding/kernel-interfaces.md)
+- [`Concurrency primer`](docs/concepts/concurrency-primer.md)
+- [`PCIe primer`](docs/concepts/pcie-primer.md)
+- [`Accelerator architecture`](docs/concepts/accelerator-driver-architecture.md)
+- [`Driver glossary`](docs/reference/glossary.md)
+- [`Debugging`](docs/reference/debugging.md)
+- [`Companion policy`](docs/reference/companion-docs.md)
 
-- `Clangd: Restart language server`
-- 如果仍異常，再 `Developer: Reload Window`
+重複的 onboarding bridge、roadmap、debugging 與 companion rollout 文件已整合到上述 canonical docs；全 repo local links 由 CI 驗證。原 1,300 行 glossary 則濃縮為分層速查，保留查詢價值而不形成第二套主教材。
 
-### 它如何讓 `tests/` / `runtime/` 恢復 Go to Definition
+## 正確合併順序
 
-`gen_compile_commands.py` 會為下列 userspace source 明確加入正確的編譯條目：
-
-- `runtime/src/driver_lab_runtime.c`
-- `tests/driver_lab_char_cli.c`
-- `tests/driver_lab_race_cli.c`
-
-這讓 clangd 知道：
-
-- 它們是 userspace C，不是 kernel module
-- `driver_lab_char_cli.c` / `driver_lab_runtime.c` 要使用 `runtime/include`
-- `driver_lab_race_cli.c` 需要 `-pthread`
-- 系統標頭例如 `<stdio.h>`、`<fcntl.h>`、`<pthread.h>` 應該走正常 userspace 解析流程
-
-因此像 `fprintf()` 這類符號通常就能至少跳到宣告，例如 `/usr/include/stdio.h`。這通常已代表 clangd 解析正常；若本機沒有安裝 glibc 原始碼，F12 不一定能再往下跳到 libc 的真正實作，這是正常現象。
-
-## Git hooks
-
-這個 repo 附了一組 repo-local hook 範本：
-
-```sh
-./scripts/install-git-hooks.sh
-```
-
-啟用後會：
-
-- 用 `pre-commit` 擋 `.DS_Store` 並執行 `scripts/quality.sh`
-- 用 `commit-msg` 要求 Conventional Commits，且主旨預設使用繁體中文
-
-## 使用原則
-
-- 先做 `00-02`，不要一開始跳 PCIe
-- 先讓每個 lab 可觀測、可重複、可清理
-- 先接受「第一次先跑通、第二次再看懂 code」這個節奏
-- 每次新增功能時，同步補 `README`、`test.sh`、`quality.sh`、`debug-checklist.md`
-- 遇到實際故障或重要學習事故時，再用 `notes/postmortem-template.md` 建立復盤紀錄
+1. 完成並合併 `driver-lab` accuracy audit。
+2. `pcie-study` audit 鎖定 immutable merged driver SHA 後合併。
+3. Rebase/retarget 兩個 pedagogy PR 到新 main 並重跑 CI/runtime。
+4. 先合併 `driver-lab` pedagogy，再更新/合併 `pcie-study` pedagogy。
+5. 最後重新生成並人工 review companion/NotebookLM artifacts。

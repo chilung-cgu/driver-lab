@@ -11,9 +11,11 @@ SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
 ROOT_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/../.." && pwd)
 MODULE_NAME=driver_lab_debugfs_logging
 SUDO=
+loaded_by_test=0
 
 cleanup() {
-    if lsmod | grep -q "^${MODULE_NAME} "; then
+    if [ "$loaded_by_test" -eq 1 ] && \
+       lsmod | grep -q "^${MODULE_NAME} "; then
         $SUDO rmmod "$MODULE_NAME" || true
     fi
 }
@@ -30,13 +32,15 @@ FS_SUDO=$SUDO
 cd "$SCRIPT_DIR"
 make
 
-# 如果前一次測試留下同名 module，先卸載，避免 insmod 失敗。
 if lsmod | grep -q "^${MODULE_NAME} "; then
-    $SUDO rmmod "$MODULE_NAME"
+    printf 'ERROR: %s 已在載入；test 不會卸載非本次載入的 module。\n' \
+        "$MODULE_NAME" >&2
+    exit 1
 fi
 
 # 載入後先讀 status，再寫 trigger，確認 driver state 有變化。
 $SUDO insmod ./driver_lab_debugfs_logging.ko
+loaded_by_test=1
 fs_expect_debugfs_file /sys/kernel/debug/driver_lab_debugfs/status
 fs_expect_debugfs_file /sys/kernel/debug/driver_lab_debugfs/trigger
 fs_expect_debugfs_file /sys/kernel/debug/driver_lab_debugfs/trigger_count
@@ -53,6 +57,7 @@ fi
 
 $SUDO dmesg | tail -n 50 | grep 'driver_lab_debugfs_logging'
 $SUDO rmmod "$MODULE_NAME"
+loaded_by_test=0
 fs_expect_absent /sys/kernel/debug/driver_lab_debugfs "debugfs directory"
 make clean
 

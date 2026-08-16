@@ -1,183 +1,168 @@
-# 08 - Runtime Library
+# 08 — Userspace runtime、CLI 與 UAPI ownership
 
-## 目標
+> **定位**：Lab08 不是新的 `.ko`，而是把 Lab02/03 的 raw syscalls 封裝成 userspace runtime/CLI。正確性重點是 fd/mapping ownership、partial I/O、errno、poll error bits、mmap size/version 與 close/unmap exactly once。
+>
+> **完成標準**：能畫出 resource/data flow，指出 current source 的入口、live resource、failure unwind、test evidence 與尚未驗證範圍。
 
-把 driver 的 userspace 使用方式包裝成比較像真實產品的 runtime。
+## 先講結論
 
-> [!NOTE]
-> 這一關目前已驗證的是 `build`，以及對 `02/03` 的基本封裝能力。
-> 它不是產品級 runtime，也還沒有把 timeout / retry / error policy 做到完整。
+Lab08 不是新的 `.ko`，而是把 Lab02/03 的 raw syscalls 封裝成 userspace runtime/CLI。正確性重點是 fd/mapping ownership、partial I/O、errno、poll error bits、mmap size/version 與 close/unmap exactly once。
 
-## 先備條件
+```text
+先確認 environment gate
+→ 讀 current source 的入口與 resource
+→ 跑正常路徑
+→ 驗 error/unwind/teardown
+→ 保存可重現 evidence
+```
 
-- 你已經讀過 [`../../docs/onboarding/07-to-09-runtime-validation-bridge.md`](../../docs/onboarding/07-to-09-runtime-validation-bridge.md)
-- 你已經看過 `runtime/README.md`
-- 你知道前面 labs 已開始出現 userspace CLI 與 driver ABI 的配合
+## 不確定處與驗證狀態
 
-## 這一關要練什麼
+- **已對照 current source**：本 README 以 pedagogy branch 的 `.c/.h/.sh` 與 test 為準。
+- **目前 evidence**：Current runtime、unit test 與 CLI 可在 CI 以 `-Wall -Wextra -Werror` build；實際 device smoke 仍需要先載入 Lab02/03 module。
+- **仍待驗證**：未附 target kernel/QEMU/repo SHA 與完整 log 的 module 行為，不稱 runtime-verified。
+- **架構／device-specific**：遇到 kernel config、QEMU model、real hardware protocol 時回官方文件與實測。
 
-- 封裝 open / close / read / write / ioctl / poll / mmap
-- 定義 timeout / retry / error mapping
-- 撰寫 CLI 或最小 sample app
+## 這一關要解決什麼問題
 
-## 參考起點
+Wrapper 很容易把 kernel 錯誤隱藏掉：例如假設 read/write 一次完整、close 失敗後重試舊 fd、poll 只看 POLLIN、或固定 mmap 4096。
 
-- [`../../runtime/README.md`](../../runtime/README.md)
-- [`../../tests/driver_lab_char_cli.c`](../../tests/driver_lab_char_cli.c)
+## 名詞先說清楚
 
-## Source 旁讀文件
-
-讀 source 時可以直接打開相鄰 companion doc；Lab08 本身是 runtime build/test 入口，runtime 真正實作在 repo 根目錄：
-
-| Source | 旁讀文件 | 建議用途 |
+| 名詞 | 本章中的意思 | 不代表什麼 |
 |---|---|---|
-| [`Makefile`](Makefile) | [`Makefile.md`](Makefile.md) | 理解 Lab08 如何委派到 `runtime/` 建 userspace CLI。 |
-| [`test.sh`](test.sh) | [`test.sh.md`](test.sh.md) | 理解 build/CLI usage smoke test 驗了什麼、沒驗什麼。 |
-| [`../../runtime/src/driver_lab_runtime.c`](../../runtime/src/driver_lab_runtime.c) | [`../../runtime/src/driver_lab_runtime.c.md`](../../runtime/src/driver_lab_runtime.c.md) | 逐段理解 runtime 如何包 open/read/write/ioctl/poll/mmap。 |
-| [`../../runtime/include/driver_lab_runtime.h`](../../runtime/include/driver_lab_runtime.h) | [`../../runtime/include/driver_lab_runtime.h.md`](../../runtime/include/driver_lab_runtime.h.md) | 理解 userspace runtime public API。 |
-| [`../../runtime/include/driver_lab_uapi.h`](../../runtime/include/driver_lab_uapi.h) | [`../../runtime/include/driver_lab_uapi.h.md`](../../runtime/include/driver_lab_uapi.h.md) | 理解 kernel/userspace 共享 ABI。 |
-| [`../../tests/driver_lab_char_cli.c`](../../tests/driver_lab_char_cli.c) | [`../../tests/driver_lab_char_cli.c.md`](../../tests/driver_lab_char_cli.c.md) | 理解 CLI 如何呼叫 runtime，而不是散寫 raw syscall。 |
+| **runtime** | application 與 raw UAPI 之間的 userspace helper layer | 不改變 kernel ABI |
+| **handle ownership** | 哪個 object 負責 close/unmap | 複製 struct 不會自動轉移 |
+| **partial I/O** | 成功處理少於 request bytes | 不必然是 fatal error |
+| **errno** | userspace failure 原因的 thread-local convention | 不是 kernel internal stack trace |
 
-## 成功標準
+## 心智模型
 
-- 不直接把原始 syscall 散落在每個測試程式裡
-- 有一份清楚的 runtime API header
-- README 能說明 control path 與 data path
+把 runtime 想成翻譯器兼資源管理員：它把 raw ioctl/read/poll/mmap 包成一致 API，但不能改寫 kernel 的 bytes/errno/ownership contract。
 
-## 目前已驗證到哪裡
+> **比喻的邊界**：心智模型只幫助理解角色與順序；精確 semantics 仍以 current source、Linux API 與 device protocol 為準。
 
-- `make -C runtime clean all` 可建出 runtime 與 CLI
-- `tests/driver_lab_char_cli.c` 可連同 runtime 一起編譯
-- runtime 目前已封裝 `02` 與 `03` 真正有用到的介面
+## Resource 與 data flow
 
-## 這一關會出現哪些 filesystem 入口
+```text
+initialize invalid handle
+→ open exactly once
+→ wrapper validates arguments and preserves bytes/errno
+→ poll/map/read snapshot with returned sizes
+→ unmap/close exactly once and invalidate ownership
+```
 
-`08` 是 userspace runtime，不會建立新的 kernel filesystem 入口。
+## 從簡單到精確
 
-| 入口 / artifact | 第一輪用途 |
-|---|---|
-| `runtime/include/driver_lab_runtime.h` | userspace runtime 對外 API。 |
-| `runtime/include/driver_lab_uapi.h` | kernel/userspace 共享 ABI 定義。 |
-| `tests/driver_lab_char_cli` | build 出來的 CLI binary。 |
-| `/dev/driver_lab_char0`、`/dev/driver_lab_ctl0` | 只有在回頭操作 `02/03` driver 時才會用到。 |
+### Current source map
 
-所以這關 build 成功不代表 kernel driver 已載入；真正 driver 行為仍要回 `02/03` 的 smoke test 驗。
+- `runtime/include/driver_lab_runtime.h`：public userspace API/handle。
+- `runtime/src/driver_lab_runtime.c`：open/close/read/write/ioctl/poll/mmap/snapshot wrappers。
+- `tests/driver_lab_runtime_unit.c`：invalid argument、ownership 與 return convention。
+- `tests/driver_lab_char_cli.c`：可操作 Lab02/03 的 CLI。
 
-## 目前還沒驗證到哪裡
+### 第一次讀 source 的順序
 
-- 還沒證明它已具備產品級 timeout / retry policy
-- 還沒證明它適合直接延伸到 `05-07`
-- 真正的行為驗證仍依附 `02-char-device` 與 `03-ioctl-poll-mmap`
+1. 找 init/probe/open 或 userspace entry。
+2. 列出每一步取得的 resource，以及何時開始 live。
+3. 找正常資料／事件路徑。
+4. 找每個 failure label 與 teardown。
+5. 對照 `test.sh` 的 observable evidence，不先追 generated companion 的固定行號。
 
-## 新手先記住這一關在補什麼
+## 最小正確範式
 
-- 真實產品不會讓每個 app 都自己亂 call syscall
-- 通常會有一層 runtime library，統一封裝 ABI 與 error handling
+```text
+handle.fd = -1
+→ open publishes valid fd only on success
+→ close first invalidates ownership, then calls close(fd)
+→ caller never retries a stale/reused descriptor number
+```
 
-## 目前已完成的部分
+## 看似合理但錯誤的寫法
 
-- `open / close`
-- `read / write`
-- `ioctl set/get/trigger/clear`
-- `poll`
-- `mmap`
-- 一個共用 CLI 測試入口
+錯誤做法：把一個已 open 的 handle 複製兩份，兩邊都 close；或 close 回錯後用同一舊整數重試，可能關到已被其他 thread 重用的新 fd。
 
-## 目前還沒完成的部分
+## 如何執行與觀察
 
-- 更完整的 timeout / retry policy
-- 更細的 error mapping
-- 針對 PCIe/QEMU EDU driver 的專用 helper
+```sh
+make -C runtime clean all
+make -C runtime test
+```
 
-## 這一關現在怎麼驗
+要做 device smoke，再先載入 Lab02/03，使用 `tests/driver_lab_char_cli` 執行 write/read/ioctl/poll/mmap-read。
 
-這一關目前的驗證分兩層：
+### 能證明／不能證明
 
-1. `runtime/` 自己能不能穩定 build
-2. `02/03` 的 userspace CLI 能不能透過這層 runtime 被建出來
+Compile/unit test 能證明 argument/ownership 的一部分 userspace contract；只有連到 current module 的 smoke 才能證明 UAPI integration。兩者都不代表 production thread safety。
 
-如果你要驗「這個 runtime 呼叫實際 driver 真的正確」，還是要回到：
+## Debug order
 
-- [`../02-char-device/README.md`](../02-char-device/README.md)
-- [`../03-ioctl-poll-mmap/README.md`](../03-ioctl-poll-mmap/README.md)
+1. 先區分 wrapper input validation、syscall errno、partial bytes 與 kernel log。
+2. 檢查 handle 是否仍 owner，以及 fd 是否已 invalidate。
+3. Poll 同時看 return count 與 POLLERR/POLLHUP/POLLNVAL。
+4. Mmap size 取自 ioctl/status 與 sysconf page size，不硬編碼。
+5. Snapshot retry 問題保存 begin/end seq 與 errno。
 
-## `test.sh` 逐段在驗什麼
+## 工具分工
 
-1. 找到 repo root 與 `tests/driver_lab_char_cli` 的輸出位置。
-2. `make -C runtime` 建出 runtime 與 CLI。
-3. `test -x` 確認 CLI binary 真的存在且可執行。
-4. 故意不帶參數執行 CLI，確認它會印 usage 並回傳非 0。
-5. grep `Usage:`，確認最小 CLI 行為符合預期。
-
-這支 test 不載入 kernel module。真正 driver 行為仍由 `02/03` 的 Linux smoke test 驗證。
-
-## 如果你完全看不懂 source code，先看這 5 個點
-
-1. `runtime/include/driver_lab_runtime.h`：userspace 對外 API 長什麼樣子。
-2. `runtime/include/driver_lab_uapi.h`：kernel/userspace 共享的 ABI 常數與 struct。
-3. `dl_runtime_open()` / `dl_runtime_close()`：runtime 如何管理 fd。
-4. `dl_runtime_ioctl_*()`：runtime 如何包 `03` 的 control path。
-5. `tests/driver_lab_char_cli.c`：CLI 如何呼叫 runtime，而不是到處直接散寫 syscall。
-
-## API 參數第一輪怎麼讀
-
-`08` 是 userspace runtime，不是 kernel driver。這一關仍然可以用「參數角色」讀 code，但不要把 runtime helper 誤認成 kernel API。
-
-完整模板見 [`../../docs/onboarding/kernel-api-parameter-roles.md`](../../docs/onboarding/kernel-api-parameter-roles.md)。
-
-| API | 參數角色 | 第一輪理解 |
+| 工具／機制 | 解決什麼 | 不解決什麼 |
 |---|---|---|
-| `dl_runtime_open_flags(handle, path, flags)` | output handle、device path、open flags | 成功後 `handle->fd` 保存 opened device fd。 |
-| `dl_runtime_write(handle, buf, count)` | handle、source buffer、byte count | userspace wrapper，最後呼叫 `write()` 進 driver `.write` callback。 |
-| `dl_runtime_read(handle, buf, count)` | handle、destination buffer、capacity | userspace wrapper，最後呼叫 `read()` 從 driver 讀資料。 |
-| `dl_runtime_ioctl_set_message(handle, message)` | handle、C string | runtime 把字串包成 UAPI struct，再送 `ioctl`。 |
-| `dl_runtime_poll_readable(handle, timeout_ms, &revents)` | handle、timeout、output events | 等 driver fd 可讀或有 event，並把結果填回 `revents`。 |
+| `wrapper` | 一致 argument/ownership/error handling | 修正 kernel bug |
+| `unit test` | 無 device 的 userspace invariants | UAPI runtime integration |
+| `CLI smoke` | 指定 module/UAPI 正常路徑 | concurrent/hostile workload proof |
+| `errno + bytes` | 精確回報 outcome | 自動重試 policy |
 
-## 第一輪閱讀界線
+## 與 pcie-study 的對應
 
-| 分類 | 內容 |
-|---|---|
-| 第一輪必懂 | runtime 是 userspace library，不是 kernel driver；它把 open/read/write/ioctl/poll/mmap 包成一致的 C API；目前主要服務 `02/03`。 |
-| 可以先略過 | 產品級 timeout/retry/error mapping；跨版本 ABI compatibility；PCIe/QEMU EDU 專用 helper。 |
-| 之後再回來補 | runtime API 穩定性、錯誤碼收斂、CLI/test 如何避免直接散寫 syscall。 |
+Accelerator driver 通常需要 userspace runtime 管理 queues、mappings、events 與 handles；這一關先把 ownership/error semantics 做對。對應 `pcie-study` P1-14、P3-09。
 
-## 完成後你應該能回答
+## 常見誤解
 
-| 問題 | 標準答案 |
-|---|---|
-| runtime 是 kernel driver 嗎？ | 不是。runtime 是 userspace 封裝層，負責把 driver ABI 包成較一致的 C API。 |
-| runtime 包了哪些路徑？ | `open/close`、`read/write`、`ioctl`、`poll`、`mmap`。 |
-| 第一個觀測點是什麼？ | `make -C runtime` 能建出 `tests/driver_lab_char_cli`，CLI 無參數時會印 usage 並回傳非 0。 |
-| runtime 與 UAPI header 的關係是什麼？ | UAPI header 定義 kernel/userspace 都要同意的 ABI；runtime include 它並把 syscall 呼叫包起來。 |
-| 這一關主要產生什麼 artifact？ | userspace CLI binary `tests/driver_lab_char_cli`，不是 `.ko`。 |
-| cleanup 做了什麼？ | `make -C runtime clean` 刪除 CLI build artifact。 |
-| runtime build 失敗時第一個看哪裡？ | 先看 compiler error，再確認 include path 是否能找到 `runtime/include/driver_lab_uapi.h`。 |
+### 誤解：Wrapper 可以忽略 partial I/O
 
-## 新手現在最該理解的點
+它必須保留或明確完成 retry policy。
 
-先不要把 runtime 想成「多餘的一層」。
+### 誤解：close 失敗就重試同一 fd
 
-你可以先把它想成：
+Linux 可能已釋放 descriptor number；盲目重試危險。
 
-- driver 定義 ABI
-- runtime 把 ABI 包成比較好用的函式
-- CLI / app 不用每次自己處理原始 syscall 細節
+### 誤解：固定 4096 可跨平台
 
-## 第一次理想上要看到的成果
+page size 與 UAPI mapping size需 runtime取得。
 
-第一次不需要寫出很大的 library。
+## 適用邊界與尚未驗證
 
-只要做到下面三件事就夠了：
+- Runtime 目前不是 thread-safe ownership framework。
+- 沒有 ABI negotiation、async queues、pinned memory 或 VFIO/IOMMUFD。
+- Unit test 不載入 kernel module；integration evidence 必須分開記錄。
 
-1. 有一份清楚的 public header
-2. 有一份把 syscall 包起來的 `.c`
-3. 測試程式可以透過 runtime 呼叫 driver，而不是自己直接散寫 `ioctl`
+## 第一次閱讀先記住
 
-## 第一次卡住先看哪裡
+1. Userspace wrapper 也有 resource lifetime。
+2. 保留 bytes/errno，不用 convenience 隱藏 contract。
+3. Unit、compile、device smoke 是不同證據層。
 
-- 不知道 runtime 該包哪些 API
-  - 先只包現在 lab 真正有用到的介面
-- 不知道 error handling 該做到多細
-  - 第一版先回傳 `-errno` 或明確錯誤碼即可
-- 覺得 CLI 直接 call syscall 比較快
-  - 那是短期快，長期會讓 ABI 使用點四散難維護
+## Self-check
+
+1. 為什麼 open handle 不應直接複製？
+2. Close 前先把 fd 設為 -1 的理由是什麼？
+3. Partial I/O 應如何處理？
+4. Poll 為什麼不能只看 ret > 0？
+5. Unit test pass 能否證明 kernel UAPI integration？
+
+<details>
+<summary>參考答案</summary>
+
+1. 複製只複製 descriptor number，沒有複製 ownership；兩份 handle 可能 double close。
+2. 即使 close 回錯，Linux 可能已釋放 descriptor；先 invalidate 避免危險重試或 double close。
+3. 保留實際 bytes 給 caller，或由明確 retry loop 完成；不能默認等於 request count。
+4. 還要檢查 revents 中的 POLLERR/POLLHUP/POLLNVAL 與實際 readiness bits。
+5. 不能；unit test 只覆蓋 userspace logic，需 current module 的 smoke/runtime evidence。
+
+</details>
+
+## 來源與查證
+
+- open/close/read/write/poll/mmap: <https://man7.org/linux/man-pages/>
+- Userspace API guidance: <https://docs.kernel.org/userspace-api/index.html>
+- Current source: `runtime/src/driver_lab_runtime.c`
