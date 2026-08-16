@@ -192,7 +192,8 @@ if ! grep -F "dma_mask=$EXPECTED_DMA_MASK" "$TRACE_LOG" |
     exit 1
 fi
 if [ "$DMA_ADDRESS_BITS" -eq 32 ]; then
-    if ! sed -n 's/.*dev_addr=\([0-9a-f][0-9a-f]*\) .*/\1/p' "$TRACE_LOG" |
+    if ! sed -n 's/.*streaming TX map established:.* dma=0x\([0-9a-f][0-9a-f]*\) bytes=.*/\1/p' "$DMESG_LOG" |
+        sed 's/^0*//' |
         awk 'BEGIN { ok = 0; limit = 268435455 }
              { val = 0
                for (i = 1; i <= length($0); i++) {
@@ -204,8 +205,8 @@ if [ "$DMA_ADDRESS_BITS" -eq 32 ]; then
                if (val > limit) ok = 1 }
              END { exit !ok }'; then
         printf '%s\n' \
-            'ERROR: 32-bit fixture did not observe a streaming DMA address above the default 28-bit aperture.' >&2
-        cat "$TRACE_LOG" >&2
+            'ERROR: 32-bit fixture did not observe a mapped bounce DMA address above the default 28-bit aperture.' >&2
+        cat "$DMESG_LOG" >&2
         exit 1
     fi
 fi
