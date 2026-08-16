@@ -60,6 +60,8 @@ define invariant and ownership
 
 - `stress-03-parallel.sh`：Lab03 parallel userspace workload。
 - `stress-03-reload.sh`：repeated module ownership/load/unload。
+- `dmesg-gate.sh`：在 stress/reload 前後切出 kernel log window，把非預期
+  warning/sanitizer/DMA-API 訊息變成 fail。
 - `test.sh`：目前 scaffold 的入口與 expected exit handling。
 - 各 Lab `test.sh`：應作為後續 fault cases 的最小 oracle。
 

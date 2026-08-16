@@ -31,6 +31,7 @@ lspci -Dnn | grep 1234:11e8
 | `SSH_PORT` | `2222` | Host forwarded TCP port |
 | `MEMORY_MB` | `2048` | Guest RAM MiB |
 | `SMP_CPUS` | `2` | Guest vCPU count |
+| `EDU_DMA_ADDRESS_BITS` | 空（EDU 預設） | `28` 或 `32`：替換單一 EDU 的 DMA aperture |
 
 Script會驗：
 
@@ -129,6 +130,13 @@ Script固定加入：
 - `-nographic`把console放在terminal。
 
 若host port已被占用，QEMU會啟動失敗；換`SSH_PORT`。
+
+### `EDU_DMA_ADDRESS_BITS`
+
+預設 `-device edu` 是 28-bit aperture；`EDU_DMA_ADDRESS_BITS=32` 會改為
+`-device edu,dma_mask=0xffffffff`，只給 Lab07 的 opt-in forced-SWIOTLB fixture 使用。
+它替換而非新增 EDU，guest 內必須只有一顆 `1234:11e8`；`test-swiotlb.sh` 會驗證
+module 參數與 trace 的 `dma_mask` 一致。
 
 ## `QEMU_EXTRA_ARGS`
 

@@ -44,8 +44,8 @@ DMA use-after-free與任意資料毀損。Current source在無法證明quiesce�
 - **已對照 Current source**：`driver_lab_edu_dma.c` 使用28-bit mask、單一coherent allocation切TX/RX、
   late BME、兩方向transfer、IRQ + command-clear、`dma_rmb()`與fail-safe quiesce。
 - **Compile/static 狀態**：audit branch有external-module compile與script gate。
-- **待 runtime / fault-injection 驗證**：需在指定QEMU EDU guest實跑success、IRQ timeout、command timeout、
-  reset success/failure、IOMMU/SWIOTLB、repeated load/unload、KASAN/lockdep。
+- **已於 2026-08-16 runtime 驗證**：Lab05–07 smoke 與 forced-SWIOTLB streaming 已在隔離 QEMU EDU guest 實跑；
+  IRQ/command timeout、reset failure、repeated load/unload、KASAN/lockdep 與 fault injection 仍待補。
 - **Device-specific**：EDU 28-bit mask、local RAM offset、command/status/IRQ bits與reset behavior不代表真實硬體。
 - **Endianness boundary**：Current target是x86_64 little-endian guest；跨endian target需重新核對QEMU EDU model與accessor。
 
@@ -468,6 +468,27 @@ device removed
 - hot-unplug/AER/PM；
 - deterministic timeout/reset failure；
 - real hardware firmware/PHY/performance；
+
+### 選用：forced-SWIOTLB streaming probe（`test-swiotlb.sh`）
+
+`test.sh` 只走 coherent allocation 路徑。`test-swiotlb.sh` 是預設不跑的
+streaming TX 驗證：在獨立、無 IOMMU、`swiotlb=force` 的 guest 中，以
+`dma_map_single()` 映射整頁、由 EDU 搬前 256 bytes、unmap 後再讀回比較，並要求
+kernel 的 `swiotlb_bounced` trace 顯示 `FORCE`。
+
+```sh
+cd labs/07-pci-edu-dma
+./test-swiotlb.sh                    # 預設 28-bit EDU（guest RAM <= 256 MiB）
+EDU_DMA_ADDRESS_BITS=32 ./test-swiotlb.sh   # 32-bit 專用 fixture
+```
+
+- module parameter `dma_address_bits` 只接受 28（預設）或 32；32 必須搭配 host
+  launcher 的 `EDU_DMA_ADDRESS_BITS=32`（`-device edu,dma_mask=0xffffffff`）。
+- boot log 檢查相容兩種訊息：舊 `PCI-DMA: Using software bounce buffering for IO (SWIOTLB)`
+  與 kernel 6.8+ 的 `software IO TLB: `。
+- `swiotlb_bounced` 的 `dev_addr` 是 bounce 前的原始位址；要看 bounce 後實際
+  mapped address，以 driver log 的 `streaming TX map established: ... dma=0x...` 為準。
+- 256 MiB guest 編譯 module 若 OOM，先在 guest 建 1 GiB swapfile；不改變 fixture 語意。
 - 所有architecture/QEMU version。
 
 ## Debug order
