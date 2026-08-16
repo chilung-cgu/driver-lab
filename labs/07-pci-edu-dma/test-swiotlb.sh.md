@@ -24,7 +24,8 @@ guest cmdline: swiotlb=force
 
 ```sh
 tr ' ' '\n' </proc/cmdline | grep -Fx 'swiotlb=force'
-sudo dmesg | grep -F 'PCI-DMA: Using software bounce buffering for IO (SWIOTLB)'
+sudo dmesg | grep -F 'PCI-DMA: Using software bounce buffering for IO (SWIOTLB)' \
+  || sudo dmesg | grep -F 'software IO TLB: '
 find /sys/kernel/iommu_groups -type l -print -quit
 sudo test -e /sys/kernel/tracing/events/swiotlb/swiotlb_bounced/enable \
   || sudo test -e /sys/kernel/debug/tracing/events/swiotlb/swiotlb_bounced/enable

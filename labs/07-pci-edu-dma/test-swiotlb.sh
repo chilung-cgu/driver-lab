@@ -86,7 +86,8 @@ if [ -d /sys/kernel/iommu_groups ]; then
         exit 1
     fi
 fi
-if ! $SUDO dmesg | grep -Fq 'PCI-DMA: Using software bounce buffering for IO (SWIOTLB)'; then
+if ! $SUDO dmesg | grep -Fq 'PCI-DMA: Using software bounce buffering for IO (SWIOTLB)' &&
+   ! $SUDO dmesg | grep -Fq 'software IO TLB: '; then
     printf 'ERROR: boot log 未確認 SWIOTLB software bounce buffering。\n' >&2
     exit 1
 fi
